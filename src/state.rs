@@ -35,6 +35,7 @@ use smithay::{
         },
     },
     utils::{
+        Buffer,
         Logical,
         Point,
     },
@@ -60,6 +61,7 @@ use smithay::{
 use crate::{
     OxmonadData,
     layout::ResizableTall,
+    screencopy::ScreencopyState,
 };
 
 #[expect(
@@ -86,11 +88,14 @@ pub struct Oxmonad {
     pub layer_shell_state: WlrLayerShellState,
     pub shm_state: ShmState,
     pub output_manager_state: OutputManagerState,
+    pub screencopy_state: ScreencopyState,
     pub seat_state: SeatState<Oxmonad>,
     pub data_device_state: DataDeviceState,
     pub popups: PopupManager,
 
     pub seat: Seat<Self>,
+
+    pub last_frame: Option<RenderedFrame>,
 }
 
 impl Oxmonad {
@@ -105,6 +110,7 @@ impl Oxmonad {
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
+        let screencopy_state = ScreencopyState::new::<Self>(&dh);
         let mut seat_state = SeatState::new();
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let popups = PopupManager::default();
@@ -153,10 +159,13 @@ impl Oxmonad {
             layer_shell_state,
             shm_state,
             output_manager_state,
+            screencopy_state,
             seat_state,
             data_device_state,
             popups,
             seat,
+
+            last_frame: None,
         }
     }
 
@@ -227,6 +236,13 @@ impl Oxmonad {
                     .map(|(s, p)| (s, (p + location).to_f64()))
             })
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct RenderedFrame {
+    pub size: smithay::utils::Size<i32, Buffer>,
+    pub stride: usize,
+    pub pixels: Vec<u8>,
 }
 
 #[derive(Default)]

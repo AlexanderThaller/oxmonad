@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use smithay::{
     backend::{
+        allocator::Fourcc,
         renderer::{
+            ExportMem,
+            RendererSuper,
             damage::OutputDamageTracker,
             element::solid::SolidColorRenderElement,
             gles::GlesRenderer,
@@ -20,7 +23,10 @@ use smithay::{
     },
     reexports::calloop::EventLoop,
     utils::{
+        Buffer,
+        Physical,
         Rectangle,
+        Size,
         Transform,
     },
 };
@@ -28,6 +34,7 @@ use smithay::{
 use crate::{
     Oxmonad,
     OxmonadData,
+    state::RenderedFrame,
 };
 
 pub fn init_winit(
@@ -125,6 +132,8 @@ pub fn init_winit(
                             [0.1, 0.1, 0.1, 1.0],
                         )
                         .unwrap();
+
+                        state.last_frame = capture_last_frame(renderer, &framebuffer, size);
                     }
                     backend.submit(Some(&[damage])).unwrap();
 
@@ -152,4 +161,23 @@ pub fn init_winit(
         })?;
 
     Ok(())
+}
+
+fn capture_last_frame(
+    renderer: &mut GlesRenderer,
+    framebuffer: &<GlesRenderer as RendererSuper>::Framebuffer<'_>,
+    size: Size<i32, Physical>,
+) -> Option<RenderedFrame> {
+    let buffer_size = Size::<i32, Buffer>::from((size.w, size.h));
+    let region = Rectangle::from_size(buffer_size);
+    let mapping = renderer
+        .copy_framebuffer(framebuffer, region, Fourcc::Argb8888)
+        .ok()?;
+    let bytes = renderer.map_texture(&mapping).ok()?;
+
+    Some(RenderedFrame {
+        size: buffer_size,
+        stride: usize::try_from(buffer_size.w).ok()? * 4,
+        pixels: bytes.to_vec(),
+    })
 }

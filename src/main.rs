@@ -15,6 +15,7 @@ mod handlers;
 mod input;
 mod keybindings;
 mod layout;
+mod screencopy;
 #[cfg(test)]
 mod snapshot;
 mod state;
