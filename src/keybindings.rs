@@ -16,6 +16,7 @@ use crate::{
         self,
         META,
     },
+    process,
 };
 
 /// An action triggered by a keybinding.
@@ -89,8 +90,8 @@ impl Oxmonad {
     )]
     pub fn handle_keybinding(&mut self, action: Action) {
         match action {
-            Action::SpawnTerminal => spawn(config::TERMINAL),
-            Action::SpawnLauncher => spawn_shell(config::LAUNCHER),
+            Action::SpawnTerminal => process::spawn(config::TERMINAL),
+            Action::SpawnLauncher => process::spawn_shell(config::LAUNCHER, "launcher"),
             Action::SwapMaster => self.swap_master(),
             Action::FocusNext => self.focus_next(),
             Action::FocusPrev => self.focus_prev(),
@@ -101,30 +102,6 @@ impl Oxmonad {
             Action::ShrinkMaster => self.shrink_master_area(),
             Action::ExpandMaster => self.expand_master_area(),
         }
-    }
-}
-
-/// Spawns `command` as a detached child process.
-///
-/// The child inherits `WAYLAND_DISPLAY` from our environment (set during
-/// startup), so it connects back to this compositor.
-fn spawn(command: &str) {
-    if let Err(err) = std::process::Command::new(command).spawn() {
-        tracing::warn!(%command, %err, "failed to spawn command");
-    }
-}
-
-/// Runs `command` through `sh -c` as a detached child.
-///
-/// Used for launcher pipelines (e.g. `tofi-run | xargs ...`) that need shell
-/// features such as pipes. The shell inherits `WAYLAND_DISPLAY`.
-fn spawn_shell(command: &str) {
-    if let Err(err) = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(command)
-        .spawn()
-    {
-        tracing::warn!(%command, %err, "failed to spawn launcher");
     }
 }
 

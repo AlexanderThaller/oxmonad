@@ -15,6 +15,7 @@ mod handlers;
 mod input;
 mod keybindings;
 mod layout;
+mod process;
 mod screencopy;
 #[cfg(test)]
 mod snapshot;
@@ -60,8 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     crate::winit::init_winit(&mut event_loop, &mut data)?;
 
-    // No client is spawned on startup; launch a terminal with META+Shift+Enter
-    // (see `keybindings`).
+    crate::process::spawn_shell(crate::config::WAYBAR, "status bar");
 
     event_loop.run(None, &mut data, move |_| {
         // oxmonad is running
