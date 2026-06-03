@@ -159,14 +159,8 @@ impl Oxmonad {
             .cloned()
             .zip(tiles)
             .map(|(window, tile)| {
-                // Inset the window by the border width; the border ring is drawn
-                // in the gap around it.
-                let loc = Point::from((tile.loc.x + border, tile.loc.y + border));
-                let size = Size::from((
-                    (tile.size.w - 2 * border).max(1),
-                    (tile.size.h - 2 * border).max(1),
-                ));
-                (window, loc, size)
+                let geometry = window_geometry(tile, border);
+                (window, geometry.loc, geometry.size)
             })
             .collect();
 
@@ -290,6 +284,18 @@ impl Oxmonad {
     }
 }
 
+/// Insets a tile by `border` on every side to get the window's content
+/// geometry; the border ring is drawn in the gap around it.
+fn window_geometry(tile: Rectangle<i32, Logical>, border: i32) -> Rectangle<i32, Logical> {
+    Rectangle::new(
+        Point::from((tile.loc.x + border, tile.loc.y + border)),
+        Size::from((
+            (tile.size.w - 2 * border).max(1),
+            (tile.size.h - 2 * border).max(1),
+        )),
+    )
+}
+
 /// The four rectangles forming a border ring just outside `geometry`.
 fn border_ring(geometry: Rectangle<i32, Logical>, border: i32) -> [Rectangle<i32, Logical>; 4] {
     let Rectangle { loc, size } = geometry;
@@ -392,5 +398,52 @@ mod tests {
                 rect(0, 666, 1000, 334),
             ]
         );
+    }
+
+    /// Builds the render elements for a tiled layout of `n` mock windows with
+    /// window `focused` highlighted, reusing the real layout and border code.
+    fn tiled_layout_elements(
+        layout: ResizableTall,
+        n: usize,
+        focused: usize,
+        area: Rectangle<i32, Logical>,
+    ) -> Vec<SolidColorRenderElement> {
+        // Stand-in for real client content, so the snapshot stays deterministic.
+        const MOCK_WINDOW: Color32F = Color32F::new(0.15, 0.15, 0.18, 1.0);
+
+        let border = config::BORDER_WIDTH;
+        let mut elements = Vec::new();
+        for (i, tile) in layout.arrange(n, area).into_iter().enumerate() {
+            let geometry = window_geometry(tile, border);
+            let color = if i == focused {
+                config::BORDER_COLOR_FOCUSED
+            } else {
+                config::BORDER_COLOR_NORMAL
+            };
+            // Border ring first (drawn on top), then the mock window fill.
+            for ring in border_ring(geometry, border) {
+                elements.push(solid_element(ring, color, 1.0));
+            }
+            elements.push(solid_element(geometry, MOCK_WINDOW, 1.0));
+        }
+        elements
+    }
+
+    #[test]
+    fn snapshot_single_window() {
+        let elements = tiled_layout_elements(ResizableTall::default(), 1, 0, screen());
+        crate::snapshot::assert_snapshot("single_window", 1000, 1000, &elements);
+    }
+
+    #[test]
+    fn snapshot_two_windows_master_focused() {
+        let elements = tiled_layout_elements(ResizableTall::default(), 2, 0, screen());
+        crate::snapshot::assert_snapshot("two_windows_master_focused", 1000, 1000, &elements);
+    }
+
+    #[test]
+    fn snapshot_three_windows_stack_focused() {
+        let elements = tiled_layout_elements(ResizableTall::default(), 3, 1, screen());
+        crate::snapshot::assert_snapshot("three_windows_stack_focused", 1000, 1000, &elements);
     }
 }

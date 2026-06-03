@@ -15,6 +15,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bitflags = "2"
 
+[dev-dependencies]
+# Software renderer for headless snapshot tests (Cargo unifies this feature into
+# the smithay build for test/dev profiles only, so release binaries stay lean).
+smithay = { version = "0.7", default-features = false, features = ["renderer_pixman"] }
+# PNG encode/decode for golden-image comparison.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 [lints.rust]
 #missing-docs = "warn"
 missing-debug-implementations = "warn"

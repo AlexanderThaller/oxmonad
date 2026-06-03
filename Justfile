@@ -25,6 +25,14 @@ build:
 build-deploy:
     cargo build --profile deploy
 
+# Run the test suite (unit + golden-image snapshot tests).
+test:
+    cargo test
+
+# Regenerate the golden snapshot images, then review the PNG diff in git.
+update-snapshots:
+    UPDATE_SNAPSHOTS=1 cargo test
+
 # Type-check without producing a binary.
 check:
     cargo check
