@@ -13,6 +13,7 @@ mod bar;
 mod config;
 mod grabs;
 mod handlers;
+mod headless;
 mod input;
 mod keybindings;
 mod layout;
@@ -59,7 +60,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         display_handle,
     };
 
-    crate::winit::init_winit(&mut event_loop, &mut data)?;
+    if std::env::var_os("OXMONAD_BACKEND").as_deref() == Some(std::ffi::OsStr::new("headless")) {
+        crate::headless::init_headless(&mut event_loop, &mut data)?;
+    } else {
+        crate::winit::init_winit(&mut event_loop, &mut data)?;
+    }
 
     eprintln!(
         "OXMONAD_WAYLAND_DISPLAY={}",

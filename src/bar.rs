@@ -114,7 +114,7 @@ fn window_title(toplevel: &ToplevelSurface) -> Option<String> {
     })
 }
 
-pub(crate) fn draw_text(
+fn draw_text(
     elements: &mut Vec<SolidColorRenderElement>,
     loc: Point<i32, Logical>,
     max_width: i32,

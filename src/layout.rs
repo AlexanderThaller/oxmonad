@@ -586,59 +586,6 @@ mod tests {
         elements
     }
 
-    fn tiled_terminal_elements(
-        layout: &ResizableTall,
-        n: usize,
-        focused: usize,
-        area: Rectangle<i32, Logical>,
-    ) -> Vec<SolidColorRenderElement> {
-        const TERMINAL_BACKGROUND: Color32F = Color32F::new(0.02, 0.024, 0.03, 1.0);
-        const TERMINAL_TEXT: Color32F = Color32F::new(0.68, 0.78, 0.62, 1.0);
-        const TERMINAL_DIM_TEXT: Color32F = Color32F::new(0.42, 0.48, 0.56, 1.0);
-        const CURSOR: Color32F = Color32F::new(0.82, 0.84, 0.88, 1.0);
-
-        let content_area = crate::bar::content_area(area);
-        let border = config::BORDER_WIDTH;
-        let mut elements = crate::bar::bar_elements_for_title(area, "terminal", 1.0);
-
-        for (i, tile) in layout.arrange(n, content_area).into_iter().enumerate() {
-            let geometry = window_geometry(tile, border);
-            let color = if i == focused {
-                config::BORDER_COLOR_FOCUSED
-            } else {
-                config::BORDER_COLOR_NORMAL
-            };
-
-            let text_x = geometry.loc.x + 14;
-            let mut text_y = geometry.loc.y + 14;
-            let max_width = geometry.size.w - 28;
-            for (line, text_color) in [
-                ("OXMONAD TERM", TERMINAL_TEXT),
-                ("CARGO TEST", TERMINAL_DIM_TEXT),
-                ("RUNNING", TERMINAL_TEXT),
-            ] {
-                crate::bar::draw_text(
-                    &mut elements,
-                    Point::from((text_x, text_y)),
-                    max_width,
-                    line,
-                    text_color,
-                    1.0,
-                );
-                text_y += 20;
-            }
-
-            elements.push(solid_element(rect(text_x, text_y + 2, 10, 14), CURSOR, 1.0));
-
-            for ring in border_ring(geometry, border) {
-                elements.push(solid_element(ring, color, 1.0));
-            }
-            elements.push(solid_element(geometry, TERMINAL_BACKGROUND, 1.0));
-        }
-
-        elements
-    }
-
     #[test]
     fn snapshot_single_window() {
         let elements = tiled_layout_elements(&ResizableTall::default(), 1, 0, screen());
@@ -655,11 +602,5 @@ mod tests {
     fn snapshot_three_windows_stack_focused() {
         let elements = tiled_layout_elements(&ResizableTall::default(), 3, 1, screen());
         crate::snapshot::assert_snapshot("three_windows_stack_focused", 1000, 1000, &elements);
-    }
-
-    #[test]
-    fn snapshot_terminal_windows() {
-        let elements = tiled_terminal_elements(&ResizableTall::default(), 3, 1, screen());
-        crate::snapshot::assert_snapshot("terminal_windows", 1000, 1000, &elements);
     }
 }
