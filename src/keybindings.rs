@@ -23,6 +23,12 @@ use crate::{
 pub enum Action {
     /// Spawn the configured [terminal emulator](config::TERMINAL).
     SpawnTerminal,
+    /// Swap the focused window with the master window.
+    SwapMaster,
+    /// Focus the next window in tiling order.
+    FocusNext,
+    /// Focus the previous window in tiling order.
+    FocusPrev,
 }
 
 /// Resolves a key press to an [`Action`], if it matches a configured binding.
@@ -32,12 +38,20 @@ pub enum Action {
 /// here are recognised for now.
 #[must_use]
 pub fn action_for(modifiers: &ModifiersState, keysym: Keysym) -> Option<Action> {
-    // META + Shift + Return -> launch the terminal.
-    if META.is_active(modifiers) && modifiers.shift && keysym == Keysym::Return {
-        return Some(Action::SpawnTerminal);
+    if !META.is_active(modifiers) {
+        return None;
     }
 
-    None
+    match (modifiers.shift, keysym) {
+        // META + Shift + Return -> launch the terminal.
+        (true, Keysym::Return) => Some(Action::SpawnTerminal),
+        // META + Return -> promote the focused window to master.
+        (false, Keysym::Return) => Some(Action::SwapMaster),
+        // META + j / k -> move focus down / up the window stack.
+        (false, Keysym::j) => Some(Action::FocusNext),
+        (false, Keysym::k) => Some(Action::FocusPrev),
+        _ => None,
+    }
 }
 
 impl Oxmonad {
@@ -50,6 +64,9 @@ impl Oxmonad {
     pub fn handle_keybinding(&mut self, action: Action) {
         match action {
             Action::SpawnTerminal => spawn(config::TERMINAL),
+            Action::SwapMaster => self.swap_master(),
+            Action::FocusNext => self.focus_next(),
+            Action::FocusPrev => self.focus_prev(),
         }
     }
 }

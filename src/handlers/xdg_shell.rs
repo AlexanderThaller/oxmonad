@@ -57,7 +57,29 @@ impl XdgShellHandler for Oxmonad {
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         let window = Window::new_wayland_window(surface);
-        self.space.map_element(window, (0, 0), false);
+        // New windows become the master window, like xmonad's default insertion.
+        self.windows.insert(0, window.clone());
+        self.relayout();
+        self.focus_window(&window);
+    }
+
+    fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
+        if let Some(window) = self
+            .windows
+            .iter()
+            .find(|window| {
+                window.toplevel().map(ToplevelSurface::wl_surface) == Some(surface.wl_surface())
+            })
+            .cloned()
+        {
+            self.space.unmap_elem(&window);
+            self.windows.retain(|managed| *managed != window);
+        }
+
+        self.relayout();
+        if let Some(master) = self.windows.first().cloned() {
+            self.focus_window(&master);
+        }
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {

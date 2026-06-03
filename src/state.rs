@@ -51,7 +51,10 @@ use smithay::{
     },
 };
 
-use crate::OxmonadData;
+use crate::{
+    OxmonadData,
+    layout::ResizableTall,
+};
 
 #[expect(
     missing_debug_implementations,
@@ -64,6 +67,11 @@ pub struct Oxmonad {
 
     pub space: Space<Window>,
     pub loop_signal: LoopSignal,
+
+    /// Managed windows in tiling order; index 0 is the master window.
+    pub windows: Vec<Window>,
+    /// The active tiling layout.
+    pub layout: ResizableTall,
 
     // Smithay State
     pub compositor_state: CompositorState,
@@ -125,6 +133,9 @@ impl Oxmonad {
             space,
             loop_signal,
             socket_name,
+
+            windows: Vec::new(),
+            layout: ResizableTall::default(),
 
             compositor_state,
             xdg_shell_state,

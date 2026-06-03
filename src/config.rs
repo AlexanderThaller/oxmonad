@@ -4,7 +4,10 @@
 //! intended to be replaced by a proper runtime/user configuration mechanism
 //! later, but keeping it centralised makes the eventual migration easy.
 
-use smithay::input::keyboard::ModifiersState;
+use smithay::{
+    backend::renderer::Color32F,
+    input::keyboard::ModifiersState,
+};
 
 /// The primary modifier used by every oxmonad keybinding — xmonad's "mod key".
 ///
@@ -14,6 +17,16 @@ pub const META: Modifier = Modifier::Super;
 
 /// Terminal emulator launched by the spawn-terminal keybinding.
 pub const TERMINAL: &str = "alacritty";
+
+/// Width of the window border, in logical pixels.
+pub const BORDER_WIDTH: i32 = 1;
+
+/// Border color of unfocused windows — light grey (`#969694`).
+pub const BORDER_COLOR_NORMAL: Color32F = Color32F::new(0.588_235_3, 0.588_235_3, 0.580_392_2, 1.0);
+
+/// Border color of the focused window — red (`#C62828`).
+pub const BORDER_COLOR_FOCUSED: Color32F =
+    Color32F::new(0.776_470_6, 0.156_862_7, 0.156_862_7, 1.0);
 
 /// A logical modifier key that a keybinding can require.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

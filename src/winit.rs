@@ -4,7 +4,7 @@ use smithay::{
     backend::{
         renderer::{
             damage::OutputDamageTracker,
-            element::surface::WaylandSurfaceRenderElement,
+            element::solid::SolidColorRenderElement,
             gles::GlesRenderer,
         },
         winit::{
@@ -93,17 +93,24 @@ pub fn init_winit(
                         None,
                         None,
                     );
+                    // Re-tile to the new output size.
+                    state.relayout();
                 }
                 WinitEvent::Input(event) => state.process_input_event(event),
                 WinitEvent::Redraw => {
                     let size = backend.window_size();
                     let damage = Rectangle::from_size(size);
 
+                    // Window borders are drawn as solid-color elements on top of
+                    // the windows, in the inset gap around each tile.
+                    let scale = output.current_scale().fractional_scale();
+                    let borders = state.border_elements(scale);
+
                     {
                         let (renderer, mut framebuffer) = backend.bind().unwrap();
                         smithay::desktop::space::render_output::<
-                            _,
-                            WaylandSurfaceRenderElement<GlesRenderer>,
+                            GlesRenderer,
+                            SolidColorRenderElement,
                             _,
                             _,
                         >(
@@ -113,7 +120,7 @@ pub fn init_winit(
                             1.0,
                             0,
                             [&state.space],
-                            &[],
+                            &borders,
                             &mut damage_tracker,
                             [0.1, 0.1, 0.1, 1.0],
                         )
