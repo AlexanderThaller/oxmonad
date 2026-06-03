@@ -1,0 +1,70 @@
+  = Notes
+
+  Phase 1 (now, high value, no clients/GPU): Snapshot the tiler + borders.
+  - Take ResizableTall::arrange(n, area) (real layout code), draw each tile as a solid mock-window rect + the
+  real border_ring/border colors, render to a PixmanRenderer offscreen buffer, read back via
+  ExportMem::copy_framebuffer + map_texture, encode PNG with the image (https://docs.rs/image) crate, compare to
+  a committed golden.
+  - This catches regressions in layout geometry, border placement/color, and focus highlighting — exactly the
+  stuff we've been building — and is 100% deterministic.
+
+  Phase 2 (later): Implement wlr-screencopy for true end-to-end screenshots with real clients. Bonus: it's also a
+  user-facing feature (makes grim work against oxmonad). Use it for smoke-level "does a real session render"
+  checks, with generous tolerance, not strict goldens.
+
+  Workflow (weston/insta style):
+  - Goldens committed under tests/snapshots/*.png.
+  - UPDATE_SNAPSHOTS=1 cargo test regenerates them; review the diff in git like any other change.
+  - Compare with a small per-pixel tolerance (handles any sub-pixel rounding); on mismatch, write an *.actual.png
+  + a diff image next to the golden for inspection.
+
+  New deps: enable Smithay renderer_pixman; add image as a [dev-dependency] (PNG encode + pixel diff).
+
+  This mirrors niri (mock windows + real code) and weston (reference PNGs), adapted to our stack.
+
+
+
+
+● Done. Phase 1 visual regression testing is in place and committed.
+
+  What I built
+
+  A headless, deterministic golden-image snapshot harness — the investigation found this is the sweet spot,
+  combining two proven approaches:
+  - niri's trick: render the real layout + border code with mock windows (solid rectangles), no Wayland clients
+  needed.
+  - weston's approach: compare against committed reference PNGs.
+
+  How it works (src/snapshot.rs):
+  1. Renders solid-color elements with Smithay's software PixmanRenderer — no GPU, no display, identical output
+  everywhere → CI-safe and stable.
+  2. Reads pixels back via ExportMem::copy_framebuffer.
+  3. Encodes/compares against tests/snapshots/*.png with the image crate (small per-channel tolerance; writes
+  *.actual.png on mismatch).
+
+  Tests (src/layout.rs): snapshots for 1/2/3-window tiled layouts with focus, driven through the real arrange() +
+  border code. The 3-window golden I inspected renders correctly — master left, stack right, focused window
+  red-bordered.
+
+  Keeping it lean: renderer_pixman + image are dev-dependencies only, so release binaries don't link them.
+
+  Workflow: just test runs everything (8 tests pass); just update-snapshots regenerates goldens to review as a
+  PNG diff in git.
+
+  Key design decision
+
+  Only compositor-drawn output (borders, backgrounds, layout rectangles) is golden-tested — real client content
+  (terminal fonts, GPU output) is non-deterministic and would flake. True end-to-end screenshots with real
+  clients are Phase 2, via implementing wlr-screencopy (which doubles as a user-facing feature — makes grim work
+  against oxmonad).
+
+  Followed AGENTS.md (fmt, clippy clean, Conventional Commit) and saved the testing approach to memory so future
+  visual features get snapshots too.
+
+  Where to go next: the resize keybindings (the "Resizable" in ResizableTall), close-window/quit bindings, a
+  status bar (waybar — now possible via layer-shell), or Phase 2 wlr-screencopy. Your call.
+
+
+
+
+https://github.com/bokuweb/image-diff-rs
