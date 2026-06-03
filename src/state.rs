@@ -78,6 +78,9 @@ pub struct Oxmonad {
 
     /// Managed windows in tiling order; index 0 is the master window.
     pub windows: Vec<Window>,
+    /// The currently selected managed window, independent from temporary
+    /// keyboard focus held by layer-shell clients.
+    pub selected_window: Option<Window>,
     /// The active tiling layout.
     pub layout: ResizableTall,
 
@@ -151,6 +154,7 @@ impl Oxmonad {
             socket_name,
 
             windows: Vec::new(),
+            selected_window: None,
             layout: ResizableTall::default(),
 
             compositor_state,

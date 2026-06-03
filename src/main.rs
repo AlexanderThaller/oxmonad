@@ -9,6 +9,7 @@
 //! yet; this just gets a working compositor on screen that can host clients.
 #![allow(irrefutable_let_patterns)]
 
+mod bar;
 mod config;
 mod grabs;
 mod handlers;
@@ -60,8 +61,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     crate::winit::init_winit(&mut event_loop, &mut data)?;
-
-    crate::process::spawn_shell(crate::config::WAYBAR, "status bar");
 
     event_loop.run(None, &mut data, move |_| {
         // oxmonad is running

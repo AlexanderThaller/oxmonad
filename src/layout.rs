@@ -192,13 +192,20 @@ impl Oxmonad {
     /// Recomputes the layout and repositions/resizes every managed window.
     pub fn relayout(&mut self) {
         self.windows.retain(IsAlive::alive);
+        if self
+            .selected_window
+            .as_ref()
+            .is_some_and(|window| !window.alive())
+        {
+            self.selected_window = None;
+        }
 
         let Some(output) = self.space.outputs().next().cloned() else {
             return;
         };
-        // Tile within the area left after layer-shell exclusive zones (bars
-        // etc.); for an overlay launcher this is the whole output.
-        let area = layer_map_for_output(&output).non_exclusive_zone();
+        // Tile within the area left after the built-in bar and layer-shell
+        // exclusive zones. Overlay launchers keep the whole output available.
+        let area = crate::bar::content_area(layer_map_for_output(&output).non_exclusive_zone());
 
         let tiles = self.layout.arrange(self.windows.len(), area);
         let border = config::BORDER_WIDTH;
@@ -225,9 +232,18 @@ impl Oxmonad {
         }
     }
 
-    /// Returns the currently keyboard-focused managed window, if any.
+    /// Returns the currently selected managed window, if any.
     #[must_use]
     pub fn focused_window(&self) -> Option<Window> {
+        if let Some(window) = self
+            .selected_window
+            .as_ref()
+            .filter(|window| IsAlive::alive(*window))
+            .cloned()
+        {
+            return Some(window);
+        }
+
         let focus = self.seat.get_keyboard()?.current_focus()?;
         self.windows
             .iter()
@@ -241,6 +257,8 @@ impl Oxmonad {
 
     /// Gives keyboard focus to `window`, raising it and updating activation.
     pub fn focus_window(&mut self, window: &Window) {
+        self.selected_window = Some(window.clone());
+
         let serial = SERIAL_COUNTER.next_serial();
         if let Some(keyboard) = self.seat.get_keyboard() {
             let surface = window

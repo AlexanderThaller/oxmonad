@@ -109,10 +109,11 @@ pub fn init_winit(
                     let size = backend.window_size();
                     let damage = Rectangle::from_size(size);
 
-                    // Window borders are drawn as solid-color elements on top of
-                    // the windows, in the inset gap around each tile.
+                    // Compositor UI is drawn as solid-color elements on top of
+                    // the windows: the built-in bar plus window borders.
                     let scale = output.current_scale().fractional_scale();
-                    let borders = state.border_elements(scale);
+                    let mut overlays = state.bar_elements(&output, scale);
+                    overlays.extend(state.border_elements(scale));
 
                     {
                         let Ok((renderer, mut framebuffer)) = backend.bind() else {
@@ -133,7 +134,7 @@ pub fn init_winit(
                             1.0,
                             0,
                             [&state.space],
-                            &borders,
+                            &overlays,
                             &mut damage_tracker,
                             [0.1, 0.1, 0.1, 1.0],
                         ) {

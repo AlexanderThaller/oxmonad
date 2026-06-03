@@ -30,13 +30,15 @@ pub const TERMINAL: &str = "alacritty";
 /// `wlr-layer-shell` support.
 pub const LAUNCHER: &str = "tofi-run | xargs --no-run-if-empty setsid --fork";
 
-/// Status bar launched on startup.
-///
-/// Waybar is a Wayland layer-shell client, so it relies on oxmonad's
-/// `wlr-layer-shell` support. Change this constant to use another bar command,
-/// add Waybar arguments, or set it to an empty string to disable startup bar
-/// launching.
-pub const WAYBAR: &str = "waybar";
+/// Height of the built-in status bar, in logical pixels.
+pub const BAR_HEIGHT: i32 = 24;
+
+/// Background color of the built-in status bar.
+pub const BAR_BACKGROUND_COLOR: Color32F =
+    Color32F::new(0.062_745_1, 0.066_666_7, 0.078_431_375, 1.0);
+
+/// Text color of the built-in status bar.
+pub const BAR_TEXT_COLOR: Color32F = Color32F::new(0.827_451, 0.843_137_26, 0.878_431_4, 1.0);
 
 /// Width of the window border, in logical pixels.
 pub const BORDER_WIDTH: i32 = 1;
