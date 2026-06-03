@@ -57,31 +57,11 @@ impl Oxmonad {
             return Vec::new();
         };
 
-        let height = config::BAR_HEIGHT.clamp(0, output_geo.size.h);
-        if height == 0 {
-            return Vec::new();
-        }
-
-        let bar = Rectangle::new(output_geo.loc, Size::from((output_geo.size.w, height)));
-        let mut elements = Vec::new();
-
-        let title = self.focused_title().unwrap_or_default();
-        let y = output_geo.loc.y + (height - GLYPH_H * GLYPH_SCALE) / 2;
-        let max_width = output_geo.size.w - TEXT_X * 2;
-        draw_text(
-            &mut elements,
-            Point::from((output_geo.loc.x + TEXT_X, y)),
-            max_width,
-            &title,
-            config::BAR_TEXT_COLOR,
+        bar_elements_for_title(
+            output_geo,
+            self.focused_title().as_deref().unwrap_or_default(),
             scale,
-        );
-
-        // Smithay expects render elements in front-to-back order. Keep the
-        // text before the background so it is drawn on top.
-        elements.push(solid_element(bar, config::BAR_BACKGROUND_COLOR, scale));
-
-        elements
+        )
     }
 
     fn focused_title(&self) -> Option<String> {
@@ -89,6 +69,37 @@ impl Oxmonad {
         let toplevel = window.toplevel()?;
         window_title(toplevel)
     }
+}
+
+fn bar_elements_for_title(
+    output_geo: Rectangle<i32, Logical>,
+    title: &str,
+    scale: f64,
+) -> Vec<SolidColorRenderElement> {
+    let height = config::BAR_HEIGHT.clamp(0, output_geo.size.h);
+    if height == 0 {
+        return Vec::new();
+    }
+
+    let bar = Rectangle::new(output_geo.loc, Size::from((output_geo.size.w, height)));
+    let mut elements = Vec::new();
+
+    let y = output_geo.loc.y + (height - GLYPH_H * GLYPH_SCALE) / 2;
+    let max_width = output_geo.size.w - TEXT_X * 2;
+    draw_text(
+        &mut elements,
+        Point::from((output_geo.loc.x + TEXT_X, y)),
+        max_width,
+        title,
+        config::BAR_TEXT_COLOR,
+        scale,
+    );
+
+    // Smithay expects render elements in front-to-back order. Keep the
+    // text before the background so it is drawn on top.
+    elements.push(solid_element(bar, config::BAR_BACKGROUND_COLOR, scale));
+
+    elements
 }
 
 fn window_title(toplevel: &ToplevelSurface) -> Option<String> {
@@ -352,5 +363,12 @@ mod tests {
                 .geometry(1.0.into()),
             physical_rect(0, 0, 100, config::BAR_HEIGHT)
         );
+    }
+
+    #[test]
+    fn snapshot_bar_with_focused_title() {
+        let elements = bar_elements_for_title(rect(0, 0, 1000, 1000), "oxmonad-snapshot", 1.0);
+
+        crate::snapshot::assert_snapshot("built_in_bar_title", 1000, 1000, &elements);
     }
 }

@@ -1,9 +1,10 @@
-//! Headless golden-image snapshot testing.
+//! Headless golden-image snapshot rendering.
 //!
 //! Renders a set of solid-color render elements with Smithay's software
-//! ([`PixmanRenderer`]) backend — no GPU or display required, so it is fully
-//! deterministic and CI-friendly — reads the pixels back via [`ExportMem`], and
-//! compares them against a committed PNG under `tests/snapshots/`.
+//! ([`PixmanRenderer`]) backend - no GPU or display required, so it is fully
+//! deterministic and CI-friendly. Tests compare those pixels against committed
+//! PNGs under `tests/snapshots/`, and runtime screencopy uses the same renderer
+//! for compositor-drawn output.
 //!
 //! Run `UPDATE_SNAPSHOTS=1 cargo test` to (re)generate the golden images, then
 //! review the resulting PNG diff in git like any other change.

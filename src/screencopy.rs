@@ -1,8 +1,8 @@
 //! Minimal `wlr-screencopy` support.
 //!
 //! This advertises SHM screencopy frames so tools such as `grim` can capture
-//! the compositor output. Frame data is copied from the most recently rendered
-//! winit framebuffer.
+//! compositor-drawn output. Frame data is rendered through the same software
+//! path used by the snapshot tests.
 
 use std::sync::atomic::{
     AtomicBool,
