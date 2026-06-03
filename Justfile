@@ -33,6 +33,14 @@ test:
 update-snapshots:
     UPDATE_SNAPSHOTS=1 cargo test
 
+# Capture the real nested compositor output through wlr-screencopy/grim.
+real-snapshot:
+    sh scripts/capture-real-snapshot.sh
+
+# Update the committed real compositor snapshot.
+update-real-snapshot:
+    UPDATE_REAL_SNAPSHOTS=1 sh scripts/capture-real-snapshot.sh
+
 # Type-check without producing a binary.
 check:
     cargo check

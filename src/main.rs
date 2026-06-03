@@ -18,7 +18,6 @@ mod keybindings;
 mod layout;
 mod process;
 mod screencopy;
-#[cfg(test)]
 mod snapshot;
 mod state;
 mod winit;
@@ -61,6 +60,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     crate::winit::init_winit(&mut event_loop, &mut data)?;
+
+    eprintln!(
+        "OXMONAD_WAYLAND_DISPLAY={}",
+        data.state.socket_name.to_string_lossy()
+    );
 
     event_loop.run(None, &mut data, move |_| {
         // oxmonad is running

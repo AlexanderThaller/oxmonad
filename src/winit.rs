@@ -2,10 +2,7 @@ use std::time::Duration;
 
 use smithay::{
     backend::{
-        allocator::Fourcc,
         renderer::{
-            ExportMem,
-            RendererSuper,
             damage::OutputDamageTracker,
             element::solid::SolidColorRenderElement,
             gles::GlesRenderer,
@@ -23,10 +20,7 @@ use smithay::{
     },
     reexports::calloop::EventLoop,
     utils::{
-        Buffer,
-        Physical,
         Rectangle,
-        Size,
         Transform,
     },
 };
@@ -35,7 +29,6 @@ use crate::{
     Oxmonad,
     OxmonadData,
     screencopy,
-    state::RenderedFrame,
 };
 
 pub fn init_winit(
@@ -142,17 +135,13 @@ pub fn init_winit(
                             state.loop_signal.stop();
                             return;
                         }
-
-                        if !state.pending_screencopies.is_empty() {
-                            let frame = capture_last_frame(renderer, &framebuffer, size);
-                            screencopy::finish_pending_screencopies(state, frame.as_ref());
-                        }
                     }
                     if let Err(err) = backend.submit(Some(&[damage])) {
                         tracing::error!(%err, "failed to submit winit frame");
                         state.loop_signal.stop();
                         return;
                     }
+                    screencopy::finish_pending_screencopies_for_output(state, &output, scale);
 
                     state.space.elements().for_each(|window| {
                         window.send_frame(
@@ -178,23 +167,4 @@ pub fn init_winit(
         })?;
 
     Ok(())
-}
-
-fn capture_last_frame(
-    renderer: &mut GlesRenderer,
-    framebuffer: &<GlesRenderer as RendererSuper>::Framebuffer<'_>,
-    size: Size<i32, Physical>,
-) -> Option<RenderedFrame> {
-    let buffer_size = Size::<i32, Buffer>::from((size.w, size.h));
-    let region = Rectangle::from_size(buffer_size);
-    let mapping = renderer
-        .copy_framebuffer(framebuffer, region, Fourcc::Argb8888)
-        .ok()?;
-    let bytes = renderer.map_texture(&mapping).ok()?;
-
-    Some(RenderedFrame {
-        size: buffer_size,
-        stride: usize::try_from(buffer_size.w).ok()? * 4,
-        pixels: bytes.to_vec(),
-    })
 }

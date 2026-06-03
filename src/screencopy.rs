@@ -48,7 +48,10 @@ use wayland_protocols_wlr::screencopy::v1::server::{
     },
 };
 
-use crate::Oxmonad;
+use crate::{
+    Oxmonad,
+    snapshot,
+};
 
 const FORMAT: wl_shm::Format = wl_shm::Format::Argb8888;
 const BYTES_PER_PIXEL: usize = 4;
@@ -238,6 +241,31 @@ pub fn finish_pending_screencopies(
 
         finish_pending_screencopy(state.start_time.elapsed(), copy, rendered);
     }
+}
+
+pub fn finish_pending_screencopies_for_output(state: &mut Oxmonad, output: &Output, scale: f64) {
+    if state.pending_screencopies.is_empty() {
+        return;
+    }
+
+    let Some(mode) = output.current_mode() else {
+        finish_pending_screencopies(state, None);
+        return;
+    };
+
+    let mut elements = state.bar_elements(output, scale);
+    elements.extend(state.border_elements(scale));
+
+    let width = mode.size.w.max(0).cast_unsigned();
+    let height = mode.size.h.max(0).cast_unsigned();
+    let rendered = snapshot::render_to_frame_with_transform(
+        width,
+        height,
+        output.current_transform(),
+        &elements,
+    );
+
+    finish_pending_screencopies(state, Some(&rendered));
 }
 
 fn finish_pending_screencopy(

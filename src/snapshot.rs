@@ -33,18 +33,36 @@ use smithay::{
     },
 };
 
+use crate::state::RenderedFrame;
+
 /// Background color the renderer clears to (matches the compositor).
 const CLEAR_COLOR: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
 
 /// Per-channel tolerance when comparing against the golden image. Solid-color
 /// software rendering is deterministic, but this absorbs any off-by-one from
 /// differing libpixman versions without masking real (large) regressions.
+#[cfg(test)]
 const TOLERANCE: u8 = 4;
 
-/// Renders `elements` to a `width`x`height` buffer and returns RGBA8 pixels.
-fn render_to_rgba(width: u32, height: u32, elements: &[SolidColorRenderElement]) -> Vec<u8> {
-    let w = i32::try_from(width).unwrap();
-    let h = i32::try_from(height).unwrap();
+/// Renders `elements` to a `width`x`height` buffer and returns ARGB8888 pixels.
+#[cfg(test)]
+pub fn render_to_frame(
+    width: u32,
+    height: u32,
+    elements: &[SolidColorRenderElement],
+) -> RenderedFrame {
+    render_to_frame_with_transform(width, height, Transform::Normal, elements)
+}
+
+/// Renders `elements` with `transform` and returns ARGB8888 pixels.
+pub fn render_to_frame_with_transform(
+    width: u32,
+    height: u32,
+    transform: Transform,
+    elements: &[SolidColorRenderElement],
+) -> RenderedFrame {
+    let w = i32::try_from(width).expect("snapshot width fits i32");
+    let h = i32::try_from(height).expect("snapshot height fits i32");
 
     let mut renderer = PixmanRenderer::new().expect("create pixman renderer");
     let size = Size::<i32, BufferCoord>::from((w, h));
@@ -53,8 +71,7 @@ fn render_to_rgba(width: u32, height: u32, elements: &[SolidColorRenderElement])
         .expect("create offscreen buffer");
     let mut framebuffer = renderer.bind(&mut buffer).expect("bind offscreen buffer");
 
-    let mut damage =
-        OutputDamageTracker::new(Size::<i32, Physical>::from((w, h)), 1.0, Transform::Normal);
+    let mut damage = OutputDamageTracker::new(Size::<i32, Physical>::from((w, h)), 1.0, transform);
     damage
         .render_output(&mut renderer, &mut framebuffer, 0, elements, CLEAR_COLOR)
         .expect("render output");
@@ -65,10 +82,22 @@ fn render_to_rgba(width: u32, height: u32, elements: &[SolidColorRenderElement])
         .expect("copy framebuffer");
     let bytes = renderer.map_texture(&mapping).expect("map texture");
 
+    RenderedFrame {
+        size,
+        stride: usize::try_from(w).expect("positive width fits usize") * 4,
+        pixels: bytes.to_vec(),
+    }
+}
+
+/// Renders `elements` to a `width`x`height` buffer and returns RGBA8 pixels.
+#[cfg(test)]
+fn render_to_rgba(width: u32, height: u32, elements: &[SolidColorRenderElement]) -> Vec<u8> {
+    let frame = render_to_frame(width, height, elements);
+
     // Argb8888 is a little-endian 32-bit value, so the bytes are B, G, R, A;
     // swap to the R, G, B, A order the `image` crate expects.
-    let mut rgba = Vec::with_capacity(bytes.len());
-    for pixel in bytes.chunks_exact(4) {
+    let mut rgba = Vec::with_capacity(frame.pixels.len());
+    for pixel in frame.pixels.chunks_exact(4) {
         rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
     }
     rgba
@@ -79,6 +108,7 @@ fn render_to_rgba(width: u32, height: u32, elements: &[SolidColorRenderElement])
 /// With `UPDATE_SNAPSHOTS` set (or when the golden is missing) the golden is
 /// written instead. On mismatch an `<name>.actual.png` is written next to the
 /// golden for inspection.
+#[cfg(test)]
 pub fn assert_snapshot(name: &str, width: u32, height: u32, elements: &[SolidColorRenderElement]) {
     let rgba = render_to_rgba(width, height, elements);
     let actual = image::RgbaImage::from_raw(width, height, rgba).expect("build image from pixels");
