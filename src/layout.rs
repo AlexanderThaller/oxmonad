@@ -17,7 +17,10 @@ use smithay::{
             },
         },
     },
-    desktop::Window,
+    desktop::{
+        Window,
+        layer_map_for_output,
+    },
     utils::{
         IsAlive,
         Logical,
@@ -141,9 +144,9 @@ impl Oxmonad {
         let Some(output) = self.space.outputs().next().cloned() else {
             return;
         };
-        let Some(area) = self.space.output_geometry(&output) else {
-            return;
-        };
+        // Tile within the area left after layer-shell exclusive zones (bars
+        // etc.); for an overlay launcher this is the whole output.
+        let area = layer_map_for_output(&output).non_exclusive_zone();
 
         let tiles = self.layout.arrange(self.windows.len(), area);
         let border = config::BORDER_WIDTH;

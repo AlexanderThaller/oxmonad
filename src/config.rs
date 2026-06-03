@@ -18,6 +18,18 @@ pub const META: Modifier = Modifier::Super;
 /// Terminal emulator launched by the spawn-terminal keybinding.
 pub const TERMINAL: &str = "alacritty";
 
+/// Application launcher, run through `sh -c`.
+///
+/// `tofi-run` only *prints* the chosen command (dmenu_run-style, picking a
+/// binary from `$PATH`), so we pipe it through `xargs` to actually execute the
+/// selection, detached via `setsid` so it outlives the pipeline. This mirrors
+/// the Sway `tofi-run | xargs swaymsg exec --` recipe. Switch to
+/// `tofi-drun --drun-launch=true` to pick and launch `.desktop` apps instead.
+///
+/// tofi is a Wayland layer-shell client, so it relies on oxmonad's
+/// `wlr-layer-shell` support.
+pub const LAUNCHER: &str = "tofi-run | xargs --no-run-if-empty setsid --fork";
+
 /// Width of the window border, in logical pixels.
 pub const BORDER_WIDTH: i32 = 1;
 

@@ -23,6 +23,8 @@ use crate::{
 pub enum Action {
     /// Spawn the configured [terminal emulator](config::TERMINAL).
     SpawnTerminal,
+    /// Spawn the configured [application launcher](config::LAUNCHER).
+    SpawnLauncher,
     /// Swap the focused window with the master window.
     SwapMaster,
     /// Focus the next window in tiling order.
@@ -47,6 +49,8 @@ pub fn action_for(modifiers: &ModifiersState, keysym: Keysym) -> Option<Action> 
         (true, Keysym::Return) => Some(Action::SpawnTerminal),
         // META + Return -> promote the focused window to master.
         (false, Keysym::Return) => Some(Action::SwapMaster),
+        // META + p -> open the application launcher.
+        (false, Keysym::p) => Some(Action::SpawnLauncher),
         // META + j / k -> move focus down / up the window stack.
         (false, Keysym::j) => Some(Action::FocusNext),
         (false, Keysym::k) => Some(Action::FocusPrev),
@@ -64,6 +68,7 @@ impl Oxmonad {
     pub fn handle_keybinding(&mut self, action: Action) {
         match action {
             Action::SpawnTerminal => spawn(config::TERMINAL),
+            Action::SpawnLauncher => spawn_shell(config::LAUNCHER),
             Action::SwapMaster => self.swap_master(),
             Action::FocusNext => self.focus_next(),
             Action::FocusPrev => self.focus_prev(),
@@ -78,5 +83,19 @@ impl Oxmonad {
 fn spawn(command: &str) {
     if let Err(err) = std::process::Command::new(command).spawn() {
         tracing::warn!(%command, %err, "failed to spawn command");
+    }
+}
+
+/// Runs `command` through `sh -c` as a detached child.
+///
+/// Used for launcher pipelines (e.g. `tofi-run | xargs ...`) that need shell
+/// features such as pipes. The shell inherits `WAYLAND_DISPLAY`.
+fn spawn_shell(command: &str) {
+    if let Err(err) = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .spawn()
+    {
+        tracing::warn!(%command, %err, "failed to spawn launcher");
     }
 }

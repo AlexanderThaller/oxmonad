@@ -45,9 +45,12 @@ use smithay::{
         },
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
-        shell::xdg::{
-            XdgShellState,
-            decoration::XdgDecorationState,
+        shell::{
+            wlr_layer::WlrLayerShellState,
+            xdg::{
+                XdgShellState,
+                decoration::XdgDecorationState,
+            },
         },
         shm::ShmState,
         socket::ListeningSocketSource,
@@ -80,6 +83,7 @@ pub struct Oxmonad {
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
     pub xdg_decoration_state: XdgDecorationState,
+    pub layer_shell_state: WlrLayerShellState,
     pub shm_state: ShmState,
     pub output_manager_state: OutputManagerState,
     pub seat_state: SeatState<Oxmonad>,
@@ -98,6 +102,7 @@ impl Oxmonad {
         let compositor_state = CompositorState::new::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
         let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
+        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let mut seat_state = SeatState::new();
@@ -145,6 +150,7 @@ impl Oxmonad {
             compositor_state,
             xdg_shell_state,
             xdg_decoration_state,
+            layer_shell_state,
             shm_state,
             output_manager_state,
             seat_state,

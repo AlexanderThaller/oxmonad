@@ -1,5 +1,6 @@
 mod compositor;
 mod decoration;
+mod layer_shell;
 mod xdg_shell;
 
 use smithay::{
