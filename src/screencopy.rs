@@ -80,6 +80,14 @@ pub struct ScreencopyFrame {
     copied: AtomicBool,
 }
 
+#[derive(Debug, Clone)]
+pub struct PendingScreencopy {
+    frame: ZwlrScreencopyFrameV1,
+    buffer: WlBuffer,
+    rect: Rectangle<i32, Buffer>,
+    report_damage: bool,
+}
+
 impl GlobalDispatch<ZwlrScreencopyManagerV1, ()> for Oxmonad {
     fn bind(
         _state: &mut Self,
@@ -204,30 +212,59 @@ fn copy_frame(
         return;
     }
 
-    let Some(rendered) = state.last_frame.as_ref() else {
-        frame.failed();
-        return;
-    };
-
     if data.rect.size.w <= 0 || data.rect.size.h <= 0 {
         frame.failed();
         return;
     }
 
-    match with_buffer_contents_mut(buffer, |ptr, len, metadata| {
-        copy_to_shm(ptr, len, metadata, rendered, data.rect)
+    state.pending_screencopies.push(PendingScreencopy {
+        frame: frame.clone(),
+        buffer: buffer.clone(),
+        rect: data.rect,
+        report_damage,
+    });
+}
+
+pub fn finish_pending_screencopies(
+    state: &mut Oxmonad,
+    rendered: Option<&crate::state::RenderedFrame>,
+) {
+    let pending = std::mem::take(&mut state.pending_screencopies);
+    for copy in pending {
+        let Some(rendered) = rendered else {
+            copy.frame.failed();
+            continue;
+        };
+
+        finish_pending_screencopy(state.start_time.elapsed(), copy, rendered);
+    }
+}
+
+fn finish_pending_screencopy(
+    elapsed: std::time::Duration,
+    copy: PendingScreencopy,
+    rendered: &crate::state::RenderedFrame,
+) {
+    let PendingScreencopy {
+        frame,
+        buffer,
+        rect,
+        report_damage,
+    } = copy;
+
+    match with_buffer_contents_mut(&buffer, |ptr, len, metadata| {
+        copy_to_shm(ptr, len, metadata, rendered, rect)
     }) {
         Ok(Ok(())) => {
             if report_damage {
                 frame.damage(
                     0,
                     0,
-                    data.rect.size.w.cast_unsigned(),
-                    data.rect.size.h.cast_unsigned(),
+                    rect.size.w.cast_unsigned(),
+                    rect.size.h.cast_unsigned(),
                 );
             }
             frame.flags(zwlr_screencopy_frame_v1::Flags::empty());
-            let elapsed = state.start_time.elapsed();
             let seconds = elapsed.as_secs();
             frame.ready(
                 u32::try_from(seconds >> 32).expect("high 32 bits fit in u32"),

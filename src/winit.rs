@@ -34,6 +34,7 @@ use smithay::{
 use crate::{
     Oxmonad,
     OxmonadData,
+    screencopy,
     state::RenderedFrame,
 };
 
@@ -114,8 +115,13 @@ pub fn init_winit(
                     let borders = state.border_elements(scale);
 
                     {
-                        let (renderer, mut framebuffer) = backend.bind().unwrap();
-                        smithay::desktop::space::render_output::<
+                        let Ok((renderer, mut framebuffer)) = backend.bind() else {
+                            tracing::error!("failed to bind winit renderer");
+                            state.loop_signal.stop();
+                            return;
+                        };
+
+                        if let Err(err) = smithay::desktop::space::render_output::<
                             GlesRenderer,
                             SolidColorRenderElement,
                             _,
@@ -130,12 +136,22 @@ pub fn init_winit(
                             &borders,
                             &mut damage_tracker,
                             [0.1, 0.1, 0.1, 1.0],
-                        )
-                        .unwrap();
+                        ) {
+                            tracing::error!(%err, "failed to render winit frame");
+                            state.loop_signal.stop();
+                            return;
+                        }
 
-                        state.last_frame = capture_last_frame(renderer, &framebuffer, size);
+                        if !state.pending_screencopies.is_empty() {
+                            let frame = capture_last_frame(renderer, &framebuffer, size);
+                            screencopy::finish_pending_screencopies(state, frame.as_ref());
+                        }
                     }
-                    backend.submit(Some(&[damage])).unwrap();
+                    if let Err(err) = backend.submit(Some(&[damage])) {
+                        tracing::error!(%err, "failed to submit winit frame");
+                        state.loop_signal.stop();
+                        return;
+                    }
 
                     state.space.elements().for_each(|window| {
                         window.send_frame(

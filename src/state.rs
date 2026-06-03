@@ -95,7 +95,7 @@ pub struct Oxmonad {
 
     pub seat: Seat<Self>,
 
-    pub last_frame: Option<RenderedFrame>,
+    pub pending_screencopies: Vec<crate::screencopy::PendingScreencopy>,
 }
 
 impl Oxmonad {
@@ -165,7 +165,7 @@ impl Oxmonad {
             popups,
             seat,
 
-            last_frame: None,
+            pending_screencopies: Vec::new(),
         }
     }
 

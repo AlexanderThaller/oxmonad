@@ -31,6 +31,10 @@ pub enum Action {
     FocusNext,
     /// Focus the previous window in tiling order.
     FocusPrev,
+    /// Ask the focused window to close.
+    CloseWindow,
+    /// Quit the compositor.
+    Quit,
 }
 
 /// Resolves a key press to an [`Action`], if it matches a configured binding.
@@ -47,6 +51,10 @@ pub fn action_for(modifiers: &ModifiersState, keysym: Keysym) -> Option<Action> 
     match (modifiers.shift, keysym) {
         // META + Shift + Return -> launch the terminal.
         (true, Keysym::Return) => Some(Action::SpawnTerminal),
+        // META + Shift + c -> close the focused window.
+        (true, Keysym::C | Keysym::c) => Some(Action::CloseWindow),
+        // META + Shift + q -> quit oxmonad.
+        (true, Keysym::Q | Keysym::q) => Some(Action::Quit),
         // META + Return -> promote the focused window to master.
         (false, Keysym::Return) => Some(Action::SwapMaster),
         // META + p -> open the application launcher.
@@ -72,6 +80,8 @@ impl Oxmonad {
             Action::SwapMaster => self.swap_master(),
             Action::FocusNext => self.focus_next(),
             Action::FocusPrev => self.focus_prev(),
+            Action::CloseWindow => self.close_focused_window(),
+            Action::Quit => self.loop_signal.stop(),
         }
     }
 }
@@ -97,5 +107,36 @@ fn spawn_shell(command: &str) {
         .spawn()
     {
         tracing::warn!(%command, %err, "failed to spawn launcher");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta_shift() -> ModifiersState {
+        ModifiersState {
+            logo: true,
+            shift: true,
+            ..ModifiersState::default()
+        }
+    }
+
+    #[test]
+    fn meta_shift_c_closes_window() {
+        assert_eq!(
+            action_for(&meta_shift(), Keysym::C),
+            Some(Action::CloseWindow)
+        );
+        assert_eq!(
+            action_for(&meta_shift(), Keysym::c),
+            Some(Action::CloseWindow)
+        );
+    }
+
+    #[test]
+    fn meta_shift_q_quits() {
+        assert_eq!(action_for(&meta_shift(), Keysym::Q), Some(Action::Quit));
+        assert_eq!(action_for(&meta_shift(), Keysym::q), Some(Action::Quit));
     }
 }

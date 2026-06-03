@@ -258,6 +258,16 @@ impl Oxmonad {
         self.focus_window(&master);
     }
 
+    /// Requests that the currently focused window closes.
+    pub fn close_focused_window(&self) {
+        let Some(window) = self.focused_window() else {
+            return;
+        };
+        if let Some(toplevel) = window.toplevel() {
+            toplevel.send_close();
+        }
+    }
+
     /// Builds the border render elements for every managed window.
     #[must_use]
     pub fn border_elements(&self, scale: f64) -> Vec<SolidColorRenderElement> {
