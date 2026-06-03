@@ -1,0 +1,37 @@
+[package]
+name = "oxmonad"
+version = "0.1.0"
+edition = "2024"
+description = "Xmonad inspired window manager written in rust and wayland only."
+license = "MIT"
+
+[dependencies]
+
+[lints.rust]
+#missing-docs = "warn"
+missing-debug-implementations = "warn"
+rust-2018-idioms = "warn"
+unsafe-code = "forbid"
+unused-lifetimes = "warn"
+
+[lints.clippy]
+allow-attributes = "warn"
+allow-attributes-without-reason = "warn"
+dbg-macro = "warn"
+pedantic = { level = "warn", priority = -1 }
+todo = "warn"
+unwrap-used = "warn"
+missing-panics-doc = "allow"
+missing-errors-doc = "allow"
+wildcard-enum-match-arm = "warn"
+disallowed-methods = "deny"
+
+[profile.deploy]
+codegen-units = 1
+debug = false
+incremental = false
+inherits = "release"
+lto = true
+opt-level = 3
+panic = "abort"
+strip = "symbols"
