@@ -1,5 +1,11 @@
 # AGENTS
 
+## Development
+
+- Rust project
+- Run cargo fmt after changes
+- Run cargo clippy after changes and fix issues
+
 ## Git Commit Messages
 
 ### Format
