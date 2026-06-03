@@ -7,6 +7,7 @@ use smithay::{
         Event,
         InputBackend,
         InputEvent,
+        KeyState,
         KeyboardKeyEvent,
         PointerAxisEvent,
         PointerButtonEvent,
@@ -23,7 +24,13 @@ use smithay::{
     utils::SERIAL_COUNTER,
 };
 
-use crate::state::Oxmonad;
+use crate::{
+    keybindings::{
+        self,
+        Action,
+    },
+    state::Oxmonad,
+};
 
 impl Oxmonad {
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
@@ -31,15 +38,31 @@ impl Oxmonad {
             InputEvent::Keyboard { event, .. } => {
                 let serial = SERIAL_COUNTER.next_serial();
                 let time = Event::time_msec(&event);
+                let key_state = event.state();
 
-                self.seat.get_keyboard().unwrap().input::<(), _>(
+                // `input` runs the filter for every key event. We intercept
+                // presses that match a keybinding (so they don't reach the
+                // focused client) and forward everything else.
+                let action = self.seat.get_keyboard().unwrap().input::<Action, _>(
                     self,
                     event.key_code(),
-                    event.state(),
+                    key_state,
                     serial,
                     time,
-                    |_, _, _| FilterResult::Forward,
+                    |_state, modifiers, handle| {
+                        if key_state == KeyState::Pressed
+                            && let Some(action) =
+                                keybindings::action_for(modifiers, handle.modified_sym())
+                        {
+                            return FilterResult::Intercept(action);
+                        }
+                        FilterResult::Forward
+                    },
                 );
+
+                if let Some(action) = action {
+                    self.handle_keybinding(action);
+                }
             }
             InputEvent::PointerMotion { .. } => {}
             InputEvent::PointerMotionAbsolute { event, .. } => {
@@ -98,7 +121,7 @@ impl Oxmonad {
                         });
                         keyboard.set_focus(self, Option::<WlSurface>::None, serial);
                     }
-                };
+                }
 
                 pointer.button(
                     self,

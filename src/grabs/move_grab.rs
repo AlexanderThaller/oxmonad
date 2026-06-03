@@ -83,7 +83,7 @@ impl PointerGrab<Oxmonad> for MoveSurfaceGrab {
         handle: &mut PointerInnerHandle<'_, Oxmonad>,
         details: AxisFrame,
     ) {
-        handle.axis(data, details)
+        handle.axis(data, details);
     }
 
     fn frame(&mut self, data: &mut Oxmonad, handle: &mut PointerInnerHandle<'_, Oxmonad>) {
@@ -96,7 +96,7 @@ impl PointerGrab<Oxmonad> for MoveSurfaceGrab {
         handle: &mut PointerInnerHandle<'_, Oxmonad>,
         event: &GestureSwipeBeginEvent,
     ) {
-        handle.gesture_swipe_begin(data, event)
+        handle.gesture_swipe_begin(data, event);
     }
 
     fn gesture_swipe_update(
@@ -105,7 +105,7 @@ impl PointerGrab<Oxmonad> for MoveSurfaceGrab {
         handle: &mut PointerInnerHandle<'_, Oxmonad>,
         event: &GestureSwipeUpdateEvent,
     ) {
-        handle.gesture_swipe_update(data, event)
+        handle.gesture_swipe_update(data, event);
     }
 
     fn gesture_swipe_end(
@@ -114,7 +114,7 @@ impl PointerGrab<Oxmonad> for MoveSurfaceGrab {
         handle: &mut PointerInnerHandle<'_, Oxmonad>,
         event: &GestureSwipeEndEvent,
     ) {
-        handle.gesture_swipe_end(data, event)
+        handle.gesture_swipe_end(data, event);
     }
 
     fn gesture_pinch_begin(
@@ -123,7 +123,7 @@ impl PointerGrab<Oxmonad> for MoveSurfaceGrab {
         handle: &mut PointerInnerHandle<'_, Oxmonad>,
         event: &GesturePinchBeginEvent,
     ) {
-        handle.gesture_pinch_begin(data, event)
+        handle.gesture_pinch_begin(data, event);
     }
 
     fn gesture_pinch_update(
@@ -132,7 +132,7 @@ impl PointerGrab<Oxmonad> for MoveSurfaceGrab {
         handle: &mut PointerInnerHandle<'_, Oxmonad>,
         event: &GesturePinchUpdateEvent,
     ) {
-        handle.gesture_pinch_update(data, event)
+        handle.gesture_pinch_update(data, event);
     }
 
     fn gesture_pinch_end(
@@ -141,7 +141,7 @@ impl PointerGrab<Oxmonad> for MoveSurfaceGrab {
         handle: &mut PointerInnerHandle<'_, Oxmonad>,
         event: &GesturePinchEndEvent,
     ) {
-        handle.gesture_pinch_end(data, event)
+        handle.gesture_pinch_end(data, event);
     }
 
     fn gesture_hold_begin(
@@ -150,7 +150,7 @@ impl PointerGrab<Oxmonad> for MoveSurfaceGrab {
         handle: &mut PointerInnerHandle<'_, Oxmonad>,
         event: &GestureHoldBeginEvent,
     ) {
-        handle.gesture_hold_begin(data, event)
+        handle.gesture_hold_begin(data, event);
     }
 
     fn gesture_hold_end(
@@ -159,7 +159,7 @@ impl PointerGrab<Oxmonad> for MoveSurfaceGrab {
         handle: &mut PointerInnerHandle<'_, Oxmonad>,
         event: &GestureHoldEndEvent,
     ) {
-        handle.gesture_hold_end(data, event)
+        handle.gesture_hold_end(data, event);
     }
 
     fn start_data(&self) -> &PointerGrabStartData<Oxmonad> {

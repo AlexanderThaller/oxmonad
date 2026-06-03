@@ -152,7 +152,7 @@ impl Oxmonad {
         let loop_handle = event_loop.handle();
 
         loop_handle
-            .insert_source(listening_socket, move |client_stream, _, state| {
+            .insert_source(listening_socket, move |client_stream, (), state| {
                 // Inside the callback, you should insert the client into the display.
                 //
                 // You may also associate some data with the client when inserting the
@@ -191,6 +191,7 @@ impl Oxmonad {
         socket_name
     }
 
+    #[must_use]
     pub fn surface_under(
         &self,
         pos: Point<f64, Logical>,

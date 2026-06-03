@@ -55,7 +55,7 @@ impl CompositorHandler for Oxmonad {
             {
                 window.on_commit();
             }
-        };
+        }
 
         xdg_shell::handle_commit(&mut self.popups, &self.space, surface);
         resize_grab::handle_commit(&mut self.space, surface);

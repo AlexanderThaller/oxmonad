@@ -9,9 +9,11 @@
 //! yet; this just gets a working compositor on screen that can host clients.
 #![allow(irrefutable_let_patterns)]
 
+mod config;
 mod grabs;
 mod handlers;
 mod input;
+mod keybindings;
 mod state;
 mod winit;
 
@@ -59,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arg = args.next();
 
     match (flag.as_deref(), arg) {
-        (Some("-c") | Some("--command"), Some(command)) => {
+        (Some("-c" | "--command"), Some(command)) => {
             std::process::Command::new(command).spawn().ok();
         }
         _ => {
