@@ -56,18 +56,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     crate::winit::init_winit(&mut event_loop, &mut data)?;
 
-    let mut args = std::env::args().skip(1);
-    let flag = args.next();
-    let arg = args.next();
-
-    match (flag.as_deref(), arg) {
-        (Some("-c" | "--command"), Some(command)) => {
-            std::process::Command::new(command).spawn().ok();
-        }
-        _ => {
-            std::process::Command::new("weston-terminal").spawn().ok();
-        }
-    }
+    // No client is spawned on startup; launch a terminal with META+Shift+Enter
+    // (see `keybindings`).
 
     event_loop.run(None, &mut data, move |_| {
         // oxmonad is running
