@@ -249,6 +249,11 @@ enum HeadlessAction {
     FocusNext,
     FocusPrev,
     SwapMaster,
+    ExpandMaster,
+    ShrinkMaster,
+    ExpandWindow,
+    ShrinkWindow,
+    CloseWindow,
 }
 
 impl HeadlessAction {
@@ -257,6 +262,11 @@ impl HeadlessAction {
             "focus-next" => Some(Self::FocusNext),
             "focus-prev" => Some(Self::FocusPrev),
             "swap-master" => Some(Self::SwapMaster),
+            "expand-master" => Some(Self::ExpandMaster),
+            "shrink-master" => Some(Self::ShrinkMaster),
+            "expand-window" => Some(Self::ExpandWindow),
+            "shrink-window" => Some(Self::ShrinkWindow),
+            "close-window" => Some(Self::CloseWindow),
             unknown if !unknown.is_empty() => {
                 tracing::warn!(%unknown, "ignoring unknown headless action");
                 None
@@ -270,6 +280,11 @@ impl HeadlessAction {
             Self::FocusNext => state.focus_next(),
             Self::FocusPrev => state.focus_prev(),
             Self::SwapMaster => state.swap_master(),
+            Self::ExpandMaster => state.expand_master_area(),
+            Self::ShrinkMaster => state.shrink_master_area(),
+            Self::ExpandWindow => state.expand_focused_window(),
+            Self::ShrinkWindow => state.shrink_focused_window(),
+            Self::CloseWindow => state.close_focused_window(),
         }
     }
 }

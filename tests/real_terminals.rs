@@ -43,6 +43,31 @@ fn snapshot_three_windows_stack_focused() {
     assert_real_terminal_snapshot("three_windows_stack_focused", 3, &["focus-next"]);
 }
 
+#[test]
+#[ignore = "launches real Alacritty clients against the headless compositor backend"]
+fn snapshot_two_windows_master_resized() {
+    // Widen the master column so the master/stack split shifts right.
+    assert_real_terminal_snapshot("two_windows_master_resized", 2, &["expand-master"]);
+}
+
+#[test]
+#[ignore = "launches real Alacritty clients against the headless compositor backend"]
+fn snapshot_three_windows_stack_resized() {
+    // Focus a stack window and grow its row so the stack split moves down.
+    assert_real_terminal_snapshot(
+        "three_windows_stack_resized",
+        3,
+        &["focus-next", "expand-window"],
+    );
+}
+
+#[test]
+#[ignore = "launches real Alacritty clients against the headless compositor backend"]
+fn snapshot_close_window() {
+    // Close the focused master of three windows; the remaining two retile.
+    assert_real_terminal_snapshot("close_window", 3, &["close-window"]);
+}
+
 fn assert_real_terminal_snapshot(name: &str, terminal_count: usize, actions: &[&str]) {
     require_command("alacritty");
 
