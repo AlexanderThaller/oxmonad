@@ -6,12 +6,23 @@ description = "Xmonad inspired window manager written in rust and wayland only."
 license = "MIT"
 
 [dependencies]
+smithay = { version = "0.7", default-features = false, features = [
+    "backend_winit",
+    "wayland_frontend",
+    "desktop",
+] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+bitflags = "2"
 
 [lints.rust]
 #missing-docs = "warn"
 missing-debug-implementations = "warn"
 rust-2018-idioms = "warn"
-unsafe-code = "forbid"
+# Smithay's client dispatch (`Display::dispatch_clients`) and `env::set_var`
+# (unsafe as of edition 2024) need a few `unsafe` blocks. We keep `deny` rather
+# than `forbid` so each use can be opted in with a documented
+# `#[expect(unsafe_code, reason = "...")]`.
+unsafe-code = "deny"
 unused-lifetimes = "warn"
 
 [lints.clippy]
