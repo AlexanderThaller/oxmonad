@@ -105,6 +105,7 @@ pub fn init_headless(
     )?;
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
     let mut frame_capture = FrameCapture::from_env();
+    let mut script = HeadlessScript::from_env();
     let mut rendered_frames = 0_u64;
 
     event_loop
@@ -113,6 +114,7 @@ pub fn init_headless(
             let display = &mut data.display_handle;
             let state = &mut data.state;
             rendered_frames = rendered_frames.saturating_add(1);
+            script.apply_if_ready(state);
 
             let scale = output.current_scale().fractional_scale();
             let mut overlays = state.bar_elements(&output, scale);
@@ -194,6 +196,82 @@ fn headless_size() -> Size<i32, Physical> {
         .unwrap_or(1000);
 
     Size::from((width, height))
+}
+
+#[derive(Debug)]
+struct HeadlessScript {
+    expected_windows: Option<usize>,
+    actions: Vec<HeadlessAction>,
+    applied: bool,
+}
+
+impl HeadlessScript {
+    fn from_env() -> Self {
+        let expected_windows = std::env::var("OXMONAD_HEADLESS_EXPECT_WINDOWS")
+            .ok()
+            .and_then(|value| value.parse().ok());
+        let actions = std::env::var("OXMONAD_HEADLESS_ACTIONS")
+            .map(|value| {
+                value
+                    .split(',')
+                    .filter_map(HeadlessAction::parse)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        Self {
+            expected_windows,
+            actions,
+            applied: false,
+        }
+    }
+
+    fn apply_if_ready(&mut self, state: &mut Oxmonad) {
+        if self.applied || self.actions.is_empty() {
+            return;
+        }
+
+        if let Some(expected_windows) = self.expected_windows
+            && state.windows.len() < expected_windows
+        {
+            return;
+        }
+
+        for action in &self.actions {
+            action.apply(state);
+        }
+        self.applied = true;
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum HeadlessAction {
+    FocusNext,
+    FocusPrev,
+    SwapMaster,
+}
+
+impl HeadlessAction {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "focus-next" => Some(Self::FocusNext),
+            "focus-prev" => Some(Self::FocusPrev),
+            "swap-master" => Some(Self::SwapMaster),
+            unknown if !unknown.is_empty() => {
+                tracing::warn!(%unknown, "ignoring unknown headless action");
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn apply(self, state: &mut Oxmonad) {
+        match self {
+            Self::FocusNext => state.focus_next(),
+            Self::FocusPrev => state.focus_prev(),
+            Self::SwapMaster => state.swap_master(),
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -27,13 +27,29 @@ const MAX_DIFFERING_PIXELS: usize = 4_000;
 
 #[test]
 #[ignore = "launches real Alacritty clients against the headless compositor backend"]
-fn real_alacritty_terminals_snapshot() {
+fn snapshot_single_window() {
+    assert_real_terminal_snapshot("single_window", 1, &[]);
+}
+
+#[test]
+#[ignore = "launches real Alacritty clients against the headless compositor backend"]
+fn snapshot_two_windows_master_focused() {
+    assert_real_terminal_snapshot("two_windows_master_focused", 2, &[]);
+}
+
+#[test]
+#[ignore = "launches real Alacritty clients against the headless compositor backend"]
+fn snapshot_three_windows_stack_focused() {
+    assert_real_terminal_snapshot("three_windows_stack_focused", 3, &["focus-next"]);
+}
+
+fn assert_real_terminal_snapshot(name: &str, terminal_count: usize, actions: &[&str]) {
     require_command("alacritty");
 
-    let paths = CapturePaths::new("real_alacritty_terminals");
-    let mut oxmonad = spawn_oxmonad(&paths.raw);
+    let paths = CapturePaths::new(name);
+    let mut oxmonad = spawn_oxmonad(&paths.raw, terminal_count, actions);
     let display = wait_for_wayland_display(&mut oxmonad);
-    let mut terminals = spawn_terminals(&display);
+    let mut terminals = spawn_terminals(&display, terminal_count);
 
     wait_for_exit(&mut oxmonad, Duration::from_secs(12));
     cleanup_children(&mut terminals);
@@ -57,7 +73,7 @@ fn real_alacritty_terminals_snapshot() {
     assert_eq!(
         (expected.width(), expected.height()),
         (actual.width(), actual.height()),
-        "real terminal snapshot dimensions differ from golden",
+        "{name}: real terminal snapshot dimensions differ from golden",
     );
 
     let differing = expected
@@ -75,7 +91,7 @@ fn real_alacritty_terminals_snapshot() {
     if differing > MAX_DIFFERING_PIXELS {
         actual.save(&paths.actual).expect("write actual image");
         panic!(
-            "real terminal snapshot differs in {differing} pixels; wrote {}",
+            "{name}: real terminal snapshot differs in {differing} pixels; wrote {}",
             paths.actual.display()
         );
     }
@@ -137,16 +153,25 @@ fn require_command(command: &str) {
     );
 }
 
-fn spawn_oxmonad(raw_capture: &Path) -> Child {
-    Command::new(env!("CARGO_BIN_EXE_oxmonad"))
+fn spawn_oxmonad(raw_capture: &Path, expected_windows: usize, actions: &[&str]) -> Child {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_oxmonad"));
+    command
         .env("RUST_LOG", "warn")
         .env("OXMONAD_BACKEND", "headless")
         .env("OXMONAD_CAPTURE_FRAME", raw_capture)
         .env("OXMONAD_CAPTURE_AFTER_FRAMES", "90")
+        .env(
+            "OXMONAD_HEADLESS_EXPECT_WINDOWS",
+            expected_windows.to_string(),
+        )
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn oxmonad")
+        .stderr(Stdio::piped());
+
+    if !actions.is_empty() {
+        command.env("OXMONAD_HEADLESS_ACTIONS", actions.join(","));
+    }
+
+    command.spawn().expect("spawn oxmonad")
 }
 
 fn wait_for_wayland_display(oxmonad: &mut Child) -> String {
@@ -168,8 +193,8 @@ fn wait_for_wayland_display(oxmonad: &mut Child) -> String {
         .expect("timed out waiting for oxmonad Wayland socket")
 }
 
-fn spawn_terminals(display: &str) -> Vec<Child> {
-    (1..=3)
+fn spawn_terminals(display: &str, count: usize) -> Vec<Child> {
+    (1..=count)
         .map(|index| {
             Command::new("alacritty")
                 .env("WAYLAND_DISPLAY", display)
