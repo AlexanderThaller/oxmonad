@@ -71,7 +71,7 @@ impl Oxmonad {
     }
 }
 
-fn bar_elements_for_title(
+pub(crate) fn bar_elements_for_title(
     output_geo: Rectangle<i32, Logical>,
     title: &str,
     scale: f64,

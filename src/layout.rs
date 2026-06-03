@@ -567,9 +567,10 @@ mod tests {
         // Stand-in for real client content, so the snapshot stays deterministic.
         const MOCK_WINDOW: Color32F = Color32F::new(0.15, 0.15, 0.18, 1.0);
 
+        let content_area = crate::bar::content_area(area);
         let border = config::BORDER_WIDTH;
-        let mut elements = Vec::new();
-        for (i, tile) in layout.arrange(n, area).into_iter().enumerate() {
+        let mut elements = crate::bar::bar_elements_for_title(area, "", 1.0);
+        for (i, tile) in layout.arrange(n, content_area).into_iter().enumerate() {
             let geometry = window_geometry(tile, border);
             let color = if i == focused {
                 config::BORDER_COLOR_FOCUSED
