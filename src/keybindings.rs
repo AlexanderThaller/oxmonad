@@ -35,6 +35,14 @@ pub enum Action {
     CloseWindow,
     /// Quit the compositor.
     Quit,
+    /// Expand the focused window vertically within its layout column.
+    ExpandFocused,
+    /// Shrink the focused window vertically within its layout column.
+    ShrinkFocused,
+    /// Make the master area narrower.
+    ShrinkMaster,
+    /// Make the master area wider.
+    ExpandMaster,
 }
 
 /// Resolves a key press to an [`Action`], if it matches a configured binding.
@@ -62,6 +70,12 @@ pub fn action_for(modifiers: &ModifiersState, keysym: Keysym) -> Option<Action> 
         // META + j / k -> move focus down / up the window stack.
         (false, Keysym::j) => Some(Action::FocusNext),
         (false, Keysym::k) => Some(Action::FocusPrev),
+        // META + h / l -> shrink / expand the master area (xmonad defaults).
+        (false, Keysym::h) => Some(Action::ShrinkMaster),
+        (false, Keysym::l) => Some(Action::ExpandMaster),
+        // META + Up / Down -> resize the focused tile vertically.
+        (false, Keysym::Up) => Some(Action::ExpandFocused),
+        (false, Keysym::Down) => Some(Action::ShrinkFocused),
         _ => None,
     }
 }
@@ -82,6 +96,10 @@ impl Oxmonad {
             Action::FocusPrev => self.focus_prev(),
             Action::CloseWindow => self.close_focused_window(),
             Action::Quit => self.loop_signal.stop(),
+            Action::ExpandFocused => self.expand_focused_window(),
+            Action::ShrinkFocused => self.shrink_focused_window(),
+            Action::ShrinkMaster => self.shrink_master_area(),
+            Action::ExpandMaster => self.expand_master_area(),
         }
     }
 }
@@ -122,6 +140,13 @@ mod tests {
         }
     }
 
+    fn meta() -> ModifiersState {
+        ModifiersState {
+            logo: true,
+            ..ModifiersState::default()
+        }
+    }
+
     #[test]
     fn meta_shift_c_closes_window() {
         assert_eq!(
@@ -138,5 +163,20 @@ mod tests {
     fn meta_shift_q_quits() {
         assert_eq!(action_for(&meta_shift(), Keysym::Q), Some(Action::Quit));
         assert_eq!(action_for(&meta_shift(), Keysym::q), Some(Action::Quit));
+    }
+
+    #[test]
+    fn meta_up_down_resize_focused_tile() {
+        assert_eq!(action_for(&meta(), Keysym::Up), Some(Action::ExpandFocused));
+        assert_eq!(
+            action_for(&meta(), Keysym::Down),
+            Some(Action::ShrinkFocused)
+        );
+    }
+
+    #[test]
+    fn meta_h_l_resize_master_area() {
+        assert_eq!(action_for(&meta(), Keysym::h), Some(Action::ShrinkMaster));
+        assert_eq!(action_for(&meta(), Keysym::l), Some(Action::ExpandMaster));
     }
 }
