@@ -14,6 +14,7 @@ use smithay::{
         Seat,
         SeatState,
         keyboard::XkbConfig,
+        pointer::CursorImageStatus,
     },
     reexports::{
         calloop::{
@@ -99,6 +100,11 @@ pub struct Oxmonad {
 
     pub seat: Seat<Self>,
 
+    /// What the cursor should currently look like, driven by client
+    /// `wl_pointer.set_cursor` requests. The TTY/DRM backend renders this; the
+    /// nested winit backend lets the host compositor draw the cursor instead.
+    pub cursor_status: CursorImageStatus,
+
     pub pending_screencopies: Vec<crate::screencopy::PendingScreencopy>,
 }
 
@@ -170,6 +176,8 @@ impl Oxmonad {
             data_device_state,
             popups,
             seat,
+
+            cursor_status: CursorImageStatus::default_named(),
 
             pending_screencopies: Vec::new(),
         }

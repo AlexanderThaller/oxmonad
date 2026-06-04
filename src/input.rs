@@ -11,6 +11,7 @@ use smithay::{
         KeyboardKeyEvent,
         PointerAxisEvent,
         PointerButtonEvent,
+        PointerMotionEvent,
     },
     input::{
         keyboard::FilterResult,
@@ -18,10 +19,15 @@ use smithay::{
             AxisFrame,
             ButtonEvent,
             MotionEvent,
+            RelativeMotionEvent,
         },
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::SERIAL_COUNTER,
+    utils::{
+        Logical,
+        Point,
+        SERIAL_COUNTER,
+    },
 };
 
 use crate::{
@@ -77,6 +83,39 @@ impl Oxmonad {
                 if let Some(action) = action {
                     self.handle_keybinding(action);
                 }
+            }
+            InputEvent::PointerMotion { event, .. } => {
+                let serial = SERIAL_COUNTER.next_serial();
+                let pointer = self
+                    .seat
+                    .get_pointer()
+                    .expect("the seat always has a pointer; one is added during startup");
+
+                // libinput (the TTY backend) reports relative deltas; accumulate
+                // them onto the current location and keep the cursor on-screen.
+                let location =
+                    self.clamp_pointer_location(pointer.current_location() + event.delta());
+                let under = self.surface_under(location);
+
+                pointer.motion(
+                    self,
+                    under.clone(),
+                    &MotionEvent {
+                        location,
+                        serial,
+                        time: event.time_msec(),
+                    },
+                );
+                pointer.relative_motion(
+                    self,
+                    under,
+                    &RelativeMotionEvent {
+                        delta: event.delta(),
+                        delta_unaccel: event.delta_unaccel(),
+                        utime: event.time(),
+                    },
+                );
+                pointer.frame(self);
             }
             InputEvent::PointerMotionAbsolute { event, .. } => {
                 let output = self
@@ -231,5 +270,38 @@ impl Oxmonad {
             }
             _ => {}
         }
+    }
+
+    /// Clamps a pointer position to the bounding box of all mapped outputs, so
+    /// relative motion can't drive the cursor off-screen.
+    fn clamp_pointer_location(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {
+        let mut bounds: Option<(f64, f64, f64, f64)> = None;
+        for output in self.space.outputs() {
+            let Some(geo) = self.space.output_geometry(output) else {
+                continue;
+            };
+            let min_x = f64::from(geo.loc.x);
+            let min_y = f64::from(geo.loc.y);
+            let max_x = f64::from(geo.loc.x + geo.size.w);
+            let max_y = f64::from(geo.loc.y + geo.size.h);
+            bounds = Some(match bounds {
+                Some((bmin_x, bmin_y, bmax_x, bmax_y)) => (
+                    bmin_x.min(min_x),
+                    bmin_y.min(min_y),
+                    bmax_x.max(max_x),
+                    bmax_y.max(max_y),
+                ),
+                None => (min_x, min_y, max_x, max_y),
+            });
+        }
+
+        let Some((min_x, min_y, max_x, max_y)) = bounds else {
+            return pos;
+        };
+        // Subtract one so the cursor stays within the last row/column of pixels.
+        Point::from((
+            pos.x.clamp(min_x, (max_x - 1.0).max(min_x)),
+            pos.y.clamp(min_y, (max_y - 1.0).max(min_y)),
+        ))
     }
 }

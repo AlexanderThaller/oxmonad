@@ -15,6 +15,7 @@
 
 mod bar;
 mod config;
+mod cursor;
 mod grabs;
 mod handlers;
 mod headless;

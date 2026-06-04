@@ -50,8 +50,12 @@ use smithay::{
         renderer::{
             element::{
                 AsRenderElements,
+                Kind,
                 solid::SolidColorRenderElement,
-                surface::WaylandSurfaceRenderElement,
+                surface::{
+                    WaylandSurfaceRenderElement,
+                    render_elements_from_surface_tree,
+                },
             },
             gles::GlesRenderer,
         },
@@ -65,6 +69,10 @@ use smithay::{
     desktop::{
         layer_map_for_output,
         space::SpaceRenderElements,
+    },
+    input::pointer::{
+        CursorImageStatus,
+        CursorImageSurfaceData,
     },
     output::{
         Mode,
@@ -93,10 +101,16 @@ use smithay::{
     },
     utils::{
         DeviceFd,
+        Logical,
+        Point,
+        Rectangle,
         Scale,
         Transform,
     },
-    wayland::shell::wlr_layer::Layer,
+    wayland::{
+        compositor::with_states,
+        shell::wlr_layer::Layer,
+    },
 };
 
 use crate::{
@@ -419,9 +433,26 @@ fn render_surface(state: &mut Oxmonad, renderer: &mut GlesRenderer, surface: &mu
             .space
             .render_elements_for_region(renderer, &output_geo, Scale::from(scale), 1.0);
 
+    // Software cursor, drawn on top of everything and only on the output it
+    // currently sits over. While hovering a window the client supplies its own
+    // cursor surface; otherwise we draw a fallback arrow.
+    let pointer_location = state
+        .seat
+        .get_pointer()
+        .map_or_else(Point::default, |pointer| pointer.current_location());
+    let (cursor_surface_elements, cursor_solids) =
+        cursor_elements(state, renderer, output_geo, pointer_location, scale);
+
     let mut elements: Vec<OxElement<'_, SolidColorRenderElement>> = Vec::with_capacity(
-        upper_layers.len() + overlays.len() + window_elements.len() + lower_layers.len(),
+        cursor_surface_elements.len()
+            + cursor_solids.len()
+            + upper_layers.len()
+            + overlays.len()
+            + window_elements.len()
+            + lower_layers.len(),
     );
+    elements.extend(cursor_surface_elements.into_iter().map(OxElement::Space));
+    elements.extend(cursor_solids.iter().map(OxElement::Custom));
     elements.extend(upper_layers.into_iter().map(OxElement::Space));
     elements.extend(overlays.iter().map(OxElement::Custom));
     elements.extend(
@@ -460,12 +491,62 @@ fn render_surface(state: &mut Oxmonad, renderer: &mut GlesRenderer, surface: &mu
     screencopy::finish_pending_screencopies_for_output(state, &output, scale);
 }
 
+/// Build the cursor render elements for the output covering `pointer_location`.
+///
+/// Returns the client cursor-surface elements (empty unless a client set a
+/// cursor surface) and the fallback arrow's solid-colour elements (empty unless
+/// we fall back). Both are empty when the pointer is on another output or the
+/// cursor is hidden.
+fn cursor_elements(
+    state: &Oxmonad,
+    renderer: &mut GlesRenderer,
+    output_geo: Rectangle<i32, Logical>,
+    pointer_location: Point<f64, Logical>,
+    scale: f64,
+) -> (LayerElements, Vec<SolidColorRenderElement>) {
+    if !output_geo.to_f64().contains(pointer_location) {
+        return (Vec::new(), Vec::new());
+    }
+
+    let local = pointer_location - output_geo.loc.to_f64();
+    match &state.cursor_status {
+        CursorImageStatus::Hidden => (Vec::new(), Vec::new()),
+        CursorImageStatus::Named(_) => (
+            Vec::new(),
+            crate::cursor::fallback_cursor(local.to_i32_round(), scale),
+        ),
+        CursorImageStatus::Surface(surface) => {
+            let hotspot = with_states(surface, |states| {
+                states
+                    .data_map
+                    .get::<CursorImageSurfaceData>()
+                    .map(|attrs| attrs.lock().expect("cursor image mutex poisoned").hotspot)
+                    .unwrap_or_default()
+            });
+            let position = (local - hotspot.to_f64()).to_physical_precise_round(scale);
+            let elements = render_elements_from_surface_tree(
+                renderer,
+                surface,
+                position,
+                Scale::from(scale),
+                1.0,
+                Kind::Cursor,
+            )
+            .into_iter()
+            .map(SpaceRenderElements::Surface)
+            .collect();
+            (elements, Vec::new())
+        }
+    }
+}
+
 /// Collect the layer-shell render elements for `output`, split by stacking
 /// order: the `Top`/`Overlay` surfaces (returned first) are drawn above the
 /// compositor UI, while `Bottom`/`Background` surfaces (returned second) are
 /// drawn below the windows. Mirrors Smithay's `space_render_elements`, which
 /// the winit backend gets for free via `render_output`.
-type LayerElements = Vec<SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>>;
+type LayerElements =
+    Vec<SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>>;
 
 fn layer_elements(
     renderer: &mut GlesRenderer,

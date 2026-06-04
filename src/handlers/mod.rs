@@ -48,8 +48,11 @@ impl SeatHandler for Oxmonad {
     fn cursor_image(
         &mut self,
         _seat: &Seat<Self>,
-        _image: smithay::input::pointer::CursorImageStatus,
+        image: smithay::input::pointer::CursorImageStatus,
     ) {
+        // Remember the client's requested cursor so the TTY/DRM backend can draw
+        // it. The nested winit backend ignores this and relies on the host.
+        self.cursor_status = image;
     }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
