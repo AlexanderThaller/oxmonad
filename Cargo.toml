@@ -11,6 +11,15 @@ smithay = { version = "0.7", default-features = false, features = [
     "wayland_frontend",
     "desktop",
     "renderer_pixman",
+    # TTY/DRM backend: drive the GPU directly so oxmonad can run on a bare VT
+    # without a host compositor (see `src/udev.rs`).
+    "backend_drm",
+    "backend_gbm",
+    "backend_egl",
+    "backend_libinput",
+    "backend_session_libseat",
+    "backend_udev",
+    "renderer_gl",
 ] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

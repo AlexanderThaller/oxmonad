@@ -21,6 +21,7 @@ mod process;
 mod screencopy;
 mod snapshot;
 mod state;
+mod udev;
 mod winit;
 
 use smithay::reexports::{
@@ -40,6 +41,45 @@ pub use state::Oxmonad;
 pub struct OxmonadData {
     state: Oxmonad,
     display_handle: DisplayHandle,
+    /// Backend state for the TTY/DRM backend. `None` for the winit and headless
+    /// backends, which keep their state inside their calloop closures. The DRM
+    /// backend has several event sources (session, libinput, udev, DRM page
+    /// flips) that all need shared access to the GPU state, so it lives here.
+    tty: Option<udev::TtyState>,
+}
+
+/// Which backend oxmonad should drive.
+enum Backend {
+    /// Render to the GPU on a bare VT (no host compositor), like weston/sway.
+    Tty,
+    /// Run nested as a window inside an existing X11/Wayland session.
+    Winit,
+    /// Offscreen rendering for snapshot/integration tests.
+    Headless,
+}
+
+impl Backend {
+    /// Pick a backend from `OXMONAD_BACKEND`, falling back to auto-detection.
+    ///
+    /// When unset, we run nested (winit) if a host display is available
+    /// (`WAYLAND_DISPLAY`/`DISPLAY` set), otherwise we assume a bare VT and use
+    /// the TTY/DRM backend.
+    fn from_env() -> Self {
+        match std::env::var("OXMONAD_BACKEND").as_deref() {
+            Ok("headless") => Self::Headless,
+            Ok("winit") => Self::Winit,
+            Ok("tty" | "drm" | "udev") => Self::Tty,
+            _ => {
+                let has_host_display = std::env::var_os("WAYLAND_DISPLAY").is_some()
+                    || std::env::var_os("DISPLAY").is_some();
+                if has_host_display {
+                    Self::Winit
+                } else {
+                    Self::Tty
+                }
+            }
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -58,12 +98,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut data = OxmonadData {
         state,
         display_handle,
+        tty: None,
     };
 
-    if std::env::var_os("OXMONAD_BACKEND").as_deref() == Some(std::ffi::OsStr::new("headless")) {
-        crate::headless::init_headless(&mut event_loop, &mut data)?;
-    } else {
-        crate::winit::init_winit(&mut event_loop, &mut data)?;
+    match Backend::from_env() {
+        Backend::Headless => crate::headless::init_headless(&mut event_loop, &mut data)?,
+        Backend::Winit => crate::winit::init_winit(&mut event_loop, &mut data)?,
+        Backend::Tty => crate::udev::init_tty(&mut event_loop, &mut data)?,
     }
 
     eprintln!(
