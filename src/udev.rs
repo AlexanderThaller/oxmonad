@@ -303,6 +303,10 @@ pub fn init_tty(
         std::env::set_var("WAYLAND_DISPLAY", &data.state.socket_name);
     }
 
+    // Publish our session environment so user services and portals can reach
+    // us. Safe here because the TTY backend means oxmonad *is* the session.
+    crate::process::import_environment();
+
     data.tty = Some(TtyState {
         session,
         drm,
