@@ -70,3 +70,10 @@ clients into it using the printed socket name, e.g.
 restores the session automatically.
 
 This backend is intentionally minimal: a single GPU, no monitor hotplug.
+
+### As a display-manager session (LightDM)
+
+To pick oxmonad from a login greeter, install the session wrapper and Wayland
+session entry under [`contrib/lightdm/`](contrib/lightdm/README.md). On a
+logind system this needs no extra seat setup — the display manager hands
+oxmonad an active seat.

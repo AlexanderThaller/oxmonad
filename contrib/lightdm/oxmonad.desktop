@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=oxmonad
+Comment=Xmonad-inspired Wayland compositor
+Exec=/usr/local/bin/oxmonad-session
+Type=Application
+DesktopNames=oxmonad
