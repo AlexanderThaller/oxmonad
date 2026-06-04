@@ -103,20 +103,31 @@ impl XdgShellHandler for Oxmonad {
     }
 
     fn move_request(&mut self, surface: ToplevelSurface, seat: wl_seat::WlSeat, serial: Serial) {
-        let seat = Seat::from_resource(&seat).unwrap();
+        let seat =
+            Seat::from_resource(&seat).expect("the seat resource belongs to this compositor");
 
         let wl_surface = surface.wl_surface();
 
         if let Some(start_data) = check_grab(&seat, wl_surface, serial) {
-            let pointer = seat.get_pointer().unwrap();
+            let pointer = seat
+                .get_pointer()
+                .expect("the seat always has a pointer; one is added during startup");
 
             let window = self
                 .space
                 .elements()
-                .find(|w| w.toplevel().unwrap().wl_surface() == wl_surface)
-                .unwrap()
+                .find(|w| {
+                    w.toplevel()
+                        .expect("managed windows are always wayland toplevels")
+                        .wl_surface()
+                        == wl_surface
+                })
+                .expect("the move request targets a managed window")
                 .clone();
-            let initial_window_location = self.space.element_location(&window).unwrap();
+            let initial_window_location = self
+                .space
+                .element_location(&window)
+                .expect("a managed window is always mapped");
 
             let grab = MoveSurfaceGrab {
                 start_data,
@@ -135,20 +146,31 @@ impl XdgShellHandler for Oxmonad {
         serial: Serial,
         edges: xdg_toplevel::ResizeEdge,
     ) {
-        let seat = Seat::from_resource(&seat).unwrap();
+        let seat =
+            Seat::from_resource(&seat).expect("the seat resource belongs to this compositor");
 
         let wl_surface = surface.wl_surface();
 
         if let Some(start_data) = check_grab(&seat, wl_surface, serial) {
-            let pointer = seat.get_pointer().unwrap();
+            let pointer = seat
+                .get_pointer()
+                .expect("the seat always has a pointer; one is added during startup");
 
             let window = self
                 .space
                 .elements()
-                .find(|w| w.toplevel().unwrap().wl_surface() == wl_surface)
-                .unwrap()
+                .find(|w| {
+                    w.toplevel()
+                        .expect("managed windows are always wayland toplevels")
+                        .wl_surface()
+                        == wl_surface
+                })
+                .expect("the resize request targets a managed window")
                 .clone();
-            let initial_window_location = self.space.element_location(&window).unwrap();
+            let initial_window_location = self
+                .space
+                .element_location(&window)
+                .expect("a managed window is always mapped");
             let initial_window_size = window.geometry().size;
 
             surface.with_pending_state(|state| {
@@ -204,21 +226,29 @@ pub fn handle_commit(popups: &mut PopupManager, space: &Space<Window>, surface: 
     // Handle toplevel commits.
     if let Some(window) = space
         .elements()
-        .find(|w| w.toplevel().unwrap().wl_surface() == surface)
+        .find(|w| {
+            w.toplevel()
+                .expect("managed windows are always wayland toplevels")
+                .wl_surface()
+                == surface
+        })
         .cloned()
     {
         let initial_configure_sent = with_states(surface, |states| {
             states
                 .data_map
                 .get::<XdgToplevelSurfaceData>()
-                .unwrap()
+                .expect("an xdg toplevel surface always has XdgToplevelSurfaceData")
                 .lock()
-                .unwrap()
+                .expect("xdg toplevel surface state mutex poisoned")
                 .initial_configure_sent
         });
 
         if !initial_configure_sent {
-            window.toplevel().unwrap().send_configure();
+            window
+                .toplevel()
+                .expect("managed windows are always wayland toplevels")
+                .send_configure();
         }
     }
 
@@ -243,17 +273,28 @@ impl Oxmonad {
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else {
             return;
         };
-        let Some(window) = self
-            .space
-            .elements()
-            .find(|w| w.toplevel().unwrap().wl_surface() == &root)
-        else {
+        let Some(window) = self.space.elements().find(|w| {
+            w.toplevel()
+                .expect("managed windows are always wayland toplevels")
+                .wl_surface()
+                == &root
+        }) else {
             return;
         };
 
-        let output = self.space.outputs().next().unwrap();
-        let output_geo = self.space.output_geometry(output).unwrap();
-        let window_geo = self.space.element_geometry(window).unwrap();
+        let output = self
+            .space
+            .outputs()
+            .next()
+            .expect("at least one output is always mapped");
+        let output_geo = self
+            .space
+            .output_geometry(output)
+            .expect("a mapped output always has geometry");
+        let window_geo = self
+            .space
+            .element_geometry(window)
+            .expect("a managed window is always mapped");
 
         // The target geometry for the positioner should be relative to its parent's
         // geometry, so we will compute that here.

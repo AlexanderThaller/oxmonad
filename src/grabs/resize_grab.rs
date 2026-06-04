@@ -59,7 +59,8 @@ bitflags::bitflags! {
 impl From<xdg_toplevel::ResizeEdge> for ResizeEdge {
     #[inline]
     fn from(x: xdg_toplevel::ResizeEdge) -> Self {
-        Self::from_bits(x as u32).unwrap()
+        Self::from_bits(x as u32)
+            .expect("every xdg_toplevel resize edge maps to a known ResizeEdge bit set")
     }
 }
 
@@ -82,12 +83,18 @@ impl ResizeSurfaceGrab {
     ) -> Self {
         let initial_rect = initial_window_rect;
 
-        ResizeSurfaceState::with(window.toplevel().unwrap().wl_surface(), |state| {
-            *state = ResizeSurfaceState::Resizing {
-                edges,
-                initial_rect,
-            };
-        });
+        ResizeSurfaceState::with(
+            window
+                .toplevel()
+                .expect("a resizable window is always a wayland toplevel")
+                .wl_surface(),
+            |state| {
+                *state = ResizeSurfaceState::Resizing {
+                    edges,
+                    initial_rect,
+                };
+            },
+        );
 
         Self {
             start_data,
@@ -120,7 +127,13 @@ impl PointerGrab<Oxmonad> for ResizeSurfaceGrab {
                 delta.x = -delta.x;
             }
 
-            new_window_width = (f64::from(self.initial_rect.size.w) + delta.x) as i32;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "Window dimensions are clamped to sane min/max bounds below, well within \
+                          i32 range."
+            )]
+            let width = (f64::from(self.initial_rect.size.w) + delta.x) as i32;
+            new_window_width = width;
         }
 
         if self.edges.intersects(ResizeEdge::TOP | ResizeEdge::BOTTOM) {
@@ -128,15 +141,26 @@ impl PointerGrab<Oxmonad> for ResizeSurfaceGrab {
                 delta.y = -delta.y;
             }
 
-            new_window_height = (f64::from(self.initial_rect.size.h) + delta.y) as i32;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "Window dimensions are clamped to sane min/max bounds below, well within \
+                          i32 range."
+            )]
+            let height = (f64::from(self.initial_rect.size.h) + delta.y) as i32;
+            new_window_height = height;
         }
 
-        let (min_size, max_size) =
-            compositor::with_states(self.window.toplevel().unwrap().wl_surface(), |states| {
+        let (min_size, max_size) = compositor::with_states(
+            self.window
+                .toplevel()
+                .expect("a resizable window is always a wayland toplevel")
+                .wl_surface(),
+            |states| {
                 let mut guard = states.cached_state.get::<SurfaceCachedState>();
                 let data = guard.current();
                 (data.min_size, data.max_size)
-            });
+            },
+        );
 
         let min_width = min_size.w.max(1);
         let min_height = min_size.h.max(1);
@@ -157,7 +181,10 @@ impl PointerGrab<Oxmonad> for ResizeSurfaceGrab {
             new_window_height.max(min_height).min(max_height),
         ));
 
-        let xdg = self.window.toplevel().unwrap();
+        let xdg = self
+            .window
+            .toplevel()
+            .expect("a resizable window is always a wayland toplevel");
         xdg.with_pending_state(|state| {
             state.states.set(xdg_toplevel::State::Resizing);
             state.size = Some(self.last_window_size);
@@ -182,17 +209,20 @@ impl PointerGrab<Oxmonad> for ResizeSurfaceGrab {
         handle: &mut PointerInnerHandle<'_, Oxmonad>,
         event: &ButtonEvent,
     ) {
-        handle.button(data, event);
-
         // The button is a button code as defined in the
         // Linux kernel's linux/input-event-codes.h header file, e.g. BTN_LEFT.
         const BTN_LEFT: u32 = 0x110;
+
+        handle.button(data, event);
 
         if !handle.current_pressed().contains(&BTN_LEFT) {
             // No more buttons are pressed, release the grab.
             handle.unset_grab(self, data, event.serial, event.time, true);
 
-            let xdg = self.window.toplevel().unwrap();
+            let xdg = self
+                .window
+                .toplevel()
+                .expect("a resizable window is always a wayland toplevel");
             xdg.with_pending_state(|state| {
                 state.states.unset(xdg_toplevel::State::Resizing);
                 state.size = Some(self.last_window_size);
@@ -329,7 +359,10 @@ impl ResizeSurfaceState {
     {
         compositor::with_states(surface, |states| {
             states.data_map.insert_if_missing(RefCell::<Self>::default);
-            let state = states.data_map.get::<RefCell<Self>>().unwrap();
+            let state = states
+                .data_map
+                .get::<RefCell<Self>>()
+                .expect("the resize state was just inserted with insert_if_missing");
 
             cb(&mut state.borrow_mut())
         })
@@ -359,7 +392,12 @@ impl ResizeSurfaceState {
 pub fn handle_commit(space: &mut Space<Window>, surface: &WlSurface) -> Option<()> {
     let window = space
         .elements()
-        .find(|w| w.toplevel().unwrap().wl_surface() == surface)
+        .find(|w| {
+            w.toplevel()
+                .expect("managed windows are always wayland toplevels")
+                .wl_surface()
+                == surface
+        })
         .cloned()?;
 
     let mut window_loc = space.element_location(&window)?;

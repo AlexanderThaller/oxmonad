@@ -33,6 +33,16 @@ use crate::{
 };
 
 impl Oxmonad {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "A single match dispatching every libinput/winit event kind; splitting it would \
+                  only scatter the per-event handling without making it clearer."
+    )]
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "InputEvent has a long tail of touch/tablet/gesture/switch variants this \
+                  compositor does not yet handle; they are all intentionally ignored."
+    )]
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
         match event {
             InputEvent::Keyboard { event, .. } => {
@@ -43,38 +53,51 @@ impl Oxmonad {
                 // `input` runs the filter for every key event. We intercept
                 // presses that match a keybinding (so they don't reach the
                 // focused client) and forward everything else.
-                let action = self.seat.get_keyboard().unwrap().input::<Action, _>(
-                    self,
-                    event.key_code(),
-                    key_state,
-                    serial,
-                    time,
-                    |_state, modifiers, handle| {
-                        if key_state == KeyState::Pressed
-                            && let Some(action) =
-                                keybindings::action_for(modifiers, handle.modified_sym())
-                        {
-                            return FilterResult::Intercept(action);
-                        }
-                        FilterResult::Forward
-                    },
-                );
+                let action = self
+                    .seat
+                    .get_keyboard()
+                    .expect("the seat always has a keyboard; one is added during startup")
+                    .input::<Action, _>(
+                        self,
+                        event.key_code(),
+                        key_state,
+                        serial,
+                        time,
+                        |_state, modifiers, handle| {
+                            if key_state == KeyState::Pressed
+                                && let Some(action) =
+                                    keybindings::action_for(modifiers, handle.modified_sym())
+                            {
+                                return FilterResult::Intercept(action);
+                            }
+                            FilterResult::Forward
+                        },
+                    );
 
                 if let Some(action) = action {
                     self.handle_keybinding(action);
                 }
             }
-            InputEvent::PointerMotion { .. } => {}
             InputEvent::PointerMotionAbsolute { event, .. } => {
-                let output = self.space.outputs().next().unwrap();
+                let output = self
+                    .space
+                    .outputs()
+                    .next()
+                    .expect("at least one output is always mapped");
 
-                let output_geo = self.space.output_geometry(output).unwrap();
+                let output_geo = self
+                    .space
+                    .output_geometry(output)
+                    .expect("a mapped output always has geometry");
 
                 let pos = event.position_transformed(output_geo.size) + output_geo.loc.to_f64();
 
                 let serial = SERIAL_COUNTER.next_serial();
 
-                let pointer = self.seat.get_pointer().unwrap();
+                let pointer = self
+                    .seat
+                    .get_pointer()
+                    .expect("the seat always has a pointer; one is added during startup");
 
                 let under = self.surface_under(pos);
 
@@ -90,8 +113,14 @@ impl Oxmonad {
                 pointer.frame(self);
             }
             InputEvent::PointerButton { event, .. } => {
-                let pointer = self.seat.get_pointer().unwrap();
-                let keyboard = self.seat.get_keyboard().unwrap();
+                let pointer = self
+                    .seat
+                    .get_pointer()
+                    .expect("the seat always has a pointer; one is added during startup");
+                let keyboard = self
+                    .seat
+                    .get_keyboard()
+                    .expect("the seat always has a keyboard; one is added during startup");
 
                 let serial = SERIAL_COUNTER.next_serial();
 
@@ -108,16 +137,28 @@ impl Oxmonad {
                         self.space.raise_element(&window, true);
                         keyboard.set_focus(
                             self,
-                            Some(window.toplevel().unwrap().wl_surface().clone()),
+                            Some(
+                                window
+                                    .toplevel()
+                                    .expect("managed windows are always wayland toplevels")
+                                    .wl_surface()
+                                    .clone(),
+                            ),
                             serial,
                         );
                         self.space.elements().for_each(|window| {
-                            window.toplevel().unwrap().send_pending_configure();
+                            window
+                                .toplevel()
+                                .expect("managed windows are always wayland toplevels")
+                                .send_pending_configure();
                         });
                     } else {
                         self.space.elements().for_each(|window| {
                             window.set_activated(false);
-                            window.toplevel().unwrap().send_pending_configure();
+                            window
+                                .toplevel()
+                                .expect("managed windows are always wayland toplevels")
+                                .send_pending_configure();
                         });
                         keyboard.set_focus(self, Option::<WlSurface>::None, serial);
                     }
@@ -150,13 +191,25 @@ impl Oxmonad {
                 if horizontal_amount != 0.0 {
                     frame = frame.value(Axis::Horizontal, horizontal_amount);
                     if let Some(discrete) = horizontal_amount_discrete {
-                        frame = frame.v120(Axis::Horizontal, discrete as i32);
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "v120 scroll steps are small integer multiples of 120 that \
+                                      always fit in an i32."
+                        )]
+                        let discrete = discrete as i32;
+                        frame = frame.v120(Axis::Horizontal, discrete);
                     }
                 }
                 if vertical_amount != 0.0 {
                     frame = frame.value(Axis::Vertical, vertical_amount);
                     if let Some(discrete) = vertical_amount_discrete {
-                        frame = frame.v120(Axis::Vertical, discrete as i32);
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "v120 scroll steps are small integer multiples of 120 that \
+                                      always fit in an i32."
+                        )]
+                        let discrete = discrete as i32;
+                        frame = frame.v120(Axis::Vertical, discrete);
                     }
                 }
 
@@ -169,7 +222,10 @@ impl Oxmonad {
                     }
                 }
 
-                let pointer = self.seat.get_pointer().unwrap();
+                let pointer = self
+                    .seat
+                    .get_pointer()
+                    .expect("the seat always has a pointer; one is added during startup");
                 pointer.axis(self, frame);
                 pointer.frame(self);
             }

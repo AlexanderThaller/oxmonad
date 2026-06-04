@@ -49,6 +49,7 @@ use smithay::{
         },
         renderer::{
             element::{
+                AsRenderElements,
                 solid::SolidColorRenderElement,
                 surface::WaylandSurfaceRenderElement,
             },
@@ -61,7 +62,10 @@ use smithay::{
         },
         udev::primary_gpu,
     },
-    desktop::space::SpaceRenderElements,
+    desktop::{
+        layer_map_for_output,
+        space::SpaceRenderElements,
+    },
     output::{
         Mode,
         Output,
@@ -89,8 +93,10 @@ use smithay::{
     },
     utils::{
         DeviceFd,
+        Scale,
         Transform,
     },
+    wayland::shell::wlr_layer::Layer,
 };
 
 use crate::{
@@ -392,26 +398,39 @@ fn render_surface(state: &mut Oxmonad, renderer: &mut GlesRenderer, surface: &mu
     let output = surface.output.clone();
     let scale = output.current_scale().fractional_scale();
 
-    // Compositor UI (bar + window borders) drawn on top of the windows, same as
-    // the winit backend.
+    // Compositor UI (bar + window borders).
     let mut overlays = state.bar_elements(&output, scale);
     overlays.extend(state.border_elements(scale));
 
-    let space_elements = match state
-        .space
-        .render_elements_for_output(renderer, &output, 1.0)
-    {
-        Ok(elements) => elements,
-        Err(err) => {
-            tracing::error!(?err, "failed to collect space render elements");
-            return;
-        }
+    let Some(output_geo) = state.space.output_geometry(&output) else {
+        tracing::error!(output = %output.name(), "output is not mapped in the space; skipping frame");
+        return;
     };
 
-    let mut elements: Vec<OxElement<'_, SolidColorRenderElement>> =
-        Vec::with_capacity(overlays.len() + space_elements.len());
+    // Layer-shell surfaces split by stacking order. We stack, front to back:
+    // overlay/top layers (e.g. the launcher), then the compositor UI, then
+    // windows, then bottom/background layers. This keeps the bar above windows
+    // but lets an overlay-layer launcher draw on top of it. Render elements are
+    // ordered front-to-back, so the topmost layer comes first.
+    let (upper_layers, lower_layers) = layer_elements(renderer, &output, scale);
+
+    let window_elements =
+        state
+            .space
+            .render_elements_for_region(renderer, &output_geo, Scale::from(scale), 1.0);
+
+    let mut elements: Vec<OxElement<'_, SolidColorRenderElement>> = Vec::with_capacity(
+        upper_layers.len() + overlays.len() + window_elements.len() + lower_layers.len(),
+    );
+    elements.extend(upper_layers.into_iter().map(OxElement::Space));
     elements.extend(overlays.iter().map(OxElement::Custom));
-    elements.extend(space_elements.into_iter().map(OxElement::Space));
+    elements.extend(
+        window_elements
+            .into_iter()
+            .map(SpaceRenderElements::Surface)
+            .map(OxElement::Space),
+    );
+    elements.extend(lower_layers.into_iter().map(OxElement::Space));
 
     match surface
         .compositor
@@ -439,6 +458,42 @@ fn render_surface(state: &mut Oxmonad, renderer: &mut GlesRenderer, surface: &mu
     });
 
     screencopy::finish_pending_screencopies_for_output(state, &output, scale);
+}
+
+/// Collect the layer-shell render elements for `output`, split by stacking
+/// order: the `Top`/`Overlay` surfaces (returned first) are drawn above the
+/// compositor UI, while `Bottom`/`Background` surfaces (returned second) are
+/// drawn below the windows. Mirrors Smithay's `space_render_elements`, which
+/// the winit backend gets for free via `render_output`.
+type LayerElements = Vec<SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>>;
+
+fn layer_elements(
+    renderer: &mut GlesRenderer,
+    output: &Output,
+    scale: f64,
+) -> (LayerElements, LayerElements) {
+    let layer_map = layer_map_for_output(output);
+    let mut upper = LayerElements::new();
+    let mut lower = LayerElements::new();
+
+    for surface in layer_map.layers() {
+        let Some(geometry) = layer_map.layer_geometry(surface) else {
+            continue;
+        };
+        let location = geometry.loc.to_physical_precise_round(scale);
+        let elements = AsRenderElements::<GlesRenderer>::render_elements::<
+            WaylandSurfaceRenderElement<GlesRenderer>,
+        >(surface, renderer, location, Scale::from(scale), 1.0)
+        .into_iter()
+        .map(SpaceRenderElements::Surface);
+
+        match surface.layer() {
+            Layer::Top | Layer::Overlay => upper.extend(elements),
+            Layer::Background | Layer::Bottom => lower.extend(elements),
+        }
+    }
+
+    (upper, lower)
 }
 
 /// Pick the connector's preferred mode, falling back to its first mode.

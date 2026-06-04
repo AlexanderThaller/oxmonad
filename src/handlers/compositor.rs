@@ -38,7 +38,10 @@ impl CompositorHandler for Oxmonad {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
-        &client.get_data::<ClientState>().unwrap().compositor_state
+        &client
+            .get_data::<ClientState>()
+            .expect("every client is initialized with ClientState")
+            .compositor_state
     }
 
     fn commit(&mut self, surface: &WlSurface) {
@@ -48,11 +51,12 @@ impl CompositorHandler for Oxmonad {
             while let Some(parent) = get_parent(&root) {
                 root = parent;
             }
-            if let Some(window) = self
-                .space
-                .elements()
-                .find(|w| w.toplevel().unwrap().wl_surface() == &root)
-            {
+            if let Some(window) = self.space.elements().find(|w| {
+                w.toplevel()
+                    .expect("managed windows are always wayland toplevels")
+                    .wl_surface()
+                    == &root
+            }) {
                 window.on_commit();
             }
         }

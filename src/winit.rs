@@ -31,6 +31,11 @@ use crate::{
     screencopy,
 };
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Backend startup keeps output setup, environment, and the redraw/input event handler \
+              together, mirroring the other backends' single init function."
+)]
 pub fn init_winit(
     event_loop: &mut EventLoop<'_, OxmonadData>,
     data: &mut OxmonadData,
@@ -162,7 +167,7 @@ pub fn init_winit(
                 WinitEvent::CloseRequested => {
                     state.loop_signal.stop();
                 }
-                _ => (),
+                WinitEvent::Focus(_) => (),
             }
         })?;
 

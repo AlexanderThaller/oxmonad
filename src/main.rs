@@ -7,7 +7,11 @@
 //!
 //! The tiling/window-management logic that makes this "xmonad-like" is not here
 //! yet; this just gets a working compositor on screen that can host clients.
-#![allow(irrefutable_let_patterns)]
+#![allow(
+    irrefutable_let_patterns,
+    reason = "Backend selection and some `if let` chains stay written as `let` patterns so new \
+              fallible variants can be added without reworking the control flow."
+)]
 
 mod bar;
 mod config;

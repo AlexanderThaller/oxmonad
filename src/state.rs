@@ -13,6 +13,7 @@ use smithay::{
     input::{
         Seat,
         SeatState,
+        keyboard::XkbConfig,
     },
     reexports::{
         calloop::{
@@ -126,7 +127,8 @@ impl Oxmonad {
         // Notify clients that we have a keyboard, for the sake of the example we assume
         // that keyboard is always present. You may want to track keyboard
         // hot-plug in real compositor.
-        seat.add_keyboard(Default::default(), 200, 25).unwrap();
+        seat.add_keyboard(XkbConfig::default(), 200, 25)
+            .expect("creating a keyboard with the default XKB config never fails");
 
         // Notify clients that we have a pointer (mouse)
         // Here we assume that there is always pointer plugged in
@@ -179,7 +181,8 @@ impl Oxmonad {
     ) -> OsString {
         // Creates a new listening socket, automatically choosing the next available
         // `wayland` socket name.
-        let listening_socket = ListeningSocketSource::new_auto().unwrap();
+        let listening_socket =
+            ListeningSocketSource::new_auto().expect("failed to create a wayland listening socket");
 
         // Get the name of the listening socket.
         // Clients will connect to this socket.
@@ -196,7 +199,7 @@ impl Oxmonad {
                 state
                     .display_handle
                     .insert_client(client_stream, Arc::new(ClientState::default()))
-                    .unwrap();
+                    .expect("failed to register a new client with the wayland display");
             })
             .expect("Failed to init the wayland event source.");
 
@@ -217,12 +220,12 @@ impl Oxmonad {
                         display
                             .get_mut()
                             .dispatch_clients(&mut state.state)
-                            .unwrap();
+                            .expect("failed to dispatch wayland client requests");
                     }
                     Ok(PostAction::Continue)
                 },
             )
-            .unwrap();
+            .expect("failed to insert the wayland display event source");
 
         socket_name
     }

@@ -32,8 +32,8 @@ pub fn spawn_shell(command: &str, description: &str) {
     }
 }
 
-/// Session variables to publish to the wider user session, in addition to
-/// `WAYLAND_DISPLAY`.
+/// Session variables to publish to the wider user session, so clients and user
+/// services can find this compositor and identify the session.
 const SESSION_VARS: [&str; 3] = ["WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE"];
 
 /// Publishes our session environment to the systemd user manager and the D-Bus
