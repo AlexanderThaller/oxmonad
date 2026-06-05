@@ -1,0 +1,232 @@
+= Multi-monitor management: xmonad behaviour and oxmonad mapping
+:toc: macro
+:toclevels: 3
+
+An overview of how xmonad handles multiple screens — drawn from the user's
+`resources/xmonad.hs` and xmonad's defaults — and how those bindings map onto
+oxmonad's current per-monitor model. This is a design note to agree on a binding
+set before implementing; nothing here is wired up yet.
+
+toc::[]
+
+== TL;DR
+
+* The user's `mod + z` is `swapNextScreen` (from `XMonad.Actions.CycleWS`): it
+  swaps what is displayed on the current screen with the next screen.
+* xmonad's whole multi-screen story is built on *workspaces vs screens*: there
+  is a pool of workspaces and each screen is a viewport showing one of them.
+* oxmonad has *no workspaces*. Each monitor owns a fixed, independent set of
+  tiled windows. That is closer to "one pinned workspace per monitor".
+* So most xmonad screen bindings translate to oxmonad as *"act on monitor N"*
+  (focus it / move a window to it / swap two monitors' contents), which is
+  implementable today on top of the existing `monitors: Vec<Monitor>`.
+
+== xmonad's model: workspaces vs screens
+
+xmonad separates two things:
+
+Workspaces:: A pool of named virtual desktops (here `1`..`9`). Each holds its own
+window stack and layout. Only one workspace can be shown per screen at a time.
+
+Screens:: Physical outputs (Xinerama screens). A screen is a *viewport* onto
+whichever workspace is currently assigned to it. Screens are identified by a
+`ScreenId` (`S 0`, `S 1`, ...); `XMonad.Actions.PhysicalScreens` additionally
+orders them by physical left-to-right position.
+
+"Multi-monitor management" in xmonad therefore means: *which workspace is shown
+on which screen*, and *moving focus or windows between screens*. Windows are not
+owned by a screen — they live on a workspace, and the workspace is what moves.
+
+== Relevant bindings in the user's `xmonad.hs`
+
+[cols="1,2,3",options="header"]
+|===
+| Binding | Action (module) | Effect
+
+| `mod + z`
+| `swapNextScreen` (`CycleWS`)
+| Swap the workspace on the current screen with the one on the next screen. The
+  two screens exchange their contents.
+
+| `mod + Shift + z`
+| `toggleWS' ["NSP"]` (`CycleWS`)
+| Toggle to the previously-viewed workspace (skipping the scratchpad). This is
+  workspace history, *not* screen-related.
+
+| `mod + Right`
+| `onNextNeighbour def W.view` (`PhysicalScreens`)
+| Move focus to the workspace on the next physical screen (left-to-right order).
+
+| `mod + Left`
+| `onPrevNeighbour def W.view` (`PhysicalScreens`)
+| Move focus to the workspace on the previous physical screen.
+
+| `mod + Shift + Right`
+| `onNextNeighbour def W.shift` (`PhysicalScreens`)
+| Send the focused window to the next physical screen's workspace.
+
+| `mod + Shift + Left`
+| `onPrevNeighbour def W.shift` (`PhysicalScreens`)
+| Send the focused window to the previous physical screen's workspace.
+
+| `mod + Shift + s`
+| `layoutSplitScreen 2 (TwoPane 0.5 0.5)` (`LayoutScreens`)
+| Split one physical screen into two *virtual* screens.
+
+| `mod + Ctrl + Shift + s`
+| `rescreen`
+| Re-detect the physical screen configuration (after a hotplug / xrandr change).
+|===
+
+== Default xmonad screen bindings (still active)
+
+The config's `delkeys` only removes `mod + Shift + q`, so xmonad's built-in
+screen bindings remain in effect:
+
+[cols="1,3",options="header"]
+|===
+| Binding | Effect
+
+| `mod + w` / `mod + e` / `mod + r`
+| Focus physical screen 0 / 1 / 2 (`W.view` of that screen's workspace).
+
+| `mod + Shift + w` / `e` / `r`
+| Move the focused window to screen 0 / 1 / 2 (`W.shift`).
+|===
+
+So in practice the user already has three ways to move between screens:
+direct (`w`/`e`/`r`), relative (`Left`/`Right`), and swap (`z`).
+
+== oxmonad's current model
+
+* `state.monitors: Vec<Monitor>` — one `Monitor { output, windows, layout }` per
+  connected output. Each tiles its own windows independently (xmonad-style),
+  and windows never spill across monitors.
+* `state.active_monitor: usize` — the monitor that receives new windows and
+  focus/layout commands.
+* Focus-follows-monitor: focusing or clicking a window makes its monitor active.
+* `move_focused_to_next_monitor()` — currently bound to `mod + o`; moves the
+  focused window to the next monitor (wrapping) and follows it.
+* The primary monitor (by name in `config::PRIMARY_OUTPUT`, else the first
+  detected) draws the bar; others do not.
+
+There are *no workspaces*. A monitor is effectively a single, fixed workspace
+that is permanently pinned to one output. This is the central difference from
+xmonad and it shapes how each binding can be translated.
+
+== Mapping xmonad actions onto oxmonad
+
+[cols="2,3,2",options="header"]
+|===
+| xmonad action | oxmonad analogue | Status
+
+| `mod + w`/`e`/`r` — focus screen N
+| `focus_monitor(n)`: make monitor `n` active and give keyboard focus to its
+  master/last-focused window.
+| Not implemented (no keyboard way to change the focused monitor yet).
+
+| `mod + Shift + w`/`e`/`r` — move window to screen N
+| `move_focused_to_monitor(n)`: generalises the existing next-monitor move.
+| Partially (only "next" exists, via `mod + o`).
+
+| `mod + Right` / `mod + Left` — focus next/prev screen
+| `focus_next_monitor()` / `focus_prev_monitor()`.
+| Not implemented.
+
+| `mod + Shift + Right` / `Left` — move window to next/prev screen
+| `move_focused_to_next_monitor()` / `..._prev_monitor()`.
+| "next" exists (`mod + o`); "prev" does not.
+
+| `mod + z` — `swapNextScreen`
+| `swap_with_next_monitor()`: exchange the entire window list + layout between
+  the active monitor and the next one. The outputs stay put; their contents
+  swap. This is the faithful analogue given oxmonad pins one workspace per
+  monitor.
+| Not implemented.
+
+| `mod + Shift + z` — `toggleWS'`
+| No analogue without workspace history.
+| Out of scope (needs workspaces).
+
+| `mod + Shift + s` — `layoutSplitScreen`
+| Splitting one output into virtual screens.
+| Out of scope.
+
+| `mod + Ctrl + Shift + s` — `rescreen`
+| Re-scan connectors on hotplug.
+| Out of scope for this note (separate hotplug work).
+|===
+
+== Gap analysis
+
+The two biggest gaps relative to xmonad's multi-screen feel are:
+
+. *No keyboard focus movement between monitors.* Today focus only changes
+  monitor by clicking a window or by moving one with `mod + o`. xmonad users
+  expect `mod + w/e/r` and `mod + Left/Right` to move focus between screens.
+. *No `swapNextScreen` (`mod + z`).* This is the binding the user called out.
+  oxmonad has no swap; the closest is moving a single window.
+
+Everything else the user's config does for screens is either already covered or
+depends on workspaces (which oxmonad does not have) and is out of scope here.
+
+== Proposed binding set
+
+Aligning oxmonad with the user's xmonad muscle memory, while respecting the
+per-monitor (one-workspace-per-output) model:
+
+[cols="1,2",options="header"]
+|===
+| Binding | Proposed oxmonad action
+
+| `mod + z`
+| `swap_with_next_monitor` — swap the active monitor's windows + layout with the
+  next monitor's; keep focus on the same windows (now on the other output).
+
+| `mod + w` / `mod + e` / `mod + r`
+| Focus monitor 0 / 1 / 2.
+
+| `mod + Shift + w` / `e` / `r`
+| Move the focused window to monitor 0 / 1 / 2.
+
+| `mod + Right` / `mod + Left`
+| Focus the next / previous monitor.
+
+| `mod + Shift + Right` / `mod + Shift + Left`
+| Move the focused window to the next / previous monitor.
+|===
+
+Notes and decisions to confirm:
+
+* `mod + Up` / `mod + Down` stay as MirrorExpand / MirrorShrink (per the user's
+  config) and `mod + h` / `mod + l` stay as master resize — none of the proposed
+  screen bindings collide with these.
+* The existing `mod + o` (move-to-next-monitor) becomes redundant if
+  `mod + Shift + Right` is added. Options: keep `mod + o` as an alias, or drop
+  it. *Recommendation: drop it* to match xmonad conventions.
+* `mod + w/e/r` indexes monitors by detection order. Whether that should be
+  physical left-to-right order (like `PhysicalScreens`) or connector order is a
+  decision; left-to-right matches xmonad and is the recommendation.
+* Workspace-dependent bindings (`mod + Shift + z`, dynamic workspaces, per-screen
+  workspace assignment) are deferred until/unless oxmonad grows workspaces.
+
+== Implementation sketch
+
+All of the proposed actions are small additions on top of `monitors`:
+
+* `focus_monitor(idx)` — clamp `idx`, set `active_monitor`, focus that monitor's
+  master (or last-focused) window; if it has no windows, just move the active
+  monitor and clear the selection.
+* `focus_next_monitor` / `focus_prev_monitor` — wrap around `monitors.len()` and
+  delegate to `focus_monitor`.
+* `move_focused_to_monitor(idx)` — generalise `move_focused_to_next_monitor` to
+  an explicit target; the existing function becomes
+  `move_focused_to_monitor((active + 1) % len)`.
+* `swap_with_next_monitor` — `mem::swap` the `windows` and `layout` of the two
+  `Monitor`s (not the `output`), then `relayout()` and re-focus.
+* New `Action` variants in `keybindings.rs`; `mod + w/e/r` need raw keysyms with
+  no shift for focus and with shift for move, mirroring xmonad's `zip` over
+  `[xK_w, xK_e, xK_r]`.
+
+Each action is unit-testable against a multi-monitor `Oxmonad` the same way the
+existing layout tests work.
