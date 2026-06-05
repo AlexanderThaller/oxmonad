@@ -62,7 +62,7 @@ use smithay::{
 
 use crate::{
     OxmonadData,
-    layout::ResizableTall,
+    layout::Monitor,
     screencopy::ScreencopyState,
 };
 
@@ -78,13 +78,15 @@ pub struct Oxmonad {
     pub space: Space<Window>,
     pub loop_signal: LoopSignal,
 
-    /// Managed windows in tiling order; index 0 is the master window.
-    pub windows: Vec<Window>,
+    /// One entry per connected output, each tiling its own windows
+    /// xmonad-style.
+    pub monitors: Vec<Monitor>,
+    /// Index into [`Self::monitors`] of the monitor receiving new windows and
+    /// focus/layout commands.
+    pub active_monitor: usize,
     /// The currently selected managed window, independent from temporary
     /// keyboard focus held by layer-shell clients.
     pub selected_window: Option<Window>,
-    /// The active tiling layout.
-    pub layout: ResizableTall,
 
     // Smithay State
     pub compositor_state: CompositorState,
@@ -161,9 +163,9 @@ impl Oxmonad {
             loop_signal,
             socket_name,
 
-            windows: Vec::new(),
+            monitors: Vec::new(),
+            active_monitor: 0,
             selected_window: None,
-            layout: ResizableTall::default(),
 
             compositor_state,
             xdg_shell_state,

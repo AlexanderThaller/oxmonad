@@ -30,6 +30,14 @@ pub const TERMINAL: &str = "alacritty";
 /// `wlr-layer-shell` support.
 pub const LAUNCHER: &str = "tofi-run | xargs --no-run-if-empty setsid --fork";
 
+/// Name of the primary output — the monitor that carries the built-in bar.
+///
+/// Outputs are named after their connector, e.g. `"DP-1"`, `"HDMI-A-1"` or
+/// `"eDP-1"` (run oxmonad and check the logs to see the detected names). When
+/// `None`, or when no connected output matches the name, the first detected
+/// output becomes primary. Every other monitor tiles windows without a bar.
+pub const PRIMARY_OUTPUT: Option<&str> = None;
+
 /// Height of the built-in status bar, in logical pixels.
 pub const BAR_HEIGHT: i32 = 24;
 

@@ -168,37 +168,22 @@ impl Oxmonad {
                 let button_state = event.state();
 
                 if ButtonState::Pressed == button_state && !pointer.is_grabbed() {
-                    if let Some((window, _loc)) = self
+                    if let Some(window) = self
                         .space
                         .element_under(pointer.current_location())
-                        .map(|(w, l)| (w.clone(), l))
+                        .map(|(w, _)| w.clone())
                     {
-                        self.space.raise_element(&window, true);
-                        keyboard.set_focus(
-                            self,
-                            Some(
-                                window
-                                    .toplevel()
-                                    .expect("managed windows are always wayland toplevels")
-                                    .wl_surface()
-                                    .clone(),
-                            ),
-                            serial,
-                        );
-                        self.space.elements().for_each(|window| {
-                            window
-                                .toplevel()
-                                .expect("managed windows are always wayland toplevels")
-                                .send_pending_configure();
-                        });
+                        // Focusing follows the monitor the window lives on.
+                        self.focus_window(&window);
                     } else {
-                        self.space.elements().for_each(|window| {
+                        self.selected_window = None;
+                        for window in self.space.elements() {
                             window.set_activated(false);
                             window
                                 .toplevel()
                                 .expect("managed windows are always wayland toplevels")
                                 .send_pending_configure();
-                        });
+                        }
                         keyboard.set_focus(self, Option::<WlSurface>::None, serial);
                     }
                 }

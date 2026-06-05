@@ -53,6 +53,11 @@ impl Oxmonad {
     /// Builds render elements for the built-in status bar.
     #[must_use]
     pub fn bar_elements(&self, output: &Output, scale: f64) -> Vec<SolidColorRenderElement> {
+        // The bar belongs to the primary monitor only.
+        if !self.is_primary_output(output) {
+            return Vec::new();
+        }
+
         let Some(output_geo) = self.space.output_geometry(output) else {
             return Vec::new();
         };

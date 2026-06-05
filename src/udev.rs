@@ -258,7 +258,7 @@ pub fn init_tty(
         let (phys_w, phys_h) = connector_info.size().unwrap_or((0, 0));
 
         let output = Output::new(
-            format!("DRM-{connector_handle:?}"),
+            connector_name(&connector_info),
             PhysicalProperties {
                 size: (
                     i32::try_from(phys_w).unwrap_or(0),
@@ -279,6 +279,7 @@ pub fn init_tty(
         );
         output.set_preferred(mode);
         data.state.space.map_output(&output, (x_offset, 0));
+        data.state.add_monitor(output.clone());
         x_offset += i32::from(width);
 
         let drm_surface = drm.create_surface(crtc, drm_mode, &[*connector_handle])?;
@@ -575,6 +576,33 @@ fn layer_elements(
     }
 
     (upper, lower)
+}
+
+/// Builds a stable, human-readable output name from a connector, matching the
+/// `DP-1`/`HDMI-A-2`/`eDP-1` convention other compositors use.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "drm's `connector::Interface` is non-exhaustive; uncommon and future interfaces all \
+              fall back to the generic name."
+)]
+fn connector_name(info: &connector::Info) -> String {
+    let kind = match info.interface() {
+        connector::Interface::DisplayPort => "DP",
+        connector::Interface::HDMIA => "HDMI-A",
+        connector::Interface::HDMIB => "HDMI-B",
+        connector::Interface::DVII => "DVI-I",
+        connector::Interface::DVID => "DVI-D",
+        connector::Interface::DVIA => "DVI-A",
+        connector::Interface::VGA => "VGA",
+        connector::Interface::EmbeddedDisplayPort => "eDP",
+        connector::Interface::LVDS => "LVDS",
+        connector::Interface::Composite => "Composite",
+        connector::Interface::SVideo => "SVIDEO",
+        connector::Interface::Component => "Component",
+        connector::Interface::NinePinDIN => "DIN",
+        _ => "Unknown",
+    };
+    format!("{kind}-{}", info.interface_id())
 }
 
 /// Pick the connector's preferred mode, falling back to its first mode.

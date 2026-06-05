@@ -22,6 +22,7 @@ use smithay::{
         Window,
         layer_map_for_output,
     },
+    output::Output,
     utils::{
         IsAlive,
         Logical,
@@ -39,6 +40,32 @@ use crate::{
 
 /// A window together with its computed location and size.
 type Placement = (Window, Point<i32, Logical>, Size<i32, Logical>);
+
+/// One monitor: an output plus the windows tiled on it and their layout.
+///
+/// Each monitor tiles independently, xmonad-style — windows belong to exactly
+/// one monitor and never spill onto another. New windows open on the
+/// [active monitor](Oxmonad::active_monitor), and can be sent to another
+/// monitor with [`Oxmonad::move_focused_to_next_monitor`].
+#[derive(Debug)]
+pub struct Monitor {
+    /// The output this monitor renders to.
+    pub output: Output,
+    /// Windows tiled on this monitor in tiling order; index 0 is the master.
+    pub windows: Vec<Window>,
+    /// The tiling layout used to arrange this monitor's windows.
+    pub layout: ResizableTall,
+}
+
+impl Monitor {
+    fn new(output: Output) -> Self {
+        Self {
+            output,
+            windows: Vec::new(),
+            layout: ResizableTall::default(),
+        }
+    }
+}
 
 /// A master/stack tiling layout (xmonad's `ResizableTall`).
 #[derive(Debug, Clone)]
@@ -189,9 +216,51 @@ fn split_column(
 }
 
 impl Oxmonad {
+    /// Registers a freshly-detected `output` as a new monitor.
+    pub fn add_monitor(&mut self, output: Output) {
+        self.monitors.push(Monitor::new(output));
+    }
+
+    /// Iterates every managed window across all monitors.
+    pub fn managed_windows(&self) -> impl Iterator<Item = &Window> {
+        self.monitors
+            .iter()
+            .flat_map(|monitor| monitor.windows.iter())
+    }
+
+    /// Whether `output` is the primary monitor — the one carrying the bar.
+    ///
+    /// The primary is [`config::PRIMARY_OUTPUT`] when a connected output
+    /// matches that name, otherwise the first detected output.
+    #[must_use]
+    pub fn is_primary_output(&self, output: &Output) -> bool {
+        let name = output.name();
+        match config::PRIMARY_OUTPUT {
+            Some(primary) if self.monitors.iter().any(|m| m.output.name() == primary) => {
+                name == primary
+            }
+            _ => self
+                .monitors
+                .first()
+                .is_some_and(|m| m.output.name() == name),
+        }
+    }
+
+    /// Index into [`Self::monitors`] of the monitor holding `window`, if any.
+    fn monitor_index_of_window(&self, window: &Window) -> Option<usize> {
+        self.monitors
+            .iter()
+            .position(|monitor| monitor.windows.contains(window))
+    }
+
     /// Recomputes the layout and repositions/resizes every managed window.
+    ///
+    /// Each monitor tiles its own windows within its output, offset into global
+    /// space; only the primary monitor reserves room for the built-in bar.
     pub fn relayout(&mut self) {
-        self.windows.retain(IsAlive::alive);
+        for monitor in &mut self.monitors {
+            monitor.windows.retain(IsAlive::alive);
+        }
         if self
             .selected_window
             .as_ref()
@@ -200,28 +269,31 @@ impl Oxmonad {
             self.selected_window = None;
         }
 
-        let Some(output) = self.space.outputs().next().cloned() else {
-            return;
-        };
-        // Tile within the area left after the built-in bar and layer-shell
-        // exclusive zones. Overlay launchers keep the whole output available.
-        let area = crate::bar::content_area(layer_map_for_output(&output).non_exclusive_zone());
-
-        let tiles = self.layout.arrange(self.windows.len(), area);
         let border = config::BORDER_WIDTH;
 
-        // Collect placements first so we don't borrow `self.windows` while
+        // Collect placements first so we don't borrow the monitors while
         // mutating `self.space`.
-        let placements: Vec<Placement> = self
-            .windows
-            .iter()
-            .cloned()
-            .zip(tiles)
-            .map(|(window, tile)| {
+        let mut placements: Vec<Placement> = Vec::new();
+        for monitor in &self.monitors {
+            let Some(output_geo) = self.space.output_geometry(&monitor.output) else {
+                continue;
+            };
+            // `non_exclusive_zone` is output-local; shift it into global space.
+            let mut area = layer_map_for_output(&monitor.output).non_exclusive_zone();
+            area.loc += output_geo.loc;
+            // Only the primary monitor gives up a strip for the built-in bar.
+            let area = if self.is_primary_output(&monitor.output) {
+                crate::bar::content_area(area)
+            } else {
+                area
+            };
+
+            let tiles = monitor.layout.arrange(monitor.windows.len(), area);
+            for (window, tile) in monitor.windows.iter().cloned().zip(tiles) {
                 let geometry = window_geometry(tile, border);
-                (window, geometry.loc, geometry.size)
-            })
-            .collect();
+                placements.push((window, geometry.loc, geometry.size));
+            }
+        }
 
         for (window, loc, size) in placements {
             if let Some(toplevel) = window.toplevel() {
@@ -245,8 +317,7 @@ impl Oxmonad {
         }
 
         let focus = self.seat.get_keyboard()?.current_focus()?;
-        self.windows
-            .iter()
+        self.managed_windows()
             .find(|window| {
                 window
                     .toplevel()
@@ -256,8 +327,13 @@ impl Oxmonad {
     }
 
     /// Gives keyboard focus to `window`, raising it and updating activation.
+    ///
+    /// Focus follows the monitor: the window's monitor becomes active.
     pub fn focus_window(&mut self, window: &Window) {
         self.selected_window = Some(window.clone());
+        if let Some(index) = self.monitor_index_of_window(window) {
+            self.active_monitor = index;
+        }
 
         let serial = SERIAL_COUNTER.next_serial();
         if let Some(keyboard) = self.seat.get_keyboard() {
@@ -269,7 +345,7 @@ impl Oxmonad {
 
         self.space.raise_element(window, true);
 
-        for managed in &self.windows {
+        for managed in self.managed_windows() {
             managed.set_activated(managed == window);
             if let Some(toplevel) = managed.toplevel() {
                 toplevel.send_pending_configure();
@@ -277,32 +353,45 @@ impl Oxmonad {
         }
     }
 
-    /// Index of the focused window in tiling order, or 0 when none is focused.
+    /// Index of the focused window within the active monitor, or 0 when none.
     fn focused_index(&self) -> usize {
+        let Some(monitor) = self.monitors.get(self.active_monitor) else {
+            return 0;
+        };
         self.focused_window()
-            .and_then(|focused| self.windows.iter().position(|w| *w == focused))
+            .and_then(|focused| monitor.windows.iter().position(|w| *w == focused))
             .unwrap_or(0)
     }
 
-    /// Focuses the window `count` steps after the focused one (wrapping).
+    /// Focuses the window `count` steps after the focused one on the active
+    /// monitor (wrapping).
     fn focus_step(&mut self, step: usize) {
-        let count = self.windows.len();
+        let Some(monitor) = self.monitors.get(self.active_monitor) else {
+            return;
+        };
+        let count = monitor.windows.len();
         if count == 0 {
             return;
         }
         let next = (self.focused_index() + step) % count;
-        let window = self.windows[next].clone();
+        let window = monitor.windows[next].clone();
         self.focus_window(&window);
     }
 
-    /// Focuses the next window in tiling order.
+    /// Focuses the next window in tiling order on the active monitor.
     pub fn focus_next(&mut self) {
         self.focus_step(1);
     }
 
-    /// Focuses the previous window in tiling order.
+    /// Focuses the previous window in tiling order on the active monitor.
     pub fn focus_prev(&mut self) {
-        let count = self.windows.len();
+        let Some(count) = self
+            .monitors
+            .get(self.active_monitor)
+            .map(|m| m.windows.len())
+        else {
+            return;
+        };
         if count == 0 {
             return;
         }
@@ -310,22 +399,50 @@ impl Oxmonad {
         self.focus_step(count - 1);
     }
 
-    /// Swaps the focused window with the master window and keeps focus on it.
+    /// Swaps the focused window with the master window of its monitor and keeps
+    /// focus on it.
     pub fn swap_master(&mut self) {
         let Some(focused) = self.focused_window() else {
             return;
         };
-        let Some(index) = self.windows.iter().position(|w| *w == focused) else {
+        let Some(monitor) = self.monitors.get_mut(self.active_monitor) else {
+            return;
+        };
+        let Some(index) = monitor.windows.iter().position(|w| *w == focused) else {
             return;
         };
 
         if index != 0 {
-            self.windows.swap(0, index);
+            monitor.windows.swap(0, index);
         }
+        let master = monitor.windows[0].clone();
         self.relayout();
-
-        let master = self.windows[0].clone();
         self.focus_window(&master);
+    }
+
+    /// Moves the focused window to the next monitor (wrapping) and follows it.
+    pub fn move_focused_to_next_monitor(&mut self) {
+        if self.monitors.len() < 2 {
+            return;
+        }
+        let Some(focused) = self.focused_window() else {
+            return;
+        };
+        let Some(from) = self.monitor_index_of_window(&focused) else {
+            return;
+        };
+        let to = (from + 1) % self.monitors.len();
+
+        if let Some(monitor) = self.monitors.get_mut(from) {
+            monitor.windows.retain(|w| *w != focused);
+        }
+        // Land as the master of the destination monitor, like a fresh window.
+        if let Some(monitor) = self.monitors.get_mut(to) {
+            monitor.windows.insert(0, focused.clone());
+        }
+        self.active_monitor = to;
+        self.relayout();
+        self.focus_window(&focused);
     }
 
     /// Requests that the currently focused window closes.
@@ -341,26 +458,36 @@ impl Oxmonad {
     /// Expands the focused window vertically within its layout column.
     pub fn expand_focused_window(&mut self) {
         let index = self.focused_index();
-        self.layout.expand_window(index, self.windows.len());
+        if let Some(monitor) = self.monitors.get_mut(self.active_monitor) {
+            let count = monitor.windows.len();
+            monitor.layout.expand_window(index, count);
+        }
         self.relayout();
     }
 
     /// Shrinks the focused window vertically within its layout column.
     pub fn shrink_focused_window(&mut self) {
         let index = self.focused_index();
-        self.layout.shrink_window(index, self.windows.len());
+        if let Some(monitor) = self.monitors.get_mut(self.active_monitor) {
+            let count = monitor.windows.len();
+            monitor.layout.shrink_window(index, count);
+        }
         self.relayout();
     }
 
-    /// Expands the master area horizontally.
+    /// Expands the active monitor's master area horizontally.
     pub fn expand_master_area(&mut self) {
-        self.layout.expand_master();
+        if let Some(monitor) = self.monitors.get_mut(self.active_monitor) {
+            monitor.layout.expand_master();
+        }
         self.relayout();
     }
 
-    /// Shrinks the master area horizontally.
+    /// Shrinks the active monitor's master area horizontally.
     pub fn shrink_master_area(&mut self) {
-        self.layout.shrink_master();
+        if let Some(monitor) = self.monitors.get_mut(self.active_monitor) {
+            monitor.layout.shrink_master();
+        }
         self.relayout();
     }
 
@@ -370,8 +497,8 @@ impl Oxmonad {
         let border = config::BORDER_WIDTH;
         let focused = self.focused_window();
 
-        let mut elements = Vec::with_capacity(self.windows.len() * 4);
-        for window in &self.windows {
+        let mut elements = Vec::new();
+        for window in self.managed_windows() {
             let Some(geometry) = self.space.element_geometry(window) else {
                 continue;
             };

@@ -44,6 +44,8 @@ pub enum Action {
     ShrinkMaster,
     /// Make the master area wider.
     ExpandMaster,
+    /// Move the focused window to the next monitor.
+    MoveToOtherMonitor,
 }
 
 /// Resolves a key press to an [`Action`], if it matches a configured binding.
@@ -68,6 +70,8 @@ pub fn action_for(modifiers: &ModifiersState, keysym: Keysym) -> Option<Action> 
         (false, Keysym::Return) => Some(Action::SwapMaster),
         // META + p -> open the application launcher.
         (false, Keysym::p) => Some(Action::SpawnLauncher),
+        // META + o -> move the focused window to the next monitor.
+        (false, Keysym::o) => Some(Action::MoveToOtherMonitor),
         // META + j / k -> move focus down / up the window stack.
         (false, Keysym::j) => Some(Action::FocusNext),
         (false, Keysym::k) => Some(Action::FocusPrev),
@@ -101,6 +105,7 @@ impl Oxmonad {
             Action::ShrinkFocused => self.shrink_focused_window(),
             Action::ShrinkMaster => self.shrink_master_area(),
             Action::ExpandMaster => self.expand_master_area(),
+            Action::MoveToOtherMonitor => self.move_focused_to_next_monitor(),
         }
     }
 }

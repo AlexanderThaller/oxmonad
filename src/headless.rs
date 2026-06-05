@@ -87,6 +87,7 @@ pub fn init_headless(
     output.set_preferred(mode);
 
     state.space.map_output(&output, (0, 0));
+    state.add_monitor(output.clone());
 
     // SAFETY: set during single-threaded startup, before any client is spawned.
     #[expect(
@@ -232,7 +233,7 @@ impl HeadlessScript {
         }
 
         if let Some(expected_windows) = self.expected_windows
-            && state.windows.len() < expected_windows
+            && state.managed_windows().count() < expected_windows
         {
             return;
         }
