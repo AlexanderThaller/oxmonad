@@ -46,13 +46,19 @@ pub enum Action {
     ExpandMaster,
     /// Move the focused window to the next monitor.
     MoveToOtherMonitor,
+    /// View the workspace at this index on the active monitor.
+    ViewWorkspace(usize),
+    /// Move the focused window to the workspace at this index.
+    MoveToWorkspace(usize),
 }
 
 /// Resolves a key press to an [`Action`], if it matches a configured binding.
 ///
 /// `modifiers` is the modifier state at the time of the press and `keysym` is
-/// the resulting (already modifier-applied) symbol. Only the bindings hardcoded
-/// here are recognised for now.
+/// the *unshifted* (latin) symbol for the key — so a binding matches the same
+/// physical key regardless of shift level or keyboard layout, like xmonad's
+/// `(KeyMask, KeySym)` matching. Only the bindings hardcoded here are
+/// recognised for now.
 #[must_use]
 pub fn action_for(modifiers: &ModifiersState, keysym: Keysym) -> Option<Action> {
     if !META.is_active(modifiers) {
@@ -63,9 +69,9 @@ pub fn action_for(modifiers: &ModifiersState, keysym: Keysym) -> Option<Action> 
         // META + Shift + Return -> launch the terminal.
         (true, Keysym::Return) => Some(Action::SpawnTerminal),
         // META + Shift + c -> close the focused window.
-        (true, Keysym::C | Keysym::c) => Some(Action::CloseWindow),
+        (true, Keysym::c) => Some(Action::CloseWindow),
         // META + Shift + q -> quit oxmonad.
-        (true, Keysym::Q | Keysym::q) => Some(Action::Quit),
+        (true, Keysym::q) => Some(Action::Quit),
         // META + Return -> promote the focused window to master.
         (false, Keysym::Return) => Some(Action::SwapMaster),
         // META + p -> open the application launcher.
@@ -81,8 +87,32 @@ pub fn action_for(modifiers: &ModifiersState, keysym: Keysym) -> Option<Action> 
         // META + Up / Down -> resize the focused tile vertically.
         (false, Keysym::Up) => Some(Action::ExpandFocused),
         (false, Keysym::Down) => Some(Action::ShrinkFocused),
-        _ => None,
+        // META + 1..9 -> view that workspace; with Shift -> move window to it.
+        (shift, _) => workspace_digit(keysym).map(|index| {
+            if shift {
+                Action::MoveToWorkspace(index)
+            } else {
+                Action::ViewWorkspace(index)
+            }
+        }),
     }
+}
+
+/// Maps a number-row keysym (`1`..`9`) to a zero-based workspace index.
+fn workspace_digit(keysym: Keysym) -> Option<usize> {
+    let digit = match keysym {
+        Keysym::_1 => 1,
+        Keysym::_2 => 2,
+        Keysym::_3 => 3,
+        Keysym::_4 => 4,
+        Keysym::_5 => 5,
+        Keysym::_6 => 6,
+        Keysym::_7 => 7,
+        Keysym::_8 => 8,
+        Keysym::_9 => 9,
+        _ => return None,
+    };
+    Some(digit - 1)
 }
 
 impl Oxmonad {
@@ -106,6 +136,8 @@ impl Oxmonad {
             Action::ShrinkMaster => self.shrink_master_area(),
             Action::ExpandMaster => self.expand_master_area(),
             Action::MoveToOtherMonitor => self.move_focused_to_next_monitor(),
+            Action::ViewWorkspace(index) => self.view_workspace(index),
+            Action::MoveToWorkspace(index) => self.move_focused_to_workspace(index),
         }
     }
 }
@@ -131,10 +163,8 @@ mod tests {
 
     #[test]
     fn meta_shift_c_closes_window() {
-        assert_eq!(
-            action_for(&meta_shift(), Keysym::C),
-            Some(Action::CloseWindow)
-        );
+        // Matching is on the unshifted (base) keysym, so Shift + c arrives as
+        // lowercase `c`, not `C`.
         assert_eq!(
             action_for(&meta_shift(), Keysym::c),
             Some(Action::CloseWindow)
@@ -143,7 +173,6 @@ mod tests {
 
     #[test]
     fn meta_shift_q_quits() {
-        assert_eq!(action_for(&meta_shift(), Keysym::Q), Some(Action::Quit));
         assert_eq!(action_for(&meta_shift(), Keysym::q), Some(Action::Quit));
     }
 
@@ -160,5 +189,29 @@ mod tests {
     fn meta_h_l_resize_master_area() {
         assert_eq!(action_for(&meta(), Keysym::h), Some(Action::ShrinkMaster));
         assert_eq!(action_for(&meta(), Keysym::l), Some(Action::ExpandMaster));
+    }
+
+    #[test]
+    fn meta_digit_views_workspace() {
+        assert_eq!(
+            action_for(&meta(), Keysym::_1),
+            Some(Action::ViewWorkspace(0))
+        );
+        assert_eq!(
+            action_for(&meta(), Keysym::_9),
+            Some(Action::ViewWorkspace(8))
+        );
+    }
+
+    #[test]
+    fn meta_shift_digit_moves_window_to_workspace() {
+        assert_eq!(
+            action_for(&meta_shift(), Keysym::_1),
+            Some(Action::MoveToWorkspace(0))
+        );
+        assert_eq!(
+            action_for(&meta_shift(), Keysym::_4),
+            Some(Action::MoveToWorkspace(3))
+        );
     }
 }

@@ -22,7 +22,6 @@ use smithay::{
             RelativeMotionEvent,
         },
     },
-    reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{
         Logical,
         Point,
@@ -70,9 +69,14 @@ impl Oxmonad {
                         serial,
                         time,
                         |_state, modifiers, handle| {
+                            // Match against the unshifted (latin) keysym so that
+                            // bindings work regardless of shift level or layout,
+                            // like xmonad's `(KeyMask, KeySym)` matching.
+                            let keysym = handle
+                                .raw_latin_sym_or_raw_current_sym()
+                                .unwrap_or_else(|| handle.modified_sym());
                             if key_state == KeyState::Pressed
-                                && let Some(action) =
-                                    keybindings::action_for(modifiers, handle.modified_sym())
+                                && let Some(action) = keybindings::action_for(modifiers, keysym)
                             {
                                 return FilterResult::Intercept(action);
                             }
@@ -156,10 +160,6 @@ impl Oxmonad {
                     .seat
                     .get_pointer()
                     .expect("the seat always has a pointer; one is added during startup");
-                let keyboard = self
-                    .seat
-                    .get_keyboard()
-                    .expect("the seat always has a keyboard; one is added during startup");
 
                 let serial = SERIAL_COUNTER.next_serial();
 
@@ -173,18 +173,10 @@ impl Oxmonad {
                         .element_under(pointer.current_location())
                         .map(|(w, _)| w.clone())
                     {
-                        // Focusing follows the monitor the window lives on.
+                        // Focusing follows the workspace/monitor the window is on.
                         self.focus_window(&window);
                     } else {
-                        self.selected_window = None;
-                        for window in self.space.elements() {
-                            window.set_activated(false);
-                            window
-                                .toplevel()
-                                .expect("managed windows are always wayland toplevels")
-                                .send_pending_configure();
-                        }
-                        keyboard.set_focus(self, Option::<WlSurface>::None, serial);
+                        self.clear_focus();
                     }
                 }
 

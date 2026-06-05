@@ -23,6 +23,7 @@ use smithay::{
         layer_map_for_output,
     },
     output::Output,
+    reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{
         IsAlive,
         Logical,
@@ -41,30 +42,49 @@ use crate::{
 /// A window together with its computed location and size.
 type Placement = (Window, Point<i32, Logical>, Size<i32, Logical>);
 
-/// One monitor: an output plus the windows tiled on it and their layout.
+/// A virtual desktop: an independent window stack and layout, like an xmonad
+/// workspace.
 ///
-/// Each monitor tiles independently, xmonad-style — windows belong to exactly
-/// one monitor and never spill onto another. New windows open on the
-/// [active monitor](Oxmonad::active_monitor), and can be sent to another
-/// monitor with [`Oxmonad::move_focused_to_next_monitor`].
+/// Windows belong to exactly one workspace. A workspace is shown when a
+/// [`Monitor`] displays it; otherwise it is hidden and its windows are
+/// unmapped. Workspaces are addressed by index (their position in
+/// [`Oxmonad::workspaces`]) and carry a [name](Self::name) for display —
+/// `"1"`..`"9"` by default, or any custom label from [`config::WORKSPACES`].
 #[derive(Debug)]
-pub struct Monitor {
-    /// The output this monitor renders to.
-    pub output: Output,
-    /// Windows tiled on this monitor in tiling order; index 0 is the master.
+pub struct Workspace {
+    /// Display name, e.g. `"1"` or `"web"`.
+    pub name: String,
+    /// Windows on this workspace in tiling order; index 0 is the master.
     pub windows: Vec<Window>,
-    /// The tiling layout used to arrange this monitor's windows.
+    /// The tiling layout used to arrange this workspace's windows.
     pub layout: ResizableTall,
 }
 
-impl Monitor {
-    fn new(output: Output) -> Self {
+impl Workspace {
+    /// Creates an empty workspace with the given display `name`.
+    #[must_use]
+    pub fn new(name: String) -> Self {
         Self {
-            output,
+            name,
             windows: Vec::new(),
             layout: ResizableTall::default(),
         }
     }
+}
+
+/// One monitor: an output and the index of the [`Workspace`] it currently
+/// displays.
+///
+/// Each monitor shows exactly one workspace, and no two monitors show the same
+/// one. Switching the displayed workspace is done with
+/// [`Oxmonad::view_workspace`]; windows are sent to a workspace with
+/// [`Oxmonad::move_focused_to_workspace`].
+#[derive(Debug)]
+pub struct Monitor {
+    /// The output this monitor renders to.
+    pub output: Output,
+    /// Index into [`Oxmonad::workspaces`] of the workspace shown here.
+    pub workspace: usize,
 }
 
 /// A master/stack tiling layout (xmonad's `ResizableTall`).
@@ -216,16 +236,20 @@ fn split_column(
 }
 
 impl Oxmonad {
-    /// Registers a freshly-detected `output` as a new monitor.
+    /// Registers a freshly-detected `output` as a new monitor, assigning it the
+    /// first workspace not already shown elsewhere.
     pub fn add_monitor(&mut self, output: Output) {
-        self.monitors.push(Monitor::new(output));
+        let workspace = (0..self.workspaces.len())
+            .find(|index| !self.monitors.iter().any(|m| m.workspace == *index))
+            .unwrap_or(0);
+        self.monitors.push(Monitor { output, workspace });
     }
 
-    /// Iterates every managed window across all monitors.
+    /// Iterates every managed window across all workspaces (visible or hidden).
     pub fn managed_windows(&self) -> impl Iterator<Item = &Window> {
-        self.monitors
+        self.workspaces
             .iter()
-            .flat_map(|monitor| monitor.windows.iter())
+            .flat_map(|workspace| workspace.windows.iter())
     }
 
     /// Whether `output` is the primary monitor — the one carrying the bar.
@@ -246,20 +270,33 @@ impl Oxmonad {
         }
     }
 
-    /// Index into [`Self::monitors`] of the monitor holding `window`, if any.
-    fn monitor_index_of_window(&self, window: &Window) -> Option<usize> {
-        self.monitors
+    /// Index into [`Self::workspaces`] of the workspace holding `window`.
+    fn workspace_index_of_window(&self, window: &Window) -> Option<usize> {
+        self.workspaces
             .iter()
-            .position(|monitor| monitor.windows.contains(window))
+            .position(|workspace| workspace.windows.contains(window))
     }
 
-    /// Recomputes the layout and repositions/resizes every managed window.
+    /// Index into [`Self::workspaces`] of the workspace shown on the active
+    /// monitor (the "current" workspace).
+    #[must_use]
+    pub fn current_workspace(&self) -> Option<usize> {
+        self.monitors.get(self.active_monitor).map(|m| m.workspace)
+    }
+
+    /// The monitor currently displaying workspace `index`, if any.
+    fn monitor_showing(&self, index: usize) -> Option<usize> {
+        self.monitors.iter().position(|m| m.workspace == index)
+    }
+
+    /// Recomputes the layout: tiles every visible workspace on its monitor and
+    /// unmaps windows that live on hidden workspaces.
     ///
-    /// Each monitor tiles its own windows within its output, offset into global
-    /// space; only the primary monitor reserves room for the built-in bar.
+    /// Each monitor tiles within its output, offset into global space; only the
+    /// primary monitor reserves room for the built-in bar.
     pub fn relayout(&mut self) {
-        for monitor in &mut self.monitors {
-            monitor.windows.retain(IsAlive::alive);
+        for workspace in &mut self.workspaces {
+            workspace.windows.retain(IsAlive::alive);
         }
         if self
             .selected_window
@@ -269,12 +306,28 @@ impl Oxmonad {
             self.selected_window = None;
         }
 
+        // Windows on workspaces no monitor displays are hidden: unmap them so
+        // they stop rendering. Collect first to avoid borrowing while mutating.
+        let hidden: Vec<Window> = self
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| self.monitor_showing(*index).is_none())
+            .flat_map(|(_, workspace)| workspace.windows.iter().cloned())
+            .collect();
+        for window in hidden {
+            self.space.unmap_elem(&window);
+        }
+
         let border = config::BORDER_WIDTH;
 
-        // Collect placements first so we don't borrow the monitors while
+        // Collect placements first so we don't borrow the workspaces while
         // mutating `self.space`.
         let mut placements: Vec<Placement> = Vec::new();
         for monitor in &self.monitors {
+            let Some(workspace) = self.workspaces.get(monitor.workspace) else {
+                continue;
+            };
             let Some(output_geo) = self.space.output_geometry(&monitor.output) else {
                 continue;
             };
@@ -288,8 +341,8 @@ impl Oxmonad {
                 area
             };
 
-            let tiles = monitor.layout.arrange(monitor.windows.len(), area);
-            for (window, tile) in monitor.windows.iter().cloned().zip(tiles) {
+            let tiles = workspace.layout.arrange(workspace.windows.len(), area);
+            for (window, tile) in workspace.windows.iter().cloned().zip(tiles) {
                 let geometry = window_geometry(tile, border);
                 placements.push((window, geometry.loc, geometry.size));
             }
@@ -328,11 +381,14 @@ impl Oxmonad {
 
     /// Gives keyboard focus to `window`, raising it and updating activation.
     ///
-    /// Focus follows the monitor: the window's monitor becomes active.
+    /// Focus follows the monitor: the monitor showing the window's workspace
+    /// becomes active.
     pub fn focus_window(&mut self, window: &Window) {
         self.selected_window = Some(window.clone());
-        if let Some(index) = self.monitor_index_of_window(window) {
-            self.active_monitor = index;
+        if let Some(workspace) = self.workspace_index_of_window(window)
+            && let Some(monitor) = self.monitor_showing(workspace)
+        {
+            self.active_monitor = monitor;
         }
 
         let serial = SERIAL_COUNTER.next_serial();
@@ -353,42 +409,80 @@ impl Oxmonad {
         }
     }
 
-    /// Index of the focused window within the active monitor, or 0 when none.
+    /// Clears keyboard focus and the selection, deactivating every window.
+    ///
+    /// Used when switching to an empty workspace or clicking the background.
+    pub(crate) fn clear_focus(&mut self) {
+        self.selected_window = None;
+        for window in self.managed_windows() {
+            window.set_activated(false);
+            if let Some(toplevel) = window.toplevel() {
+                toplevel.send_pending_configure();
+            }
+        }
+        let serial = SERIAL_COUNTER.next_serial();
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            keyboard.set_focus(self, Option::<WlSurface>::None, serial);
+        }
+    }
+
+    /// Focuses the master window of workspace `index`, or clears focus when it
+    /// is empty.
+    pub(crate) fn focus_workspace_master(&mut self, index: usize) {
+        if let Some(master) = self
+            .workspaces
+            .get(index)
+            .and_then(|workspace| workspace.windows.first())
+            .cloned()
+        {
+            self.focus_window(&master);
+        } else {
+            self.clear_focus();
+        }
+    }
+
+    /// Index of the focused window within the current workspace, or 0 if none.
     fn focused_index(&self) -> usize {
-        let Some(monitor) = self.monitors.get(self.active_monitor) else {
+        let Some(workspace) = self
+            .current_workspace()
+            .and_then(|i| self.workspaces.get(i))
+        else {
             return 0;
         };
         self.focused_window()
-            .and_then(|focused| monitor.windows.iter().position(|w| *w == focused))
+            .and_then(|focused| workspace.windows.iter().position(|w| *w == focused))
             .unwrap_or(0)
     }
 
-    /// Focuses the window `count` steps after the focused one on the active
-    /// monitor (wrapping).
+    /// Focuses the window `count` steps after the focused one on the current
+    /// workspace (wrapping).
     fn focus_step(&mut self, step: usize) {
-        let Some(monitor) = self.monitors.get(self.active_monitor) else {
+        let Some(workspace) = self
+            .current_workspace()
+            .and_then(|i| self.workspaces.get(i))
+        else {
             return;
         };
-        let count = monitor.windows.len();
+        let count = workspace.windows.len();
         if count == 0 {
             return;
         }
         let next = (self.focused_index() + step) % count;
-        let window = monitor.windows[next].clone();
+        let window = workspace.windows[next].clone();
         self.focus_window(&window);
     }
 
-    /// Focuses the next window in tiling order on the active monitor.
+    /// Focuses the next window in tiling order on the current workspace.
     pub fn focus_next(&mut self) {
         self.focus_step(1);
     }
 
-    /// Focuses the previous window in tiling order on the active monitor.
+    /// Focuses the previous window in tiling order on the current workspace.
     pub fn focus_prev(&mut self) {
         let Some(count) = self
-            .monitors
-            .get(self.active_monitor)
-            .map(|m| m.windows.len())
+            .current_workspace()
+            .and_then(|i| self.workspaces.get(i))
+            .map(|workspace| workspace.windows.len())
         else {
             return;
         };
@@ -399,28 +493,83 @@ impl Oxmonad {
         self.focus_step(count - 1);
     }
 
-    /// Swaps the focused window with the master window of its monitor and keeps
-    /// focus on it.
+    /// Swaps the focused window with the master of its workspace, keeping
+    /// focus.
     pub fn swap_master(&mut self) {
         let Some(focused) = self.focused_window() else {
             return;
         };
-        let Some(monitor) = self.monitors.get_mut(self.active_monitor) else {
+        let Some(workspace) = self
+            .current_workspace()
+            .and_then(|i| self.workspaces.get_mut(i))
+        else {
             return;
         };
-        let Some(index) = monitor.windows.iter().position(|w| *w == focused) else {
+        let Some(index) = workspace.windows.iter().position(|w| *w == focused) else {
             return;
         };
 
         if index != 0 {
-            monitor.windows.swap(0, index);
+            workspace.windows.swap(0, index);
         }
-        let master = monitor.windows[0].clone();
+        let master = workspace.windows[0].clone();
         self.relayout();
         self.focus_window(&master);
     }
 
-    /// Moves the focused window to the next monitor (wrapping) and follows it.
+    /// Shows workspace `target` on the active monitor.
+    ///
+    /// Follows xmonad's `greedyView`: if `target` is already shown on another
+    /// monitor, the two monitors exchange workspaces; otherwise the hidden
+    /// `target` replaces whatever the active monitor was showing.
+    pub fn view_workspace(&mut self, target: usize) {
+        if target >= self.workspaces.len() {
+            return;
+        }
+        let Some(current) = self.current_workspace() else {
+            return;
+        };
+        if current == target {
+            return;
+        }
+
+        if let Some(other) = self.monitor_showing(target) {
+            self.monitors[other].workspace = current;
+        }
+        self.monitors[self.active_monitor].workspace = target;
+
+        self.relayout();
+        self.focus_workspace_master(target);
+    }
+
+    /// Moves the focused window to workspace `target` without switching view,
+    /// matching xmonad's `mod+Shift+N`.
+    pub fn move_focused_to_workspace(&mut self, target: usize) {
+        if target >= self.workspaces.len() {
+            return;
+        }
+        let Some(focused) = self.focused_window() else {
+            return;
+        };
+        let Some(source) = self.workspace_index_of_window(&focused) else {
+            return;
+        };
+        if source == target {
+            return;
+        }
+
+        self.workspaces[source].windows.retain(|w| *w != focused);
+        self.workspaces[target].windows.insert(0, focused.clone());
+
+        self.relayout();
+        // Focus stays on the current workspace; pick its new master.
+        if let Some(current) = self.current_workspace() {
+            self.focus_workspace_master(current);
+        }
+    }
+
+    /// Moves the focused window to the workspace shown on the next monitor
+    /// (wrapping) and follows it there.
     pub fn move_focused_to_next_monitor(&mut self) {
         if self.monitors.len() < 2 {
             return;
@@ -428,21 +577,30 @@ impl Oxmonad {
         let Some(focused) = self.focused_window() else {
             return;
         };
-        let Some(from) = self.monitor_index_of_window(&focused) else {
+        let Some(source) = self.workspace_index_of_window(&focused) else {
             return;
         };
-        let to = (from + 1) % self.monitors.len();
+        let next = (self.active_monitor + 1) % self.monitors.len();
+        let target = self.monitors[next].workspace;
+        if source == target {
+            return;
+        }
 
-        if let Some(monitor) = self.monitors.get_mut(from) {
-            monitor.windows.retain(|w| *w != focused);
-        }
-        // Land as the master of the destination monitor, like a fresh window.
-        if let Some(monitor) = self.monitors.get_mut(to) {
-            monitor.windows.insert(0, focused.clone());
-        }
-        self.active_monitor = to;
+        self.workspaces[source].windows.retain(|w| *w != focused);
+        self.workspaces[target].windows.insert(0, focused.clone());
+        self.active_monitor = next;
         self.relayout();
         self.focus_window(&focused);
+    }
+
+    /// Renames the current workspace, e.g. for a user-defined named workspace.
+    pub fn rename_current_workspace(&mut self, name: String) {
+        if let Some(workspace) = self
+            .current_workspace()
+            .and_then(|i| self.workspaces.get_mut(i))
+        {
+            workspace.name = name;
+        }
     }
 
     /// Requests that the currently focused window closes.
@@ -458,9 +616,12 @@ impl Oxmonad {
     /// Expands the focused window vertically within its layout column.
     pub fn expand_focused_window(&mut self) {
         let index = self.focused_index();
-        if let Some(monitor) = self.monitors.get_mut(self.active_monitor) {
-            let count = monitor.windows.len();
-            monitor.layout.expand_window(index, count);
+        if let Some(workspace) = self
+            .current_workspace()
+            .and_then(|i| self.workspaces.get_mut(i))
+        {
+            let count = workspace.windows.len();
+            workspace.layout.expand_window(index, count);
         }
         self.relayout();
     }
@@ -468,30 +629,39 @@ impl Oxmonad {
     /// Shrinks the focused window vertically within its layout column.
     pub fn shrink_focused_window(&mut self) {
         let index = self.focused_index();
-        if let Some(monitor) = self.monitors.get_mut(self.active_monitor) {
-            let count = monitor.windows.len();
-            monitor.layout.shrink_window(index, count);
+        if let Some(workspace) = self
+            .current_workspace()
+            .and_then(|i| self.workspaces.get_mut(i))
+        {
+            let count = workspace.windows.len();
+            workspace.layout.shrink_window(index, count);
         }
         self.relayout();
     }
 
-    /// Expands the active monitor's master area horizontally.
+    /// Expands the current workspace's master area horizontally.
     pub fn expand_master_area(&mut self) {
-        if let Some(monitor) = self.monitors.get_mut(self.active_monitor) {
-            monitor.layout.expand_master();
+        if let Some(workspace) = self
+            .current_workspace()
+            .and_then(|i| self.workspaces.get_mut(i))
+        {
+            workspace.layout.expand_master();
         }
         self.relayout();
     }
 
-    /// Shrinks the active monitor's master area horizontally.
+    /// Shrinks the current workspace's master area horizontally.
     pub fn shrink_master_area(&mut self) {
-        if let Some(monitor) = self.monitors.get_mut(self.active_monitor) {
-            monitor.layout.shrink_master();
+        if let Some(workspace) = self
+            .current_workspace()
+            .and_then(|i| self.workspaces.get_mut(i))
+        {
+            workspace.layout.shrink_master();
         }
         self.relayout();
     }
 
-    /// Builds the border render elements for every managed window.
+    /// Builds the border render elements for every visible managed window.
     #[must_use]
     pub fn border_elements(&self, scale: f64) -> Vec<SolidColorRenderElement> {
         let border = config::BORDER_WIDTH;
@@ -499,6 +669,7 @@ impl Oxmonad {
 
         let mut elements = Vec::new();
         for window in self.managed_windows() {
+            // Hidden-workspace windows are unmapped and have no geometry.
             let Some(geometry) = self.space.element_geometry(window) else {
                 continue;
             };

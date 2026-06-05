@@ -49,8 +49,16 @@ pub fn content_area(area: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
     )
 }
 
+/// One workspace tag rendered in the bar: its display name and whether it is
+/// the workspace shown on that bar's monitor.
+pub(crate) struct WorkspaceTag<'a> {
+    pub name: &'a str,
+    pub shown: bool,
+}
+
 impl Oxmonad {
-    /// Builds render elements for the built-in status bar.
+    /// Builds render elements for the built-in status bar: the workspace tags
+    /// followed by the focused window's title.
     #[must_use]
     pub fn bar_elements(&self, output: &Output, scale: f64) -> Vec<SolidColorRenderElement> {
         // The bar belongs to the primary monitor only.
@@ -62,11 +70,24 @@ impl Oxmonad {
             return Vec::new();
         };
 
-        bar_elements_for_title(
-            output_geo,
-            self.focused_title().as_deref().unwrap_or_default(),
-            scale,
-        )
+        // Highlight the workspace currently displayed on this bar's monitor.
+        let shown = self
+            .monitors
+            .iter()
+            .find(|monitor| monitor.output.name() == output.name())
+            .map(|monitor| monitor.workspace);
+        let tags: Vec<WorkspaceTag<'_>> = self
+            .workspaces
+            .iter()
+            .enumerate()
+            .map(|(index, workspace)| WorkspaceTag {
+                name: &workspace.name,
+                shown: shown == Some(index),
+            })
+            .collect();
+
+        let title = self.focused_title().unwrap_or_default();
+        render_bar(output_geo, &tags, &title, scale)
     }
 
     fn focused_title(&self) -> Option<String> {
@@ -76,8 +97,12 @@ impl Oxmonad {
     }
 }
 
-pub(crate) fn bar_elements_for_title(
+/// Pixels between adjacent workspace tags (and before the window title).
+const TAG_GAP: i32 = GLYPH_W * GLYPH_SCALE;
+
+pub(crate) fn render_bar(
     output_geo: Rectangle<i32, Logical>,
+    tags: &[WorkspaceTag<'_>],
     title: &str,
     scale: f64,
 ) -> Vec<SolidColorRenderElement> {
@@ -90,11 +115,35 @@ pub(crate) fn bar_elements_for_title(
     let mut elements = Vec::new();
 
     let y = output_geo.loc.y + (height - GLYPH_H * GLYPH_SCALE) / 2;
-    let max_width = output_geo.size.w - TEXT_X * 2;
+    let advance = (GLYPH_W + GLYPH_GAP) * GLYPH_SCALE;
+    let right_edge = output_geo.loc.x + output_geo.size.w - TEXT_X;
+    let mut x = output_geo.loc.x + TEXT_X;
+
+    // Workspace tags, the one shown on this monitor highlighted.
+    for tag in tags {
+        let color = if tag.shown {
+            config::BAR_WORKSPACE_ACTIVE_COLOR
+        } else {
+            config::BAR_TEXT_COLOR
+        };
+        let chars = i32::try_from(tag.name.chars().count()).unwrap_or(0);
+        draw_text(
+            &mut elements,
+            Point::from((x, y)),
+            (right_edge - x).max(0),
+            tag.name,
+            color,
+            scale,
+        );
+        x += chars * advance + TAG_GAP;
+    }
+
+    // A wider gap, then the focused window title.
+    x += TAG_GAP;
     draw_text(
         &mut elements,
-        Point::from((output_geo.loc.x + TEXT_X, y)),
-        max_width,
+        Point::from((x, y)),
+        (right_edge - x).max(0),
         title,
         config::BAR_TEXT_COLOR,
         scale,
@@ -371,9 +420,23 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_bar_with_focused_title() {
-        let elements = bar_elements_for_title(rect(0, 0, 1000, 1000), "oxmonad-snapshot", 1.0);
+    fn snapshot_bar_with_workspaces_and_title() {
+        let tags = [
+            WorkspaceTag {
+                name: "1",
+                shown: true,
+            },
+            WorkspaceTag {
+                name: "2",
+                shown: false,
+            },
+            WorkspaceTag {
+                name: "web",
+                shown: false,
+            },
+        ];
+        let elements = render_bar(rect(0, 0, 1000, 1000), &tags, "oxmonad-snapshot", 1.0);
 
-        crate::snapshot::assert_snapshot("built_in_bar_title", 1000, 1000, &elements);
+        crate::snapshot::assert_snapshot("built_in_bar", 1000, 1000, &elements);
     }
 }

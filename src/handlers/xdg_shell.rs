@@ -57,13 +57,16 @@ impl XdgShellHandler for Oxmonad {
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         let window = Window::new_wayland_window(surface);
-        // New windows become the master window of the active monitor, like
+        // New windows become the master window of the current workspace, like
         // xmonad's default insertion.
-        let Some(monitor) = self.monitors.get_mut(self.active_monitor) else {
+        let Some(workspace) = self
+            .current_workspace()
+            .and_then(|index| self.workspaces.get_mut(index))
+        else {
             // No monitor detected yet; nothing to tile this window onto.
             return;
         };
-        monitor.windows.insert(0, window.clone());
+        workspace.windows.insert(0, window.clone());
         self.relayout();
         self.focus_window(&window);
     }
@@ -77,19 +80,14 @@ impl XdgShellHandler for Oxmonad {
             .cloned();
         if let Some(window) = destroyed {
             self.space.unmap_elem(&window);
-            for monitor in &mut self.monitors {
-                monitor.windows.retain(|managed| *managed != window);
+            for workspace in &mut self.workspaces {
+                workspace.windows.retain(|managed| *managed != window);
             }
         }
 
         self.relayout();
-        if let Some(master) = self
-            .monitors
-            .get(self.active_monitor)
-            .and_then(|monitor| monitor.windows.first())
-            .cloned()
-        {
-            self.focus_window(&master);
+        if let Some(current) = self.current_workspace() {
+            self.focus_workspace_master(current);
         }
     }
 

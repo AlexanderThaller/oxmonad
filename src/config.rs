@@ -9,6 +9,8 @@ use smithay::{
     input::keyboard::ModifiersState,
 };
 
+use crate::layout::Workspace;
+
 /// The primary modifier used by every oxmonad keybinding — xmonad's "mod key".
 ///
 /// Defaults to [`Modifier::Super`] (the "logo"/Windows key). Change this single
@@ -38,6 +40,31 @@ pub const LAUNCHER: &str = "tofi-run | xargs --no-run-if-empty setsid --fork";
 /// output becomes primary. Every other monitor tiles windows without a bar.
 pub const PRIMARY_OUTPUT: Option<&str> = None;
 
+/// Names of the workspaces (virtual desktops) created at startup, in order.
+///
+/// Defaults to the xmonad-style numeric tags `"1"`..`"9"`; replace any entry
+/// with a custom label (e.g. `"web"`, `"code"`, `"chat"`) for named
+/// workspaces. They are addressed by position: `META + 1` always views the
+/// first workspace regardless of its name. There must be at least one, and at
+/// least as many as the number of connected monitors for each to get a
+/// distinct workspace.
+pub const WORKSPACES: &[&str] = &["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+/// Builds the initial [`Workspace`] pool from [`WORKSPACES`].
+///
+/// Falls back to a single `"1"` workspace if [`WORKSPACES`] is empty, so the
+/// compositor always has somewhere to place windows.
+#[must_use]
+pub fn workspaces() -> Vec<Workspace> {
+    if WORKSPACES.is_empty() {
+        return vec![Workspace::new("1".to_string())];
+    }
+    WORKSPACES
+        .iter()
+        .map(|name| Workspace::new((*name).to_string()))
+        .collect()
+}
+
 /// Height of the built-in status bar, in logical pixels.
 pub const BAR_HEIGHT: i32 = 24;
 
@@ -47,6 +74,11 @@ pub const BAR_BACKGROUND_COLOR: Color32F =
 
 /// Text color of the built-in status bar.
 pub const BAR_TEXT_COLOR: Color32F = Color32F::new(0.827_451, 0.843_137_26, 0.878_431_4, 1.0);
+
+/// Text color of the workspace shown on a monitor, in its bar — yellow
+/// (`#F8E63A`), matching the user's xmonad `ppCurrent`.
+pub const BAR_WORKSPACE_ACTIVE_COLOR: Color32F =
+    Color32F::new(0.972_549, 0.901_960_8, 0.227_451, 1.0);
 
 /// Width of the window border, in logical pixels.
 pub const BORDER_WIDTH: i32 = 1;

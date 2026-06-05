@@ -62,7 +62,11 @@ use smithay::{
 
 use crate::{
     OxmonadData,
-    layout::Monitor,
+    config,
+    layout::{
+        Monitor,
+        Workspace,
+    },
     screencopy::ScreencopyState,
 };
 
@@ -78,11 +82,13 @@ pub struct Oxmonad {
     pub space: Space<Window>,
     pub loop_signal: LoopSignal,
 
-    /// One entry per connected output, each tiling its own windows
-    /// xmonad-style.
+    /// The pool of workspaces (virtual desktops). Each holds its own window
+    /// stack and layout; one is shown per monitor.
+    pub workspaces: Vec<Workspace>,
+    /// One entry per connected output, each displaying one workspace.
     pub monitors: Vec<Monitor>,
     /// Index into [`Self::monitors`] of the monitor receiving new windows and
-    /// focus/layout commands.
+    /// focus/layout commands; its workspace is the "current" one.
     pub active_monitor: usize,
     /// The currently selected managed window, independent from temporary
     /// keyboard focus held by layer-shell clients.
@@ -163,6 +169,7 @@ impl Oxmonad {
             loop_signal,
             socket_name,
 
+            workspaces: config::workspaces(),
             monitors: Vec::new(),
             active_monitor: 0,
             selected_window: None,

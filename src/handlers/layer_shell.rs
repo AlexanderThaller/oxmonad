@@ -88,15 +88,10 @@ impl WlrLayerShellHandler for Oxmonad {
         }
 
         self.relayout();
-        // Return keyboard focus to the active monitor's master window after the
-        // layer (e.g. a launcher) goes away.
-        if let Some(master) = self
-            .monitors
-            .get(self.active_monitor)
-            .and_then(|monitor| monitor.windows.first())
-            .cloned()
-        {
-            self.focus_window(&master);
+        // Return keyboard focus to the current workspace's master window after
+        // the layer (e.g. a launcher) goes away.
+        if let Some(current) = self.current_workspace() {
+            self.focus_workspace_master(current);
         }
     }
 }
