@@ -1,0 +1,9 @@
+[submodule "resources/xmonad"]
+	path = resources/xmonad
+	url = https://github.com/xmonad/xmonad
+[submodule "resources/xmonad-contrib"]
+	path = resources/xmonad-contrib
+	url = https://github.com/xmonad/xmonad-contrib
+[submodule "resources/xmonad-extras"]
+	path = resources/xmonad-extras
+	url = https://github.com/xmonad/xmonad-extras
