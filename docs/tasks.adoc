@@ -9,105 +9,98 @@ rationale.
 
 == Already implemented (for reference)
 
-* Wayland compositor on smithay (winit + headless backends).
-* `ResizableTall` master/stack layout with per-tile vertical resize and master-width resize.
-* Window borders with focused/normal colors and configurable width.
-* Built-in status bar rendering the focused window title.
+* Wayland compositor on smithay (winit + headless + TTY/DRM backends).
+* Multi-monitor support with hotplug, one workspace per monitor.
+* Workspaces `1`–`9` with view (`Mod+1..9`) and move (`Mod+Shift+1..9`);
+  per-workspace layout state.
+* Dynamic workspaces (`XMonad.Actions.DynamicWorkspaces`) driven by a built-in
+  prompt (`XMonad.Prompt` style, `myXPConfig` colors, prefix completion, Tab
+  cycling): select/create (`Mod+v`), move window (`Mod+m`), copy window
+  (`Mod+Shift+m`, windows can live on several workspaces), rename
+  (`Mod+Shift+r`), remove-and-merge (`Mod+Shift+BackSpace`).
+* Toggle to the most recently hidden workspace (`Mod+Shift+z`, `toggleWS`).
+* Swap workspaces between screens (`Mod+z`, `swapNextScreen`); focus/send to
+  next/previous physical screen (`Mod+[Shift+]Left/Right`,
+  `XMonad.Actions.PhysicalScreens`, screens ordered top-to-bottom then
+  left-to-right); refresh (`Mod+n`).
+* The full `myLayout` ring with per-layout state, `Mod+Space` cycle and
+  `Mod+Shift+Space` reset: `reflectHoriz tiled ||| tiled ||| Mirror tiled |||
+  noBorders Full ||| tabbed ||| Mirror Grid ||| Grid ||| ThreeCol |||
+  reflectHoriz ThreeCol` (tiled = `ResizableTall 1 (3/100) (3/5)`,
+  ThreeCol = `ThreeCol 1 (3/100) (1/2)`), ported from the Haskell sources.
+* Layout messages: master ratio (`Mod+h`/`Mod+l`), per-tile resize
+  (`Mod+Up`/`Mod+Down`, `MirrorExpand`/`MirrorShrink`), master count
+  (`Mod+,`/`Mod+.`, `IncMasterN`).
+* Window stack: focus next/prev (`Mod+j`/`Mod+k`), swap down/up
+  (`Mod+Shift+j`/`Mod+Shift+k`), swap master (`Mod+Return`), close
+  (`Mod+Shift+c`).
+* Floating windows: drag-to-float (move grab), sink (`Mod+t`), floats render
+  above the tiled layer.
+* Manage rules: `manageZoomHook` — Zoom main/meeting windows tile and swap out
+  of the master slot, all other Zoom windows float (matched on
+  app-id/title at first commit).
+* Window borders with focused/normal colors; suppressed on `noBorders Full`.
+* Built-in status bar: workspace tags with the current one highlighted as
+  `<n>` (`ppCurrent` yellow), current layout name (default `ppOrder`), focused
+  window title (`ppTitle` green, shortened), toggle with `Mod+b`
+  (`toggleStrutsKey`).
+* Tabbed layout tab strip with the default xmonad `Theme` colors.
+* Spawns: terminal (`Mod+Shift+Return`, alacritty), launcher (`Mod+p`, tofi),
+  editor (`Mod+x`, emacs), locker (`Mod+Shift+l`, swaylock), media keys via
+  `playerctl` (`XF86Audio*`).
 * `wlr-layer-shell`, `xdg-shell`, `xdg-decoration`, `wlr-screencopy`.
-* Keybindings: spawn terminal, spawn launcher, swap-master, focus next/prev,
-  close window, quit, resize master area, resize focused tile.
-
-== Workspaces
-
-The single biggest gap: there is no workspace concept yet.
-
-* [ ] Static workspaces 1–9 (`myWorkspaces = map show [1..9]`).
-* [ ] Switch to workspace N (xmonad default `Mod+1..9`).
-* [ ] Move focused window to workspace N (`Mod+Shift+1..9`).
-* [ ] Per-workspace layout state (each workspace remembers its layout + tiling).
-* [ ] Dynamic workspaces (`XMonad.Actions.DynamicWorkspaces`):
-** [ ] Select/create workspace by name (`Mod+v`, `selectWorkspace`).
-** [ ] Move window to a named workspace (`Mod+m`, `withWorkspace … W.shift`).
-** [ ] Copy window to a named workspace (`Mod+Shift+m`, `withWorkspace … copy`).
-** [ ] Rename current workspace (`Mod+Shift+r`, `renameWorkspace`).
-** [ ] Remove current workspace (`Mod+Shift+BackSpace`, `removeWorkspace`).
-* [ ] Toggle to previous workspace, skipping scratchpad (`Mod+Shift+z`, `toggleWS' ["NSP"]`).
-* [ ] Copy window to all workspaces / sticky windows (`XMonad.Actions.CopyWindow`).
-
-== Multi-monitor support
-
-`XMonad.Actions.PhysicalScreens` and `LayoutScreens` drive several bindings.
-
-* [ ] Multiple output handling (currently effectively single-output).
-* [ ] Focus workspace on next/previous physical screen (`Mod+Left/Right`, `onNextNeighbour`/`onPrevNeighbour W.view`).
-* [ ] Move window to next/previous physical screen (`Mod+Shift+Left/Right`, `onNextNeighbour`/`onPrevNeighbour W.shift`).
-* [ ] Swap workspaces between screens (`Mod+z`, `swapNextScreen`).
-* [ ] Split a single screen into virtual screens (`Mod+Shift+s`, `layoutSplitScreen 2 (TwoPane …)`).
-* [ ] Rescreen / re-detect outputs (`Mod+Ctrl+Shift+s`, `rescreen`).
-* [ ] Hotplug handling (monitor connect/disconnect).
-
-== Layouts
-
-Only `ResizableTall` exists. The config cycles through a large layout list.
-
-* [ ] Layout switching key (xmonad default `Mod+Space`) to cycle layouts.
-* [ ] Reset to default layout (`Mod+Shift+Space`).
-* [ ] Mirror transform of a layout (`Mirror tiled`).
-* [ ] Horizontal reflect transform (`reflectHoriz`, `XMonad.Layout.Reflect`).
-* [ ] Full layout with no borders (`noBorders Full`).
-* [ ] Tabbed layout (`XMonad.Layout.Tabbed`, with theme/font).
-* [ ] Grid layout + mirrored Grid (`XMonad.Layout.Grid`).
-* [ ] Three-column layouts (`ThreeColMid`, `ThreeCol` from `XMonad.Layout.ThreeColumns`).
-* [ ] TwoPane layout (`XMonad.Layout.TwoPane`).
-* [ ] Increment / decrement master window count (xmonad default `Mod+,` / `Mod+.`).
-
-== Window management
-
-* [ ] Floating windows + manage hook / window rules engine.
-* [ ] Zoom-style rules: float/sink specific windows by app-id/title (`manageZoomHook`).
-* [ ] Sink a floating window back into tiling.
-* [ ] Fullscreen toggle for the focused window.
-* [ ] Scratchpad / named-scratchpad support (referenced via the `"NSP"` workspace).
+* Golden-image snapshot tests for the bar, prompt and tab strip.
 
 == Status bar
 
-The built-in bar shows only the window title. The xmobar config expects more.
+The built-in bar covers the xmonad pretty-printer side; the xmobar-specific
+modules are still open.
 
-* [ ] Workspace list / current-workspace indicator (xmobar `StdinReader` fed by xmonad's pretty-printer; `ppCurrent` highlights current as `<n>`).
 * [ ] Clock / date module (`Run Date "%Y.%m.%d-%u %H:%M"`).
 * [ ] Battery module with charging/charged/low states and color thresholds (`Run Battery`).
 * [ ] Left/right alignment regions with a separator (`alignSep = "}{"`, template `%StdinReader% }{ %battery% | %date%`).
-* [ ] Current layout indicator in the bar.
 * [ ] Bar positioning/width options (config uses `TopW L 90` — top, left, 90% width).
-* [ ] Title shortening (`shorten 100`) and per-section colors (`ppCurrent`/`ppTitle` colors).
-* [ ] Toggle bar visibility / struts (`Mod+b`, `toggleStrutsKey`).
+* [ ] A proper font renderer (the built-in bitmap font is uppercase-only ASCII).
+
+== Window management
+
+* [ ] Fullscreen toggle for the focused window (xdg fullscreen requests).
+* [ ] Scratchpad / named-scratchpad support (referenced via the `"NSP"` workspace).
+* [ ] Float-window resize via `Mod+drag` (client-initiated resize grabs work already).
+
+== Multi-monitor
+
+* [ ] Split a single screen into virtual screens (`Mod+Shift+s`,
+  `layoutSplitScreen 2 (TwoPane …)`) and `rescreen` (`Mod+Ctrl+Shift+s`).
+  Deliberately deferred: it requires monitors to map to output *regions*
+  rather than outputs, which touches every layout/bar/focus path — revisit if
+  actually missed in daily use.
 
 == Keybindings still missing
 
-Beyond the workspace/screen/layout bindings listed above:
+* [ ] Volume / brightness keys (common additions, not in the xmonad config but typically wanted).
 
-* [ ] Lock screen (`Mod+Shift+l`; xmonad runs `slock`, Wayland equivalent e.g. `swaylock`).
-* [ ] Launch editor (`Mod+x` → `emacs`).
-* [ ] Media keys via `playerctl`: play/pause, next, previous (`XF86Audio*`).
-* [ ] Volume / brightness keys (common additions, not in config but typically wanted).
+== Test coverage
+
+* [ ] Integration tests for `remove_current_workspace`'s monitor-reassignment
+  edge cases (multi-monitor removal, merge-target stealing) — the logic was
+  hand-verified in review but is intricate enough to deserve tests, e.g. via
+  new script actions in `tests/real_terminals.rs`.
 
 == Configuration
 
 * [ ] Runtime/user configuration to replace the hardcoded `config.rs`
   (keybindings, colors, modifier, terminal, launcher).
 * [ ] Configurable modifier — the reference config uses `mod1Mask` (Alt);
-  oxmonad currently hardcodes Super.
+  oxmonad currently hardcodes Super (change `META` in `config.rs`).
 * [ ] Configurable color theme (the config defines a full palette).
 * [ ] Configurable fonts (prompt, tabs, bar — config uses `Fira Mono`).
-* [ ] Configurable terminal (config uses `alacritty`).
-
-== Prompt
-
-* [ ] An interactive text prompt (xmonad's `XMonad.Prompt`/`XPConfig`) used by
-  the dynamic-workspace actions, or delegate these to the existing layer-shell
-  launcher (e.g. tofi) instead.
 
 == Not applicable (Wayland-only)
 
 * `setWMName "LG3D"` — an X11 hack to fix Java AWT/Swing apps; not relevant under Wayland.
 * `dmenu_run` / X11 launchers — already replaced by a Wayland layer-shell launcher (tofi).
+* `slock` — X11-only; the lock binding spawns `swaylock` instead.
+* xmobar itself — replaced by the built-in compositor-drawn bar.
+* EWMH hooks (`XMonad.Hooks.EwmhDesktops`) — X11 protocol; Wayland foreign-toplevel
+  management could fill this niche later if a taskbar/pager is wanted.
