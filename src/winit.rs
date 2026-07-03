@@ -109,10 +109,9 @@ pub fn init_winit(
                     let damage = Rectangle::from_size(size);
 
                     // Compositor UI is drawn as solid-color elements on top of
-                    // the windows: the built-in bar plus window borders.
+                    // the windows: prompt, built-in bar and window borders.
                     let scale = output.current_scale().fractional_scale();
-                    let mut overlays = state.bar_elements(&output, scale);
-                    overlays.extend(state.border_elements(scale));
+                    let overlays = state.overlay_elements(&output, scale);
 
                     {
                         let Ok((renderer, mut framebuffer)) = backend.bind() else {

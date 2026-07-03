@@ -253,8 +253,7 @@ pub fn finish_pending_screencopies_for_output(state: &mut Oxmonad, output: &Outp
         return;
     };
 
-    let mut elements = state.bar_elements(output, scale);
-    elements.extend(state.border_elements(scale));
+    let elements = state.overlay_elements(output, scale);
 
     let width = mode.size.w.max(0).cast_unsigned();
     let height = mode.size.h.max(0).cast_unsigned();

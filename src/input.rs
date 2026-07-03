@@ -37,6 +37,21 @@ use crate::{
     state::Oxmonad,
 };
 
+/// What the keyboard filter decided to do with an intercepted key event.
+#[derive(Debug)]
+enum KeyDispatch {
+    /// The key matched a keybinding.
+    Action(Action),
+    /// The key goes to the open prompt.
+    Prompt {
+        keysym: smithay::input::keyboard::Keysym,
+        ch: Option<char>,
+    },
+    /// Swallow the event without doing anything (e.g. key releases while the
+    /// prompt is open, which must not leak to the focused client).
+    Ignore,
+}
+
 impl Oxmonad {
     #[expect(
         clippy::too_many_lines,
@@ -57,18 +72,32 @@ impl Oxmonad {
 
                 // `input` runs the filter for every key event. We intercept
                 // presses that match a keybinding (so they don't reach the
-                // focused client) and forward everything else.
-                let action = self
+                // focused client) and forward everything else. While a prompt
+                // is open it captures the whole keyboard instead.
+                let dispatch = self
                     .seat
                     .get_keyboard()
                     .expect("the seat always has a keyboard; one is added during startup")
-                    .input::<Action, _>(
+                    .input::<KeyDispatch, _>(
                         self,
                         event.key_code(),
                         key_state,
                         serial,
                         time,
-                        |_state, modifiers, handle| {
+                        |state, modifiers, handle| {
+                            if state.prompt.is_some() {
+                                if key_state != KeyState::Pressed {
+                                    return FilterResult::Intercept(KeyDispatch::Ignore);
+                                }
+                                // The prompt wants the *modified* symbol so
+                                // shifted characters come out as typed.
+                                let keysym = handle.modified_sym();
+                                return FilterResult::Intercept(KeyDispatch::Prompt {
+                                    keysym,
+                                    ch: keysym.key_char(),
+                                });
+                            }
+
                             // Match against the unshifted (latin) keysym so that
                             // bindings work regardless of shift level or layout,
                             // like xmonad's `(KeyMask, KeySym)` matching.
@@ -78,14 +107,16 @@ impl Oxmonad {
                             if key_state == KeyState::Pressed
                                 && let Some(action) = keybindings::action_for(modifiers, keysym)
                             {
-                                return FilterResult::Intercept(action);
+                                return FilterResult::Intercept(KeyDispatch::Action(action));
                             }
                             FilterResult::Forward
                         },
                     );
 
-                if let Some(action) = action {
-                    self.handle_keybinding(action);
+                match dispatch {
+                    Some(KeyDispatch::Action(action)) => self.handle_keybinding(action),
+                    Some(KeyDispatch::Prompt { keysym, ch }) => self.handle_prompt_key(keysym, ch),
+                    Some(KeyDispatch::Ignore) | None => {}
                 }
             }
             InputEvent::PointerMotion { event, .. } => {

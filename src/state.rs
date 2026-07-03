@@ -40,6 +40,7 @@ use smithay::{
         Buffer,
         Logical,
         Point,
+        Rectangle,
     },
     wayland::{
         compositor::{
@@ -93,6 +94,26 @@ pub struct Oxmonad {
     /// The currently selected managed window, independent from temporary
     /// keyboard focus held by layer-shell clients.
     pub selected_window: Option<Window>,
+    /// Previously viewed workspace indices, most recent last. Used by the
+    /// toggle-workspace action (xmonad's `toggleWS`) to jump back to the most
+    /// recently hidden workspace.
+    pub workspace_history: Vec<usize>,
+    /// Whether the built-in status bar is shown. Toggled with `META + b`, like
+    /// xmonad's toggle-struts key.
+    pub bar_visible: bool,
+    /// The open workspace prompt, if any. While open it captures all keyboard
+    /// input (see [`crate::input`]) and renders on the active monitor.
+    pub prompt: Option<crate::prompt::Prompt>,
+    /// Windows floating above the tiled layer with their float geometry, like
+    /// xmonad's `W.floating`. Tiling skips them; grabs and manage rules set
+    /// and update the geometry. Membership in
+    /// [`crate::layout::Workspace::windows`] still decides which workspace a
+    /// floating window belongs to.
+    pub floating: std::collections::HashMap<Window, Rectangle<i32, Logical>>,
+    /// Freshly created toplevels whose manage rules ([`crate::rules`]) have
+    /// not been applied yet; evaluated on their first meaningful commit, once
+    /// the title and app id are known.
+    pub pending_manage: Vec<Window>,
 
     // Smithay State
     pub compositor_state: CompositorState,
@@ -173,6 +194,11 @@ impl Oxmonad {
             monitors: Vec::new(),
             active_monitor: 0,
             selected_window: None,
+            workspace_history: Vec::new(),
+            bar_visible: true,
+            prompt: None,
+            floating: std::collections::HashMap::new(),
+            pending_manage: Vec::new(),
 
             compositor_state,
             xdg_shell_state,

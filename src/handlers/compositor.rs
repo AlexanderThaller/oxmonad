@@ -64,6 +64,9 @@ impl CompositorHandler for Oxmonad {
         xdg_shell::handle_commit(&mut self.popups, &self.space, surface);
         resize_grab::handle_commit(&mut self.space, surface);
         super::layer_shell::handle_commit(self, surface);
+        // Manage rules (float/sink) run once the client has committed its
+        // title/app_id.
+        self.apply_pending_manage(surface);
     }
 }
 

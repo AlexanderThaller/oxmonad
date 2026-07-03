@@ -16,6 +16,7 @@
 mod bar;
 mod config;
 mod cursor;
+mod floating;
 mod grabs;
 mod handlers;
 mod headless;
@@ -23,11 +24,14 @@ mod input;
 mod keybindings;
 mod layout;
 mod process;
+mod prompt;
+mod rules;
 mod screencopy;
 mod snapshot;
 mod state;
 mod udev;
 mod winit;
+mod workspaces;
 
 use smithay::reexports::{
     calloop::EventLoop,

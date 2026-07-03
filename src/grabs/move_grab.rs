@@ -45,8 +45,20 @@ impl PointerGrab<Oxmonad> for MoveSurfaceGrab {
 
         let delta = event.location - self.start_data.location;
         let new_location = self.initial_window_location.to_f64() + delta;
+        let new_location = new_location.to_i32_round();
+
+        // Dragging floats a tiled window, like xmonad's `mod+drag`.
+        if !data.is_floating(&self.window) {
+            let size = self.window.geometry().size;
+            data.float_window(
+                &self.window,
+                smithay::utils::Rectangle::new(new_location, size),
+            );
+        }
+
         data.space
-            .map_element(self.window.clone(), new_location.to_i32_round(), true);
+            .map_element(self.window.clone(), new_location, true);
+        data.update_floating_location(&self.window, new_location);
     }
 
     fn relative_motion(

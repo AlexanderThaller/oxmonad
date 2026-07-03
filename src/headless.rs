@@ -118,8 +118,7 @@ pub fn init_headless(
             script.apply_if_ready(state);
 
             let scale = output.current_scale().fractional_scale();
-            let mut overlays = state.bar_elements(&output, scale);
-            overlays.extend(state.border_elements(scale));
+            let overlays = state.overlay_elements(&output, scale);
 
             let frame = {
                 let mut framebuffer = match renderer.bind(&mut buffer) {

@@ -32,12 +32,17 @@ use crate::{
     config,
 };
 
-const TEXT_X: i32 = 10;
-const GLYPH_W: i32 = 5;
-const GLYPH_H: i32 = 7;
-const GLYPH_SCALE: i32 = 2;
-const GLYPH_GAP: i32 = 1;
+pub(crate) const TEXT_X: i32 = 10;
+pub(crate) const GLYPH_W: i32 = 5;
+pub(crate) const GLYPH_H: i32 = 7;
+pub(crate) const GLYPH_SCALE: i32 = 2;
+pub(crate) const GLYPH_GAP: i32 = 1;
 const MAX_TITLE_CHARS: usize = 96;
+
+/// Horizontal advance of one glyph cell, in logical pixels.
+pub(crate) const fn glyph_advance() -> i32 {
+    (GLYPH_W + GLYPH_GAP) * GLYPH_SCALE
+}
 
 /// Returns the client layout area after reserving space for the built-in bar.
 #[must_use]
@@ -57,12 +62,40 @@ pub(crate) struct WorkspaceTag<'a> {
 }
 
 impl Oxmonad {
+    /// Shows or hides the built-in bar, retiling so clients reclaim (or give
+    /// up) the strip it occupies — xmonad's toggle-struts key.
+    pub fn toggle_bar(&mut self) {
+        self.bar_visible = !self.bar_visible;
+        self.relayout();
+    }
+
+    /// Builds every compositor-drawn overlay for `output`, front-to-back: the
+    /// workspace prompt (if open, on the active monitor), the built-in bar and
+    /// the window borders.
+    #[must_use]
+    pub fn overlay_elements(&self, output: &Output, scale: f64) -> Vec<SolidColorRenderElement> {
+        let mut elements = Vec::new();
+        if let Some(prompt) = &self.prompt
+            && self
+                .monitors
+                .get(self.active_monitor)
+                .is_some_and(|monitor| monitor.output.name() == output.name())
+            && let Some(output_geo) = self.space.output_geometry(output)
+        {
+            elements.extend(crate::prompt::prompt_elements(prompt, output_geo, scale));
+        }
+        elements.extend(self.bar_elements(output, scale));
+        elements.extend(self.tab_elements(output, scale));
+        elements.extend(self.border_elements(scale));
+        elements
+    }
+
     /// Builds render elements for the built-in status bar: the workspace tags
     /// followed by the focused window's title.
     #[must_use]
     pub fn bar_elements(&self, output: &Output, scale: f64) -> Vec<SolidColorRenderElement> {
-        // The bar belongs to the primary monitor only.
-        if !self.is_primary_output(output) {
+        // The bar belongs to the primary monitor only, and can be toggled off.
+        if !self.bar_visible || !self.is_primary_output(output) {
             return Vec::new();
         }
 
@@ -86,8 +119,49 @@ impl Oxmonad {
             })
             .collect();
 
+        // The current layout name for this monitor's workspace (xmobar's
+        // default `ppOrder` shows it between the workspaces and the title).
+        let layout_name = self
+            .monitors
+            .iter()
+            .find(|monitor| monitor.output.name() == output.name())
+            .and_then(|monitor| self.workspaces.get(monitor.workspace))
+            .map_or("", |workspace| workspace.layout.name());
+
         let title = self.focused_title().unwrap_or_default();
-        render_bar(output_geo, &tags, &title, scale)
+        render_bar(output_geo, &tags, layout_name, &title, scale)
+    }
+
+    /// Builds the tab-strip render elements for a monitor showing a `Tabbed`
+    /// workspace with more than one window; empty otherwise.
+    #[must_use]
+    pub fn tab_elements(&self, output: &Output, scale: f64) -> Vec<SolidColorRenderElement> {
+        let Some(monitor) = self
+            .monitors
+            .iter()
+            .find(|monitor| monitor.output.name() == output.name())
+        else {
+            return Vec::new();
+        };
+        let Some(workspace) = self.workspaces.get(monitor.workspace) else {
+            return Vec::new();
+        };
+        if !workspace.layout.is_tabbed() {
+            return Vec::new();
+        }
+        let windows = self.tiling_order(workspace);
+        if windows.len() < 2 {
+            return Vec::new();
+        }
+        let Some(area) = self.tiling_area(monitor) else {
+            return Vec::new();
+        };
+        let focused = self.focus_index_within(&windows);
+        let titles: Vec<String> = windows
+            .iter()
+            .map(|window| window.toplevel().and_then(window_title).unwrap_or_default())
+            .collect();
+        render_tabs(area, &titles, focused, scale)
     }
 
     fn focused_title(&self) -> Option<String> {
@@ -103,6 +177,7 @@ const TAG_GAP: i32 = GLYPH_W * GLYPH_SCALE;
 pub(crate) fn render_bar(
     output_geo: Rectangle<i32, Logical>,
     tags: &[WorkspaceTag<'_>],
+    layout_name: &str,
     title: &str,
     scale: f64,
 ) -> Vec<SolidColorRenderElement> {
@@ -119,33 +194,49 @@ pub(crate) fn render_bar(
     let right_edge = output_geo.loc.x + output_geo.size.w - TEXT_X;
     let mut x = output_geo.loc.x + TEXT_X;
 
-    // Workspace tags, the one shown on this monitor highlighted.
+    // Workspace tags; the one shown on this monitor is highlighted and
+    // wrapped in angle brackets, matching the xmonad `ppCurrent` format.
     for tag in tags {
-        let color = if tag.shown {
-            config::BAR_WORKSPACE_ACTIVE_COLOR
+        let (text, color) = if tag.shown {
+            (
+                format!("<{}>", tag.name),
+                config::BAR_WORKSPACE_ACTIVE_COLOR,
+            )
         } else {
-            config::BAR_TEXT_COLOR
+            (tag.name.to_string(), config::BAR_TEXT_COLOR)
         };
-        let chars = i32::try_from(tag.name.chars().count()).unwrap_or(0);
+        let chars = i32::try_from(text.chars().count()).unwrap_or(0);
         draw_text(
             &mut elements,
             Point::from((x, y)),
             (right_edge - x).max(0),
-            tag.name,
+            &text,
             color,
             scale,
         );
         x += chars * advance + TAG_GAP;
     }
 
-    // A wider gap, then the focused window title.
+    // The current layout name (xmobar's `ppLayout`, default foreground color).
+    let layout_chars = i32::try_from(layout_name.chars().count()).unwrap_or(0);
+    draw_text(
+        &mut elements,
+        Point::from((x, y)),
+        (right_edge - x).max(0),
+        layout_name,
+        config::BAR_TEXT_COLOR,
+        scale,
+    );
+    x += layout_chars * advance + TAG_GAP;
+
+    // A wider gap, then the focused window title (`ppTitle` green).
     x += TAG_GAP;
     draw_text(
         &mut elements,
         Point::from((x, y)),
         (right_edge - x).max(0),
         title,
-        config::BAR_TEXT_COLOR,
+        config::BAR_TITLE_COLOR,
         scale,
     );
 
@@ -156,7 +247,68 @@ pub(crate) fn render_bar(
     elements
 }
 
-fn window_title(toplevel: &ToplevelSurface) -> Option<String> {
+/// Renders the tabbed-layout strip: one equal-width tab per window title, the
+/// focused one highlighted, drawn along the top of `area`.
+///
+/// Tab widths follow xmonad's `Tabbed` decoration: window `i` spans
+/// `[area.x + area.w*i/n, area.x + area.w*(i+1)/n)`.
+pub(crate) fn render_tabs(
+    area: Rectangle<i32, Logical>,
+    titles: &[String],
+    focused: usize,
+    scale: f64,
+) -> Vec<SolidColorRenderElement> {
+    use crate::layout::{
+        TAB_ACTIVE_BG,
+        TAB_ACTIVE_TEXT,
+        TAB_BAR_HEIGHT,
+        TAB_INACTIVE_BG,
+        TAB_INACTIVE_TEXT,
+    };
+
+    let count = i32::try_from(titles.len()).unwrap_or(0);
+    if count < 2 {
+        return Vec::new();
+    }
+
+    let mut elements = Vec::new();
+    let text_y = area.loc.y + (TAB_BAR_HEIGHT - GLYPH_H * GLYPH_SCALE) / 2;
+    let pad = GLYPH_SCALE * 2;
+
+    for (index, title) in titles.iter().enumerate() {
+        let i = i32::try_from(index).unwrap_or(0);
+        let x0 = area.loc.x + area.size.w * i / count;
+        let x1 = area.loc.x + area.size.w * (i + 1) / count;
+        let width = (x1 - x0).max(0);
+        let (background, text_color) = if index == focused {
+            (TAB_ACTIVE_BG, TAB_ACTIVE_TEXT)
+        } else {
+            (TAB_INACTIVE_BG, TAB_INACTIVE_TEXT)
+        };
+
+        // Text first so it renders on top of its tab background.
+        draw_text(
+            &mut elements,
+            Point::from((x0 + pad, text_y)),
+            (width - 2 * pad).max(0),
+            title,
+            text_color,
+            scale,
+        );
+        elements.push(solid_element(
+            Rectangle::new(
+                Point::from((x0, area.loc.y)),
+                Size::from((width, TAB_BAR_HEIGHT)),
+            ),
+            background,
+            scale,
+        ));
+    }
+
+    elements
+}
+
+pub(crate) fn window_title(toplevel: &ToplevelSurface) -> Option<String> {
     with_states(toplevel.wl_surface(), |states| {
         states
             .data_map
@@ -168,7 +320,7 @@ fn window_title(toplevel: &ToplevelSurface) -> Option<String> {
     })
 }
 
-fn draw_text(
+pub(crate) fn draw_text(
     elements: &mut Vec<SolidColorRenderElement>,
     loc: Point<i32, Logical>,
     max_width: i32,
@@ -215,7 +367,7 @@ fn draw_glyph(
     }
 }
 
-fn solid_element(
+pub(crate) fn solid_element(
     rect: Rectangle<i32, Logical>,
     color: Color32F,
     scale: f64,
@@ -345,6 +497,12 @@ fn glyph(ch: char) -> [i32; 7] {
             0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110,
         ],
         ' ' => [0, 0, 0, 0, 0, 0, 0],
+        '<' => [
+            0b00010, 0b00100, 0b01000, 0b10000, 0b01000, 0b00100, 0b00010,
+        ],
+        '>' => [
+            0b01000, 0b00100, 0b00010, 0b00001, 0b00010, 0b00100, 0b01000,
+        ],
         '-' => [0, 0, 0, 0b11111, 0, 0, 0],
         '_' => [0, 0, 0, 0, 0, 0, 0b11111],
         '.' => [0, 0, 0, 0, 0, 0b01100, 0b01100],
@@ -435,8 +593,27 @@ mod tests {
                 shown: false,
             },
         ];
-        let elements = render_bar(rect(0, 0, 1000, 1000), &tags, "oxmonad-snapshot", 1.0);
+        let elements = render_bar(
+            rect(0, 0, 1000, 1000),
+            &tags,
+            "Tall",
+            "oxmonad-snapshot",
+            1.0,
+        );
 
         crate::snapshot::assert_snapshot("built_in_bar", 1000, 1000, &elements);
+    }
+
+    #[test]
+    fn snapshot_tabbed_bar() {
+        let titles = [
+            "left".to_string(),
+            "middle".to_string(),
+            "right".to_string(),
+        ];
+        // Three equal tabs across the top, the middle one focused.
+        let elements = render_tabs(rect(0, 0, 1000, 1000), &titles, 1, 1.0);
+
+        crate::snapshot::assert_snapshot("tabbed_bar", 1000, 1000, &elements);
     }
 }

@@ -17,6 +17,7 @@ use crate::{
         META,
     },
     process,
+    prompt::PromptKind,
 };
 
 /// An action triggered by a keybinding.
@@ -50,6 +51,52 @@ pub enum Action {
     ViewWorkspace(usize),
     /// Move the focused window to the workspace at this index.
     MoveToWorkspace(usize),
+    /// Toggle back to the most recently hidden workspace.
+    ToggleWorkspace,
+    /// Swap the visible workspaces of the active monitor and its neighbour.
+    SwapScreens,
+    /// Focus the next monitor in physical order.
+    FocusNextMonitor,
+    /// Focus the previous monitor in physical order.
+    FocusPrevMonitor,
+    /// Move the focused window to the next monitor's workspace, without
+    /// following it.
+    ShiftToNextMonitor,
+    /// Move the focused window to the previous monitor's workspace, without
+    /// following it.
+    ShiftToPrevMonitor,
+    /// Retile every visible workspace (xmonad's refresh).
+    Refresh,
+    /// Spawn the configured [editor](config::EDITOR).
+    SpawnEditor,
+    /// Spawn the configured [screen locker](config::LOCKER).
+    SpawnLocker,
+    /// Toggle play/pause on the current media player.
+    MediaPlayPause,
+    /// Skip to the next media track.
+    MediaNext,
+    /// Skip to the previous media track.
+    MediaPrev,
+    /// Show or hide the built-in status bar (xmonad's toggle-struts).
+    ToggleBar,
+    /// Open a workspace prompt of the given kind.
+    OpenPrompt(PromptKind),
+    /// Remove the current workspace, merging its windows away.
+    RemoveWorkspace,
+    /// Advance the current workspace to the next layout in its ring.
+    NextLayout,
+    /// Reset the current workspace's layout ring to its defaults.
+    ResetLayout,
+    /// Increase the master count of the current layout.
+    IncMaster,
+    /// Decrease the master count of the current layout.
+    DecMaster,
+    /// Move the focused window one place down the stack (wrapping).
+    SwapDown,
+    /// Move the focused window one place up the stack (wrapping).
+    SwapUp,
+    /// Push the focused floating window back into the tiled layer.
+    SinkWindow,
 }
 
 /// Resolves a key press to an [`Action`], if it matches a configured binding.
@@ -61,6 +108,18 @@ pub enum Action {
 /// recognised for now.
 #[must_use]
 pub fn action_for(modifiers: &ModifiersState, keysym: Keysym) -> Option<Action> {
+    // Media keys work without any modifier, like the `(0, xK_XF86Audio…)`
+    // bindings in the xmonad config (which also routes the mute key and
+    // 0x1008ff18 to play/pause for the user's keyboard).
+    match keysym {
+        Keysym::XF86_AudioPlay | Keysym::XF86_AudioPause | Keysym::XF86_AudioMute => {
+            return Some(Action::MediaPlayPause);
+        }
+        Keysym::XF86_AudioNext => return Some(Action::MediaNext),
+        Keysym::XF86_AudioPrev => return Some(Action::MediaPrev),
+        _ => {}
+    }
+
     if !META.is_active(modifiers) {
         return None;
     }
@@ -87,6 +146,42 @@ pub fn action_for(modifiers: &ModifiersState, keysym: Keysym) -> Option<Action> 
         // META + Up / Down -> resize the focused tile vertically.
         (false, Keysym::Up) => Some(Action::ExpandFocused),
         (false, Keysym::Down) => Some(Action::ShrinkFocused),
+        // META + z -> swap workspaces between screens; with Shift -> toggle
+        // back to the previous workspace.
+        (false, Keysym::z) => Some(Action::SwapScreens),
+        (true, Keysym::z) => Some(Action::ToggleWorkspace),
+        // META + Left / Right -> focus the previous / next monitor; with
+        // Shift -> send the focused window there instead.
+        (false, Keysym::Right) => Some(Action::FocusNextMonitor),
+        (false, Keysym::Left) => Some(Action::FocusPrevMonitor),
+        (true, Keysym::Right) => Some(Action::ShiftToNextMonitor),
+        (true, Keysym::Left) => Some(Action::ShiftToPrevMonitor),
+        // META + Space -> next layout; with Shift -> reset the layout ring.
+        (false, Keysym::space) => Some(Action::NextLayout),
+        (true, Keysym::space) => Some(Action::ResetLayout),
+        // META + t -> sink the focused floating window back into the tiling.
+        (false, Keysym::t) => Some(Action::SinkWindow),
+        // META + , / . -> increase / decrease the master window count.
+        (false, Keysym::comma) => Some(Action::IncMaster),
+        (false, Keysym::period) => Some(Action::DecMaster),
+        // META + Shift + j / k -> swap the focused window down / up the stack.
+        (true, Keysym::j) => Some(Action::SwapDown),
+        (true, Keysym::k) => Some(Action::SwapUp),
+        // META + n -> refresh the layout.
+        (false, Keysym::n) => Some(Action::Refresh),
+        // META + x -> launch the editor.
+        (false, Keysym::x) => Some(Action::SpawnEditor),
+        // META + Shift + l -> lock the screen.
+        (true, Keysym::l) => Some(Action::SpawnLocker),
+        // META + b -> toggle the built-in bar.
+        (false, Keysym::b) => Some(Action::ToggleBar),
+        // Dynamic workspaces: META + v select, META + m move, with Shift ->
+        // copy; META + Shift + r rename, META + Shift + BackSpace remove.
+        (false, Keysym::v) => Some(Action::OpenPrompt(PromptKind::Select)),
+        (false, Keysym::m) => Some(Action::OpenPrompt(PromptKind::MoveTo)),
+        (true, Keysym::m) => Some(Action::OpenPrompt(PromptKind::CopyTo)),
+        (true, Keysym::r) => Some(Action::OpenPrompt(PromptKind::Rename)),
+        (true, Keysym::BackSpace) => Some(Action::RemoveWorkspace),
         // META + 1..9 -> view that workspace; with Shift -> move window to it.
         (shift, _) => workspace_digit(keysym).map(|index| {
             if shift {
@@ -138,6 +233,28 @@ impl Oxmonad {
             Action::MoveToOtherMonitor => self.move_focused_to_next_monitor(),
             Action::ViewWorkspace(index) => self.view_workspace(index),
             Action::MoveToWorkspace(index) => self.move_focused_to_workspace(index),
+            Action::ToggleWorkspace => self.toggle_workspace(),
+            Action::SwapScreens => self.swap_next_screen(),
+            Action::FocusNextMonitor => self.focus_neighbour_monitor(1),
+            Action::FocusPrevMonitor => self.focus_neighbour_monitor(-1),
+            Action::ShiftToNextMonitor => self.shift_focused_to_neighbour_monitor(1),
+            Action::ShiftToPrevMonitor => self.shift_focused_to_neighbour_monitor(-1),
+            Action::Refresh => self.relayout(),
+            Action::SpawnEditor => process::spawn(config::EDITOR),
+            Action::SpawnLocker => process::spawn_shell(config::LOCKER, "locker"),
+            Action::MediaPlayPause => process::spawn_shell(config::MEDIA_PLAY_PAUSE, "media"),
+            Action::MediaNext => process::spawn_shell(config::MEDIA_NEXT, "media"),
+            Action::MediaPrev => process::spawn_shell(config::MEDIA_PREV, "media"),
+            Action::ToggleBar => self.toggle_bar(),
+            Action::OpenPrompt(kind) => self.open_workspace_prompt(kind),
+            Action::RemoveWorkspace => self.remove_current_workspace(),
+            Action::NextLayout => self.next_layout(),
+            Action::ResetLayout => self.reset_layout(),
+            Action::SinkWindow => self.sink_focused_window(),
+            Action::IncMaster => self.inc_master(),
+            Action::DecMaster => self.dec_master(),
+            Action::SwapDown => self.swap_down(),
+            Action::SwapUp => self.swap_up(),
         }
     }
 }
@@ -189,6 +306,83 @@ mod tests {
     fn meta_h_l_resize_master_area() {
         assert_eq!(action_for(&meta(), Keysym::h), Some(Action::ShrinkMaster));
         assert_eq!(action_for(&meta(), Keysym::l), Some(Action::ExpandMaster));
+    }
+
+    #[test]
+    fn media_keys_work_without_modifiers() {
+        let none = ModifiersState::default();
+        assert_eq!(
+            action_for(&none, Keysym::XF86_AudioPlay),
+            Some(Action::MediaPlayPause)
+        );
+        assert_eq!(
+            action_for(&none, Keysym::XF86_AudioNext),
+            Some(Action::MediaNext)
+        );
+        assert_eq!(
+            action_for(&none, Keysym::XF86_AudioPrev),
+            Some(Action::MediaPrev)
+        );
+    }
+
+    #[test]
+    fn meta_z_swaps_screens_and_shift_toggles_workspace() {
+        assert_eq!(action_for(&meta(), Keysym::z), Some(Action::SwapScreens));
+        assert_eq!(
+            action_for(&meta_shift(), Keysym::z),
+            Some(Action::ToggleWorkspace)
+        );
+    }
+
+    #[test]
+    fn meta_arrows_navigate_monitors() {
+        assert_eq!(
+            action_for(&meta(), Keysym::Right),
+            Some(Action::FocusNextMonitor)
+        );
+        assert_eq!(
+            action_for(&meta(), Keysym::Left),
+            Some(Action::FocusPrevMonitor)
+        );
+        assert_eq!(
+            action_for(&meta_shift(), Keysym::Right),
+            Some(Action::ShiftToNextMonitor)
+        );
+        assert_eq!(
+            action_for(&meta_shift(), Keysym::Left),
+            Some(Action::ShiftToPrevMonitor)
+        );
+    }
+
+    #[test]
+    fn spawn_and_bar_bindings() {
+        assert_eq!(action_for(&meta(), Keysym::x), Some(Action::SpawnEditor));
+        assert_eq!(
+            action_for(&meta_shift(), Keysym::l),
+            Some(Action::SpawnLocker)
+        );
+        assert_eq!(action_for(&meta(), Keysym::b), Some(Action::ToggleBar));
+    }
+
+    #[test]
+    fn meta_space_cycles_and_resets_layout() {
+        assert_eq!(action_for(&meta(), Keysym::space), Some(Action::NextLayout));
+        assert_eq!(
+            action_for(&meta_shift(), Keysym::space),
+            Some(Action::ResetLayout)
+        );
+    }
+
+    #[test]
+    fn meta_comma_period_change_master_count() {
+        assert_eq!(action_for(&meta(), Keysym::comma), Some(Action::IncMaster));
+        assert_eq!(action_for(&meta(), Keysym::period), Some(Action::DecMaster));
+    }
+
+    #[test]
+    fn meta_shift_jk_swap_window_in_stack() {
+        assert_eq!(action_for(&meta_shift(), Keysym::j), Some(Action::SwapDown));
+        assert_eq!(action_for(&meta_shift(), Keysym::k), Some(Action::SwapUp));
     }
 
     #[test]

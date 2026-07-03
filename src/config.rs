@@ -32,6 +32,24 @@ pub const TERMINAL: &str = "alacritty";
 /// `wlr-layer-shell` support.
 pub const LAUNCHER: &str = "tofi-run | xargs --no-run-if-empty setsid --fork";
 
+/// Editor launched by the spawn-editor keybinding (xmonad config's `mod+x`).
+pub const EDITOR: &str = "emacs";
+
+/// Screen locker launched by the lock keybinding, run through `sh -c`.
+///
+/// The xmonad config spawns `slock`, which is X11-only; `swaylock` is the
+/// Wayland equivalent (it uses the `ext-session-lock` protocol).
+pub const LOCKER: &str = "swaylock";
+
+/// Command run when a media play/pause key is pressed, through `sh -c`.
+pub const MEDIA_PLAY_PAUSE: &str = "playerctl play-pause";
+
+/// Command run when the media next-track key is pressed, through `sh -c`.
+pub const MEDIA_NEXT: &str = "playerctl next";
+
+/// Command run when the media previous-track key is pressed, through `sh -c`.
+pub const MEDIA_PREV: &str = "playerctl previous";
+
 /// Name of the primary output — the monitor that carries the built-in bar.
 ///
 /// Outputs are named after their connector, e.g. `"DP-1"`, `"HDMI-A-1"` or
@@ -79,6 +97,28 @@ pub const BAR_TEXT_COLOR: Color32F = Color32F::new(0.827_451, 0.843_137_26, 0.87
 /// (`#F8E63A`), matching the user's xmonad `ppCurrent`.
 pub const BAR_WORKSPACE_ACTIVE_COLOR: Color32F =
     Color32F::new(0.972_549, 0.901_960_8, 0.227_451, 1.0);
+
+/// Text color of the focused window title in the bar — green (`#86BD47`),
+/// matching the user's xmonad `ppTitle`.
+pub const BAR_TITLE_COLOR: Color32F = Color32F::new(0.525_490_2, 0.741_176_5, 0.278_431_37, 1.0);
+
+/// Background color of the workspace prompt — dark grey (`#161616`),
+/// matching the xmonad `myXPConfig` `bgColor`.
+pub const PROMPT_BG_COLOR: Color32F = Color32F::new(0.086_274_51, 0.086_274_51, 0.086_274_51, 1.0);
+
+/// Text color of the workspace prompt — white (`#F2F2F2`, `fgColor`).
+pub const PROMPT_FG_COLOR: Color32F = Color32F::new(0.949_019_6, 0.949_019_6, 0.949_019_6, 1.0);
+
+/// Border color of the workspace prompt — white (`#F2F2F2`, `borderColor`).
+pub const PROMPT_BORDER_COLOR: Color32F = Color32F::new(0.949_019_6, 0.949_019_6, 0.949_019_6, 1.0);
+
+/// Background color of the highlighted completion — blue (`#1565C1`,
+/// `bgHLight`).
+pub const PROMPT_HL_BG_COLOR: Color32F =
+    Color32F::new(0.082_352_94, 0.396_078_43, 0.756_862_75, 1.0);
+
+/// Text color of the highlighted completion — white (`#F2F2F2`, `fgHLight`).
+pub const PROMPT_HL_FG_COLOR: Color32F = Color32F::new(0.949_019_6, 0.949_019_6, 0.949_019_6, 1.0);
 
 /// Width of the window border, in logical pixels.
 pub const BORDER_WIDTH: i32 = 1;

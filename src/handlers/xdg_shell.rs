@@ -67,6 +67,9 @@ impl XdgShellHandler for Oxmonad {
             return;
         };
         workspace.windows.insert(0, window.clone());
+        // Manage rules (float/sink) run later, once the client has committed
+        // its title/app id.
+        self.pending_manage.push(window.clone());
         self.relayout();
         self.focus_window(&window);
     }
@@ -83,6 +86,7 @@ impl XdgShellHandler for Oxmonad {
             for workspace in &mut self.workspaces {
                 workspace.windows.retain(|managed| *managed != window);
             }
+            self.forget_window(&window);
         }
 
         self.relayout();

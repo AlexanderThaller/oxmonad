@@ -413,9 +413,8 @@ fn render_surface(state: &mut Oxmonad, renderer: &mut GlesRenderer, surface: &mu
     let output = surface.output.clone();
     let scale = output.current_scale().fractional_scale();
 
-    // Compositor UI (bar + window borders).
-    let mut overlays = state.bar_elements(&output, scale);
-    overlays.extend(state.border_elements(scale));
+    // Compositor UI (prompt + bar + window borders).
+    let overlays = state.overlay_elements(&output, scale);
 
     let Some(output_geo) = state.space.output_geometry(&output) else {
         tracing::error!(output = %output.name(), "output is not mapped in the space; skipping frame");
