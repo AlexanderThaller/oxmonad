@@ -1,0 +1,17 @@
+[package]
+name = "oxmonad-ui"
+description = "Software rendering of oxmonad's status bar, prompt and tab strip into wl_shm buffers."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fontdb = "0.23"
+fontdue = "0.9"
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[lints]
+workspace = true
