@@ -1,0 +1,189 @@
+# oxmonad default configuration.
+#
+# This file is embedded into oxmonad and is the single source of defaults.
+# Your own `$XDG_CONFIG_HOME/oxmonad/config.toml` is merged over it:
+#
+# * tables merge key by key, so you only need to write what you change;
+# * other values, including arrays (`workspaces`, `rules`, `scratchpads`),
+#   replace the default wholesale;
+# * `[keybindings]` / `[pointer_bindings]` entries override the default
+#   binding of the same key combination; bind a key to "none" to remove it.
+#
+# Defaults reproduce the reference xmonad.hs (colors, layouts, bindings) with
+# Wayland replacements for X11 programs.
+
+# The modifier `Mod` stands for in bindings: Super, Alt, Ctrl, Shift or a
+# `+`-joined combination such as "Ctrl+Alt".
+modifier = "Super"
+
+# `spawn-terminal` runs this (myTerminal).
+terminal = "alacritty"
+
+# Initial workspaces (myWorkspaces). More can be created from the prompt.
+workspaces = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+
+[border]
+width = 1            # myBorderWidth
+focused = "#C62828"  # myFocusedBorderColor (colorRed)
+normal = "#969694"   # myNormalBorderColor (colorLightGrey)
+
+[bar]
+visible = true
+position = "top"     # "top" or "bottom"
+height = 24
+# output = "DP-1"    # show the bar on this output (default: first screen)
+font_family = "Fira Mono"
+font_size = 12.0
+title_max_len = 100  # ppTitle = shorten 100; 0 disables shortening
+
+[bar.colors]
+background = "#161616"    # xmobar bgColor
+foreground = "#F2F2F2"    # xmobar fgColor
+current = "#F8E63A"       # ppCurrent (colorYellow)
+visible = "#F2F2F2"
+hidden = "#F2F2F2"
+hidden_empty = "#969694"
+title = "#86BD47"         # ppTitle (colorGreen)
+layout = "#F2F2F2"
+
+# The workspace prompt (myXPConfig).
+[prompt]
+position = "bottom"  # XPConfig default
+height = 28
+font_family = "Fira Mono"
+font_size = 16.0
+
+[prompt.colors]
+background = "#161616"            # bgColor (colorDarkGrey)
+foreground = "#F2F2F2"            # fgColor (colorWhite)
+border = "#F2F2F2"                # borderColor
+highlight_background = "#1565C1"  # bgHLight (colorBlue)
+highlight_foreground = "#F2F2F2"  # fgHLight
+
+# Tab strip of the tabbed layout (xmonad-contrib's default Theme; myTabConf
+# only changes the font).
+[tabs]
+height = 20
+font_family = "Fira Mono"
+font_size = 12.0
+active_color = "#999999"
+inactive_color = "#666666"
+active_text_color = "#FFFFFF"
+inactive_text_color = "#BFBFBF"
+active_border_color = "#FFFFFF"
+inactive_border_color = "#BBBBBB"
+
+# Key bindings: "Modifiers+Key" = "action". Keys are xkb keysym names.
+#
+# Actions: spawn <command>, spawn-terminal, focus-next, focus-prev,
+# focus-master, swap-next, swap-prev, swap-master, sink, close, next-layout,
+# reset-layout, shrink, expand, mirror-shrink, mirror-expand,
+# inc-master <n>, view <tag>, shift <tag>, copy <tag>, toggle-ws,
+# prompt view|move|copy|rename, remove-workspace, focus-screen next|prev,
+# shift-screen next|prev, shift-screen-follow next|prev, swap-next-screen,
+# toggle-bar, refresh, quit, reload, toggle-fullscreen,
+# toggle-scratchpad <name>, float-move, float-resize.
+[keybindings]
+# Launching programs
+"Mod+Shift+Return" = "spawn-terminal"
+"Mod+p" = "spawn tofi-run | xargs --no-run-if-empty setsid --fork"
+"Mod+x" = "spawn emacs"
+"Mod+Shift+l" = "spawn swaylock"
+"XF86AudioPlay" = "spawn playerctl play-pause"
+"XF86AudioPause" = "spawn playerctl play-pause"
+"XF86AudioMute" = "spawn playerctl play-pause"
+"XF86AudioNext" = "spawn playerctl next"
+"XF86AudioPrev" = "spawn playerctl previous"
+
+# Focus and window movement
+"Mod+j" = "focus-next"
+"Mod+k" = "focus-prev"
+"Mod+Shift+j" = "swap-next"
+"Mod+Shift+k" = "swap-prev"
+"Mod+Return" = "swap-master"
+"Mod+t" = "sink"
+"Mod+Shift+c" = "close"
+"Mod+o" = "shift-screen-follow next"
+"Mod+f" = "toggle-fullscreen"
+"Mod+grave" = "toggle-scratchpad term"
+
+# Layouts and resizing
+"Mod+space" = "next-layout"
+"Mod+Shift+space" = "reset-layout"
+"Mod+h" = "shrink"
+"Mod+l" = "expand"
+"Mod+Up" = "mirror-expand"
+"Mod+Down" = "mirror-shrink"
+"Mod+comma" = "inc-master 1"
+"Mod+period" = "inc-master -1"
+
+# Workspaces
+"Mod+1" = "view 1"
+"Mod+2" = "view 2"
+"Mod+3" = "view 3"
+"Mod+4" = "view 4"
+"Mod+5" = "view 5"
+"Mod+6" = "view 6"
+"Mod+7" = "view 7"
+"Mod+8" = "view 8"
+"Mod+9" = "view 9"
+"Mod+Shift+1" = "shift 1"
+"Mod+Shift+2" = "shift 2"
+"Mod+Shift+3" = "shift 3"
+"Mod+Shift+4" = "shift 4"
+"Mod+Shift+5" = "shift 5"
+"Mod+Shift+6" = "shift 6"
+"Mod+Shift+7" = "shift 7"
+"Mod+Shift+8" = "shift 8"
+"Mod+Shift+9" = "shift 9"
+"Mod+Shift+z" = "toggle-ws"
+"Mod+v" = "prompt view"
+"Mod+m" = "prompt move"
+"Mod+Shift+m" = "prompt copy"
+"Mod+Shift+r" = "prompt rename"
+"Mod+Shift+BackSpace" = "remove-workspace"
+
+# Screens
+"Mod+Right" = "focus-screen next"
+"Mod+Left" = "focus-screen prev"
+"Mod+Shift+Right" = "shift-screen next"
+"Mod+Shift+Left" = "shift-screen prev"
+"Mod+z" = "swap-next-screen"
+
+# Bar and session
+"Mod+b" = "toggle-bar"
+"Mod+n" = "refresh"
+"Mod+Shift+q" = "quit"
+"Mod+q" = "reload"
+
+# Pointer bindings: "Modifiers+Button" = "action" (Button1 left, Button2
+# middle, Button3 right).
+[pointer_bindings]
+"Mod+Button1" = "float-move"
+"Mod+Button3" = "float-resize"
+
+# Manage rules, first match wins. Conditions: app_id, title (a glob with
+# `*`/`?`, or a list of globs), has_parent. Effects: action = "float" |
+# "tile" | "tile-below-master", workspace = "<tag>".
+# Windows with a parent (dialogs) float unless a rule says otherwise.
+
+# manageZoomHook: Zoom's main and meeting windows tile out of the master
+# slot, every other Zoom window floats.
+[[rules]]
+app_id = "zoom"
+title = ["Zoom - Free Account", "Zoom - Licensed Account", "Zoom", "Zoom Meeting"]
+action = "tile-below-master"
+
+[[rules]]
+app_id = "zoom"
+action = "float"
+
+# Named scratchpads: `toggle-scratchpad <name>` spawns `command` if no
+# window with `app_id` exists, otherwise moves it between the current
+# workspace and the hidden "NSP" workspace. `rect` = [x, y, w, h] as
+# fractions of the screen.
+[[scratchpads]]
+name = "term"
+command = "alacritty --class scratchpad"
+app_id = "scratchpad"
+rect = [0.1, 0.1, 0.8, 0.8]

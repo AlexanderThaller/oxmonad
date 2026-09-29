@@ -166,3 +166,35 @@ default keybindings, colors, commands and rules). `Mod+q` reloads it.
   recording fake; an `#[ignore]`d end-to-end test runs river headless
   (`WLR_BACKENDS=headless WLR_RENDERER=pixman river -c <oxmonad>`) when
   `river` is installed.
+
+== Core implementation notes (deviations)
+
+Where `oxmonad-core` differs from or refines the contract above:
+
+* **Headless state.** xmonad always has a screen; river may start with none.
+  Until the first output appears (and after the last one disappears) the
+  `StackSet` keeps its current workspace on a placeholder screen that
+  `screens()` never reports, so every operation behaves uniformly.
+  `Screen` also carries the output `name` (`add_screen(id, name, rect)`), used
+  to place the bar (`bar.output`).
+* **View semantics.** `view <tag>` (`Mod+1..9`, the prompt) is xmonad's
+  `greedyView`, as in xmonad's default keys and `selectWorkspace`;
+  `focus-screen` / `toggle-ws` use plain `view`. `view` never creates
+  workspaces; the prompt does.
+* **Placements.** `Placement.rect` is the window *content* rectangle; the
+  border is drawn outside it, so content plus border fill the layout slot
+  (xmonad's `tileWindow`). `float_at` / `set_float_rect` also take content
+  rectangles. `Full` and `tabbed` place only the focused window; the others
+  are listed in `Arrangement.hidden`. `Arrangement` additionally carries
+  `prompt: Option<(ScreenId, Rect)>`.
+* **Bar model.** There is a single bar, so `bar_model()` takes no screen.
+  Workspace order follows `getSortByIndex`: configured tags in config order,
+  then the rest sorted by tag. The scratchpad workspace (`NSP`) is excluded
+  from the bar, prompt completion, `toggle-ws`, screen assignment and
+  `remove-workspace` targets.
+* **Copies.** Shifting a window that has copies elsewhere still inserts it
+  into the target (xmonad's `insertUp` would silently drop it).
+* **Window info.** `WindowInfo` has an optional `preferred_size`, used to
+  centre floating transients; without it they take the middle quarter of the
+  screen.
+* **Effects.** No `WarpPointer` effect: xmonad does not warp by default.
