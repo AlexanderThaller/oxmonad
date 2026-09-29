@@ -1,0 +1,29 @@
+[package]
+name = "oxmonad"
+description = "xmonad-style tiling window manager for the river Wayland compositor."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+oxmonad-core.workspace = true
+oxmonad-ui.workspace = true
+river-protocols.workspace = true
+wayland-client.workspace = true
+wayland-backend.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+calloop = "0.14"
+calloop-wayland-source = "0.4"
+kbvm = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+signal-hook = "0.3"
+rustix = { version = "1", features = ["fs"] }
+serde_json = "1"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
