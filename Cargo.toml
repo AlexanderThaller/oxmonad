@@ -1,57 +1,42 @@
-[package]
-name = "oxmonad"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-description = "Xmonad inspired window manager written in rust and wayland only."
 license = "MIT"
 
-[dependencies]
-smithay = { version = "0.7", default-features = false, features = [
-  "backend_winit",
-  "wayland_frontend",
-  "desktop",
-  "renderer_pixman",
-  # TTY/DRM backend: drive the GPU directly so oxmonad can run on a bare VT
-  # without a host compositor (see `src/udev.rs`).
-  "backend_drm",
-  "backend_gbm",
-  "backend_egl",
-  "backend_libinput",
-  "backend_session_libseat",
-  "backend_udev",
-  "renderer_gl",
-] }
+[workspace.dependencies]
+oxmonad-core = { path = "crates/oxmonad-core" }
+oxmonad-ui = { path = "crates/oxmonad-ui" }
+river-protocols = { path = "crates/river-protocols" }
+wayland-client = "0.31"
+wayland-backend = "0.3"
+wayland-scanner = "0.31"
+bitflags = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-bitflags = "2"
-wayland-protocols-wlr = { version = "0.3", features = ["server"] }
 
-[dev-dependencies]
-# PNG encode/decode for golden-image comparison.
-image = { version = "0.25", default-features = false, features = ["png"] }
-
-[lints.rust]
-#missing-docs = "warn"
-missing-debug-implementations = "warn"
-rust-2018-idioms = "warn"
-# Smithay's client dispatch (`Display::dispatch_clients`) and `env::set_var`
-# (unsafe as of edition 2024) need a few `unsafe` blocks. We keep `deny` rather
-# than `forbid` so each use can be opted in with a documented
+[workspace.lints.rust]
+missing_debug_implementations = "warn"
+rust_2018_idioms = "warn"
+# Every use of `unsafe` must opt in with a documented
 # `#[expect(unsafe_code, reason = "...")]`.
-unsafe-code = "deny"
-unused-lifetimes = "warn"
+unsafe_code = "deny"
+unused_lifetimes = "warn"
 
-[lints.clippy]
-allow-attributes = "warn"
-allow-attributes-without-reason = "warn"
-dbg-macro = "warn"
+[workspace.lints.clippy]
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
 pedantic = { level = "warn", priority = -1 }
 todo = "warn"
-unwrap-used = "warn"
-missing-panics-doc = "allow"
-missing-errors-doc = "allow"
-wildcard-enum-match-arm = "warn"
-disallowed-methods = "deny"
+unwrap_used = "warn"
+missing_panics_doc = "allow"
+missing_errors_doc = "allow"
+wildcard_enum_match_arm = "warn"
+disallowed_methods = "deny"
 
 [profile.fastdev]
 inherits = "release"

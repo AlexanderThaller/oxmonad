@@ -1,0 +1,168 @@
+= oxmonad architecture
+:toc: left
+
+oxmonad is an xmonad-style tiling window manager for Wayland. It is **not** a
+compositor: it runs as the window-manager client of
+https://codeberg.org/river/river[river] 0.4+, speaking the stable
+`river-window-management-v1` protocol. river owns DRM/KMS, input devices,
+rendering, xdg-shell, layer-shell, screencopy, session lock and Xwayland;
+oxmonad owns every policy decision: which windows are visible, where they go,
+which one has focus, keybindings, borders, and the bar/prompt/tab-strip UI.
+
+Everything oxmonad ships is Rust. river (Zig) is an external runtime
+dependency, packaged on Arch as `river`.
+
+== Crates
+
+[cols="1,3"]
+|===
+| Crate | Responsibility
+
+| `crates/oxmonad-core`
+| Pure window-management model. No Wayland, no I/O, no clocks. xmonad's
+  `StackSet`, the layout ring, manage rules, the prompt state machine, actions
+  and the TOML config schema. Everything here is unit-tested.
+
+| `crates/oxmonad-ui`
+| Pure software drawing of the WM-owned surfaces (bar, prompt, tab strip) into
+  pixel buffers with `tiny-skia` + `fontdue`. Knows nothing about windows or
+  Wayland; takes plain view structs. Golden-image tests live here.
+
+| `crates/river-protocols`
+| `wayland-scanner`-generated client bindings for the river protocols
+  (`protocols/*.xml`, copied verbatim from river v0.4.8).
+
+| `crates/oxmonad`
+| The binary. Connects to river, mirrors river's objects (windows, outputs,
+  seats) into core IDs, translates protocol events into core calls and core's
+  `Arrangement` into protocol requests, owns the wl_shm shell surfaces the UI
+  crate draws into, spawns processes, reads the config file, drives the
+  clock/battery bar modules.
+|===
+
+Dependency direction: `oxmonad` → `oxmonad-core`, `oxmonad-ui`,
+`river-protocols`. `oxmonad-core` and `oxmonad-ui` do not depend on each
+other; the binary converts core models into UI view structs.
+
+== The river protocol loop
+
+river drives two kinds of sequences (see the `river_window_manager_v1`
+description in `crates/river-protocols/protocols/river-window-management-v1.xml`):
+
+. **manage sequence** (`manage_start` … `manage_finish`): may change window
+  management state — dimensions (`propose_dimensions`), `show`/`hide`,
+  keyboard focus (`river_seat_v1.focus_window` / `focus_shell_surface`),
+  fullscreen, borders, key/pointer bindings.
+. **render sequence** (`render_start` … `render_finish`): may change only
+  rendering state — node positions (`river_node_v1.set_position`), stacking
+  (`place_top`/`place_above`…), decoration offsets, borders.
+
+oxmonad's binary follows one rule: **core state only changes in response to
+events; requests are only derived from core state.** Concretely:
+
+* Events outside a sequence (new window, title change, key binding
+  `pressed`, pointer op deltas, output added…) are recorded into the model
+  and, if they carry user intent (a key press), queued as `Action`s. If an
+  action is queued while idle, the binary sends `manage_dirty`.
+* On `manage_start`: drain queued actions into core, call
+  `Wm::arrange()`, and emit all window-management requests from the
+  resulting `Arrangement`, then `manage_finish`.
+* On `render_start`: using the dimensions river reported, emit positions and
+  stacking for every visible window and shell surface from the last
+  `Arrangement`, then `render_finish`. Tiled windows are centred in their
+  slot if the client chose a smaller size than proposed.
+
+== Core model (`oxmonad-core`)
+
+Identifiers are opaque newtypes assigned by the binary:
+`WindowId(u64)`, `ScreenId(u64)`. Geometry is `Rect { x, y, w, h: i32 }` in
+river's logical coordinate space.
+
+=== StackSet
+
+A direct port of xmonad's `StackSet` semantics:
+
+* `Stack<W> { focus, up: Vec<W>, down: Vec<W> }` zipper.
+* `Workspace { tag: String, layout: LayoutRing, stack: Option<Stack> }`.
+* `Screen { id, workspace, rect, usable_rect }` — `current` plus `visible`;
+  remaining workspaces are `hidden`, ordered most-recently-hidden first (drives
+  `toggleWS`).
+* `floating: HashMap<WindowId, RationalRect>` — floats are stored relative to
+  their screen (xmonad's `RationalRect`), so they follow the workspace across
+  screens of different size.
+* Invariant (tested): every managed window is in at least one workspace; a
+  window may be in several workspaces (`CopyWindow`) and is removed from all
+  on unmanage. When a copied window is visible on several screens, it is
+  placed on the first such screen in screen order and the focused screen
+  wins.
+
+=== Layouts
+
+Layouts are pure functions `arrange(&self, area: Rect, n: usize, focus: usize)
+-> Vec<Rect>` plus `handle(&mut self, LayoutMessage) -> bool`. The ring from
+`resources/xmonad.hs`:
+
+`reflectHoriz tiled ||| tiled ||| Mirror tiled ||| noBorders Full |||
+tabbed ||| Mirror Grid ||| Grid ||| ThreeCol ||| reflectHoriz ThreeCol` with
+`tiled = ResizableTall 1 (3/100) (3/5) []` and `ThreeCol 1 (3/100) (1/2)`.
+
+Each ring entry keeps its own state; `NextLayout` rotates, `ResetLayout`
+rebuilds the ring from config. Messages: `Shrink`, `Expand`,
+`IncMasterN(i32)`, `MirrorShrink`, `MirrorExpand`. Integer rounding must
+match xmonad (ported from the Haskell sources in `resources/`).
+
+=== Wm facade
+
+`Wm` bundles the `StackSet`, per-window info (`app_id`, `title`,
+`has_parent`, fullscreen flag), rules, config-derived settings and the
+prompt. The binary talks to core only through `Wm`:
+
+* screens: `add_screen`, `remove_screen`, `set_screen_rect`,
+  `set_usable_rect`
+* windows: `manage(id, info)` (runs manage rules), `unmanage`,
+  `update_info`, `request_fullscreen(id, bool)`, `focus_window(id)`
+  (click / pointer focus), `float_at(id, rect)`, `set_float_rect(id, rect)`
+* input: `apply(Action) -> Vec<Effect>`; `prompt_key(PromptKey) -> Vec<Effect>`
+* output: `arrange() -> Arrangement`, plus view models for the bar
+  (`bar_model(screen)`), prompt (`prompt_model()`) and tab strips.
+
+`Effect` is everything core wants the outside world to do:
+`Spawn(String)`, `Close(WindowId)`, `Quit`, `Reload`,
+`StartPointerMove(WindowId)`, `StartPointerResize(WindowId)`,
+`WarpPointer`… The binary executes effects; core never performs I/O.
+
+`Arrangement` describes the whole desired state:
+
+* `windows`: bottom-to-top list of `Placement { window, screen, rect,
+  layer: Tiled | Floating | Fullscreen, border: Option<Border> }` for every
+  visible window;
+* `hidden`: managed windows to hide;
+* `focus`: `Focus::Window(id) | Focus::Prompt | Focus::None`;
+* `screens`: per screen its bar rect (if the bar is shown there) and its
+  tab strip (rect + tabs) when the layout is `tabbed`.
+
+== UI (`oxmonad-ui`)
+
+Draws premultiplied ARGB8888 (`wl_shm` `argb8888`, little-endian) buffers at
+an integer scale. Inputs are plain view structs (`BarView`, `PromptView`,
+`TabsView`, `Theme`). Text uses `fontdue` with Fira Mono embedded from
+`assets/FiraMono-Regular.ttf` (SIL OFL, see `assets/FiraMono-LICENSE.txt`),
+so renders are deterministic across machines; a config font family found via
+`fontdb` may override it at runtime.
+
+== Configuration
+
+`$XDG_CONFIG_HOME/oxmonad/config.toml`, merged over the defaults embedded
+from `crates/oxmonad-core/default-config.toml` (the single source of truth for
+default keybindings, colors, commands and rules). `Mod+q` reloads it.
+
+== Testing
+
+* `oxmonad-core`: unit tests for the StackSet invariants, every layout's
+  geometry, every action, rules, prompt editing and config parsing.
+* `oxmonad-ui`: golden PNGs in `crates/oxmonad-ui/tests/snapshots/`;
+  regenerate with `OXMONAD_BLESS=1 cargo test -p oxmonad-ui`.
+* `oxmonad`: unit tests for arrangement → request translation against a
+  recording fake; an `#[ignore]`d end-to-end test runs river headless
+  (`WLR_BACKENDS=headless WLR_RENDERER=pixman river -c <oxmonad>`) when
+  `river` is installed.
