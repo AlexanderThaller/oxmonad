@@ -198,3 +198,34 @@ Where `oxmonad-core` differs from or refines the contract above:
   centre floating transients; without it they take the middle quarter of the
   screen.
 * **Effects.** No `WarpPointer` effect: xmonad does not warp by default.
+
+== Binary implementation notes
+
+How `crates/oxmonad` realises the protocol loop above:
+
+* **Modules.** `state` (the mirror of river's objects and the two
+  sequences; `state/dispatch.rs` records events), `plan` (pure
+  `Arrangement` → request translation behind the `Requests` trait, diffed
+  against what river was last told), `shell` + `shm` (bar, tab strips and
+  prompt as `river_shell_surface_v1`s in memfd-backed `wl_shm` buffers),
+  `keys` / `keyboard` (keysym resolution and the prompt's keyboard via the
+  pure-Rust `kbvm`), `status` (clock and battery), `control` (the
+  `OXMONAD_CONTROL` socket), `spawn`.
+* **Shell surfaces are redrawn in the manage sequence**, not the render
+  sequence: their content only depends on core state, and committing them
+  (with `sync_next_commit`) during the manage sequence maps the prompt before
+  river applies `focus_shell_surface`. The render sequence repositions and
+  restacks them with the windows.
+* **Stacking.** Tiled and floating windows bottom to top, then tab strips and
+  the bar, then fullscreen windows (which therefore cover the bar), then the
+  prompt.
+* **Input ordering.** Key/pointer binding presses, clicks, pointer enters and
+  control commands are queued and applied in order at `manage_start`.
+  Focus-follows-mouse only acts when the pointer actually moved since the
+  previous manage sequence, so re-tiling under a still pointer does not steal
+  focus. Pointer bindings act on the window under the pointer.
+* **Locking.** While river reports the session locked, only bindings without
+  modifiers (media keys) run.
+* **Signals** use a self-pipe (`signal-hook`), leaving the signal mask that
+  spawned children inherit untouched; children run via `sh -c` in their own
+  process group and are reaped on `SIGCHLD`.

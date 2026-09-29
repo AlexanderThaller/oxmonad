@@ -1,79 +1,99 @@
 # oxmonad
 
-Xmonad inspired window manager written in rust and wayland only.
+An xmonad-style tiling window manager for Wayland, written in Rust.
+
+oxmonad is not a compositor: it is the window-manager client of
+[river](https://codeberg.org/river/river) 0.4+, speaking river's stable
+`river-window-management-v1` protocol. river handles the display, input,
+rendering, xdg-shell, layer-shell, screen locking and Xwayland; oxmonad decides
+where windows go, which one has focus, the key bindings, borders, and draws its
+own bar, workspace prompt and tab strips. See
+[`docs/architecture.adoc`](docs/architecture.adoc).
 
 ## Building
 
-oxmonad links against system libraries for rendering (`libpixman-1`) and
-keyboard handling (`libxkbcommon`). The TTY/DRM backend (running directly on a
-virtual terminal, see below) additionally needs the GPU, input, and session
-libraries.
-
-### Arch Linux
+oxmonad is pure Rust (fonts, keymaps and drawing included); it needs no system
+libraries beyond libc. river is the runtime dependency.
 
 ```sh
-sudo pacman -S --needed pixman libxkbcommon mesa libdrm libinput seatd
-```
-
-| Library             | Arch package   | Needed for           |
-| ------------------- | -------------- | -------------------- |
-| `libpixman-1`       | `pixman`       | software rendering   |
-| `libxkbcommon`      | `libxkbcommon` | keyboard handling     |
-| `libgbm` / EGL/GLES | `mesa`         | TTY/DRM rendering    |
-| `libdrm`            | `libdrm`       | TTY/DRM mode setting |
-| `libinput`          | `libinput`     | TTY input            |
-| `libseat`           | `seatd`        | TTY session/seat     |
-
-Then build with:
-
-```sh
-cargo build
+sudo pacman -S --needed river   # Arch Linux; river 0.4 or later
+cargo build --release
 ```
 
 ## Running
 
-oxmonad has three backends. By default it auto-detects: if a host display is
-available (`WAYLAND_DISPLAY` or `DISPLAY` is set) it runs **nested**, otherwise
-it assumes a bare VT and uses the **TTY/DRM** backend. Override with
-`OXMONAD_BACKEND=tty|winit|headless`.
-
-### Nested (winit)
-
-Run inside an existing X11 or Wayland session for development — oxmonad opens as
-a window. Just run it from a terminal in your desktop session:
+river starts its window manager itself with `-c`:
 
 ```sh
-cargo run            # OXMONAD_BACKEND=winit
+river -c oxmonad
 ```
 
-It prints the Wayland socket it created (`OXMONAD_WAYLAND_DISPLAY=wayland-N`);
-point clients at it, e.g. `WAYLAND_DISPLAY=wayland-N foot`.
+### Nested, for development
 
-### On a TTY (DRM/KMS), like weston/sway
-
-This drives the GPU directly with no host compositor. One-time setup:
+Inside an existing Wayland session river opens as a window. Run it from a
+terminal with the freshly built binary:
 
 ```sh
-sudo systemctl enable --now seatd     # session/seat manager
-sudo usermod -aG seat "$USER"         # then log out and back in
+cargo build
+river -c ./target/debug/oxmonad
 ```
 
-Then switch to a bare virtual terminal (e.g. Ctrl+Alt+F3), log in, and run:
+Clients started from inside (Super+Shift+Return opens `alacritty`) connect to
+the nested river automatically; from another terminal point them at river's
+socket, e.g. `WAYLAND_DISPLAY=wayland-1 alacritty`.
 
-```sh
-OXMONAD_BACKEND=tty ./target/debug/oxmonad
-```
+### On a TTY
 
-It takes over the screen, scanning out to every connected output. Launch
-clients into it using the printed socket name, e.g.
-`WAYLAND_DISPLAY=wayland-N foot`. VT switching (Ctrl+Alt+F-keys) pauses and
-restores the session automatically.
-
-This backend is intentionally minimal: a single GPU, no monitor hotplug.
+Log in on a virtual terminal and run `river -c oxmonad`. river needs seat
+access (logind, or `seatd` with your user in the `seat` group).
 
 ### As a display-manager session (LightDM)
 
-To pick oxmonad from a login greeter, install the session wrapper and Wayland
-session entry under [`contrib/lightdm/`](contrib/lightdm/README.md). On a
-logind system this needs no extra seat setup — the display manager hands
-oxmonad an active seat.
+Install the session wrapper and Wayland session entry from
+[`contrib/lightdm/`](contrib/lightdm/README.md), then pick **oxmonad** in the
+greeter.
+
+## Configuration
+
+oxmonad reads `$XDG_CONFIG_HOME/oxmonad/config.toml` (default
+`~/.config/oxmonad/config.toml`) and merges it over the built-in defaults in
+[`crates/oxmonad-core/default-config.toml`](crates/oxmonad-core/default-config.toml),
+which documents every setting: modifier, terminal, workspaces, colors, fonts,
+bar, prompt, tabs, key and pointer bindings, manage rules and scratchpads. You
+only write what you change.
+
+```sh
+oxmonad --check-config            # validate the config file and exit
+oxmonad --config ./my-config.toml # use another file
+```
+
+`Super+q` (or `kill -USR1` on oxmonad) reloads the file; an invalid file is
+reported in the log and the previous configuration stays active. The default
+bindings are listed in [`docs/keybindings.md`](docs/keybindings.md).
+
+Logs go to stderr (river passes them on); filter them with `RUST_LOG`, e.g.
+`RUST_LOG=oxmonad=debug`.
+
+## Scripting: the control socket
+
+With `OXMONAD_CONTROL=/path/to/socket` set, oxmonad listens on that Unix
+socket. Every line is an action in config syntax (`view 3`, `next-layout`,
+`spawn foot`, …), queued exactly like a key press and answered with `ok`, or
+`dump-state`, answered with one line of JSON describing screens, windows and
+focus:
+
+```sh
+echo 'view 2' | socat - UNIX-CONNECT:$OXMONAD_CONTROL
+```
+
+## Testing
+
+```sh
+cargo test --workspace
+# End-to-end: headless river with alacritty clients (needs both installed).
+# Keep TMPDIR short: Wayland socket paths are limited to 108 bytes.
+cargo test -p oxmonad --test river -- --ignored
+```
+
+UI golden images live in `crates/oxmonad-ui/tests/snapshots/`; regenerate them
+with `OXMONAD_BLESS=1 cargo test -p oxmonad-ui`.

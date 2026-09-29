@@ -1,11 +1,15 @@
 # Keybindings
 
-oxmonad's shortcuts are hardcoded in [`src/keybindings.rs`](../src/keybindings.rs);
-the program choices they spawn live in [`src/config.rs`](../src/config.rs).
+These are oxmonad's default bindings. They are defined in
+[`crates/oxmonad-core/default-config.toml`](../crates/oxmonad-core/default-config.toml),
+the single source of defaults; override, add or remove (`= "none"`) bindings in
+the `[keybindings]` and `[pointer_bindings]` tables of your
+`~/.config/oxmonad/config.toml`, which also lists every available action.
 
-Every binding uses the **mod key** (`META`), which defaults to **Super** (the
-"logo"/Windows key). Change the single `META` constant in `src/config.rs` to
-rebind every shortcut to a different modifier (Alt or Control).
+Bindings are written as `Mod+Shift+j`: key names are xkb keysym names
+(`Return`, `comma`, `XF86AudioPlay`, …) and **`Mod`** is the `modifier`
+setting, **Super** (the logo key) by default — set `modifier = "Alt"` to use
+xmonad's classic `mod1Mask`. The tables below assume Super.
 
 ## Launching programs
 
@@ -30,8 +34,22 @@ rebind every shortcut to a different modifier (Alt or Control).
 | `Super` + `t`           | Sink a floating window back into the tiling         |
 | `Super` + `Shift` + `c` | Close the focused window                            |
 | `Super` + `o`           | Move the focused window to the next monitor (follows) |
+| `Super` + `f`           | Toggle fullscreen for the focused window            |
+| `Super` + `` ` ``       | Show / hide the `term` scratchpad (spawns it if needed) |
 
-Dragging a window (client-side move) floats it, like xmonad's `mod+drag`.
+## Mouse
+
+| Binding                     | Action                                           |
+| --------------------------- | ------------------------------------------------ |
+| `Super` + left drag         | Float the window under the pointer and move it   |
+| `Super` + right drag        | Float the window under the pointer and resize it |
+| Click a window              | Focus it                                         |
+| Click a workspace in the bar | View that workspace                             |
+| Click a tab                 | Focus that window                                |
+
+Focus follows the mouse (`focus_follows_mouse = true`, xmonad's default):
+moving the pointer onto a window focuses it. Windows that ask to be moved or
+resized (dragging a client-side title bar) float, like xmonad's `mod+drag`.
 
 ## Layouts & resizing
 
@@ -65,7 +83,9 @@ Each workspace cycles independently and each layout keeps its own state.
 
 Inside a prompt: type to filter, `Tab`/`Shift`+`Tab` cycle the completions,
 `Return` confirms (the highlighted completion, or the typed name), `Escape`
-cancels.
+cancels. Editing follows `XMonad.Prompt`: `Left`/`Right`/`Home`/`End`,
+`BackSpace`/`Delete`, `Ctrl`+`w` (delete word), `Ctrl`+`k` / `Ctrl`+`u` (kill
+to end / start), `Ctrl`+`a` / `Ctrl`+`e`, `Ctrl`+`g` (cancel).
 
 ## Screens (multi-monitor)
 
@@ -83,7 +103,8 @@ Physical screens are ordered top-to-bottom, then left-to-right.
 | ----------------------- | ------------------------------- |
 | `Super` + `b`           | Show / hide the built-in bar    |
 | `Super` + `n`           | Refresh (retile all workspaces) |
-| `Super` + `Shift` + `q` | Quit oxmonad                    |
+| `Super` + `q`           | Reload the configuration file   |
+| `Super` + `Shift` + `q` | Quit: end the river session     |
 
 ## Notes
 
@@ -94,3 +115,4 @@ Physical screens are ordered top-to-bottom, then left-to-right.
 - Zoom windows are managed automatically: the main/meeting windows tile (and
   are pushed out of the master slot), every other Zoom window floats
   (`manageZoomHook`).
+- While the screen is locked only unmodified bindings (the media keys) work.
