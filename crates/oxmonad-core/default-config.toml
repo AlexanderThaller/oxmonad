@@ -19,6 +19,10 @@ modifier = "Super"
 # `spawn-terminal` runs this (myTerminal).
 terminal = "alacritty"
 
+# Focus the window under the pointer when the pointer moves onto it
+# (xmonad's focusFollowsMouse, True by default). Clicking always focuses.
+focus_follows_mouse = true
+
 # Initial workspaces (myWorkspaces). More can be created from the prompt.
 workspaces = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 

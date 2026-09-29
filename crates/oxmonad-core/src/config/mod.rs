@@ -260,6 +260,8 @@ pub struct Config {
     pub modifier: Modifiers,
     /// Terminal command (`spawn-terminal`).
     pub terminal: String,
+    /// Focus the window the pointer moves onto (`focusFollowsMouse`).
+    pub focus_follows_mouse: bool,
     /// Initial workspace tags, in order.
     pub workspaces: Vec<String>,
     /// Window borders.
@@ -286,6 +288,7 @@ pub struct Config {
 struct RawConfig {
     modifier: String,
     terminal: String,
+    focus_follows_mouse: bool,
     workspaces: Vec<String>,
     border: BorderConfig,
     bar: BarConfig,
@@ -368,6 +371,7 @@ impl Config {
         Ok(Self {
             modifier,
             terminal: raw.terminal,
+            focus_follows_mouse: raw.focus_follows_mouse,
             workspaces: raw.workspaces,
             border: raw.border,
             bar: raw.bar,

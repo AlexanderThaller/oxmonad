@@ -22,6 +22,8 @@ fn defaults_parse() {
     assert_eq!(config, Config::default());
     assert_eq!(config.modifier, Modifiers::SUPER);
     assert_eq!(config.terminal, "alacritty");
+    assert!(config.focus_follows_mouse);
+    assert!(!load("focus_follows_mouse = false").focus_follows_mouse);
     assert_eq!(
         config.workspaces,
         ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
