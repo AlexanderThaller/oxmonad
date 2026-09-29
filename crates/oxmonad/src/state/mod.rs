@@ -18,6 +18,14 @@ use std::{
     },
 };
 
+use calloop::{
+    LoopHandle,
+    RegistrationToken,
+    timer::{
+        TimeoutAction,
+        Timer,
+    },
+};
 use oxmonad_core::{
     Action,
     Arrangement,
@@ -84,7 +92,10 @@ use crate::{
         Command,
         Reply,
     },
-    keyboard::Keyboard,
+    keyboard::{
+        Keyboard,
+        RepeatTiming,
+    },
     keys,
     plan::{
         self,
@@ -262,6 +273,9 @@ enum Lifecycle {
 /// Everything the event loop works on.
 #[derive(Debug)]
 pub struct State {
+    handle: LoopHandle<'static, Self>,
+    /// The prompt key being repeated and its timer.
+    repeat: Option<(u32, RegistrationToken)>,
     conn: Connection,
     qh: QueueHandle<Self>,
     globals: Globals,
@@ -296,6 +310,7 @@ pub struct State {
 impl State {
     /// A fresh state around the bound globals.
     pub fn new(
+        handle: LoopHandle<'static, Self>,
         conn: Connection,
         qh: QueueHandle<Self>,
         globals: Globals,
@@ -305,6 +320,8 @@ impl State {
         let mut fonts = FontCache::default();
         let styles = Styles::new(&config, &mut fonts);
         let mut state = Self {
+            handle,
+            repeat: None,
             conn,
             qh,
             globals,
@@ -404,6 +421,42 @@ impl State {
                 self.dirty();
             }
             Err(err) => reply.send(&format!("error: {err}")),
+        }
+    }
+
+    /// Repeats `key` (typed into the prompt) while it is held.
+    fn start_repeat(
+        &mut self,
+        seat: SeatId,
+        key: u32,
+        prompt_key: PromptKey,
+        timing: RepeatTiming,
+    ) {
+        self.stop_repeat(None);
+        let timer = Timer::from_duration(timing.delay);
+        let token = self.handle.insert_source(timer, move |_, (), state| {
+            let held = state.seats.get(&seat).is_some() && state.wm.is_prompt_open();
+            if !held {
+                state.repeat = None;
+                return TimeoutAction::Drop;
+            }
+            state.inputs.push_back(Input::PromptKey(prompt_key));
+            state.dirty();
+            TimeoutAction::ToDuration(timing.interval)
+        });
+        match token {
+            Ok(token) => self.repeat = Some((key, token)),
+            Err(err) => tracing::warn!(%err, "cannot repeat keys"),
+        }
+    }
+
+    /// Stops repeating (`key`, or whatever repeats).
+    fn stop_repeat(&mut self, key: Option<u32>) {
+        if let Some((repeating, token)) = self.repeat
+            && key.is_none_or(|key| key == repeating)
+        {
+            self.handle.remove(token);
+            self.repeat = None;
         }
     }
 

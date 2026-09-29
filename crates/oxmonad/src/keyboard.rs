@@ -7,6 +7,7 @@ use std::{
         fd::OwnedFd,
         unix::fs::FileExt,
     },
+    time::Duration,
 };
 
 use kbvm::{
@@ -30,6 +31,17 @@ pub struct Keyboard {
     proxy: WlKeyboard,
     table: Option<LookupTable>,
     components: Components,
+    /// Keys per second (0 disables repeat) and the delay before repeating.
+    repeat: (i32, i32),
+}
+
+/// When a held key repeats.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RepeatTiming {
+    /// Before the first repeat.
+    pub delay: Duration,
+    /// Between repeats.
+    pub interval: Duration,
 }
 
 impl std::fmt::Debug for Keyboard {
@@ -49,6 +61,7 @@ impl Keyboard {
             proxy: keyboard,
             table: None,
             components: Components::default(),
+            repeat: (25, 600),
         }
     }
 
@@ -80,6 +93,22 @@ impl Keyboard {
             Ok(keymap) => self.table = Some(keymap.to_builder().build_lookup_table()),
             Err(err) => tracing::warn!(%err, "cannot parse the keymap"),
         }
+    }
+
+    /// `wl_keyboard.repeat_info`.
+    pub fn set_repeat(&mut self, rate: i32, delay: i32) {
+        self.repeat = (rate, delay);
+    }
+
+    /// How `key` repeats while held, if it does.
+    #[must_use]
+    pub fn repeat(&self, key: u32) -> Option<RepeatTiming> {
+        let (rate, delay) = self.repeat;
+        let repeats = self.table.as_ref()?.repeats(Keycode::from_evdev(key));
+        (repeats && rate > 0).then(|| RepeatTiming {
+            delay: Duration::from_millis(u64::from(delay.unsigned_abs())),
+            interval: Duration::from_secs(1) / rate.unsigned_abs(),
+        })
     }
 
     /// `wl_keyboard.modifiers`.

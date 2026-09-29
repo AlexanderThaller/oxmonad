@@ -186,12 +186,12 @@ fn run(
         shm,
     };
 
-    let mut event_loop: EventLoop<'_, State> = EventLoop::try_new()?;
+    let mut event_loop: EventLoop<'static, State> = EventLoop::try_new()?;
     let handle = event_loop.handle();
     WaylandSource::new(conn.clone(), queue)
         .insert(handle.clone())
         .map_err(|err| format!("cannot watch the Wayland socket: {}", err.error))?;
-    let mut state = State::new(conn, qh, globals, config, config_path);
+    let mut state = State::new(handle.clone(), conn, qh, globals, config, config_path);
 
     watch_signal(&handle, &[SIGCHLD], State::reap_children)?;
     watch_signal(&handle, &[SIGTERM, SIGINT], State::stop)?;

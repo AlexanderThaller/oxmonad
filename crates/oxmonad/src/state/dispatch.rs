@@ -526,21 +526,28 @@ impl Dispatch<WlKeyboard, SeatId> for State {
                 group,
                 ..
             } => keyboard.set_modifiers(mods_depressed, mods_latched, mods_locked, group),
+            wl_keyboard::Event::RepeatInfo { rate, delay } => keyboard.set_repeat(rate, delay),
             wl_keyboard::Event::Key {
                 key,
                 state: WEnum::Value(KeyState::Pressed),
                 ..
             } if prompt_open => {
-                if let Some(key) = keyboard.prompt_key(key) {
-                    state.inputs.push_back(Input::PromptKey(key));
+                let repeat = keyboard.repeat(key);
+                if let Some(prompt_key) = keyboard.prompt_key(key) {
+                    state.inputs.push_back(Input::PromptKey(prompt_key));
                     state.dirty();
+                    if let Some(timing) = repeat {
+                        state.start_repeat(*id, key, prompt_key, timing);
+                    }
                 }
             }
-            wl_keyboard::Event::Enter { .. }
-            | wl_keyboard::Event::Leave { .. }
-            | wl_keyboard::Event::Key { .. }
-            | wl_keyboard::Event::RepeatInfo { .. }
-            | _ => {}
+            wl_keyboard::Event::Key {
+                key,
+                state: WEnum::Value(KeyState::Released),
+                ..
+            } => state.stop_repeat(Some(key)),
+            wl_keyboard::Event::Leave { .. } => state.stop_repeat(None),
+            wl_keyboard::Event::Enter { .. } | wl_keyboard::Event::Key { .. } | _ => {}
         }
     }
 }

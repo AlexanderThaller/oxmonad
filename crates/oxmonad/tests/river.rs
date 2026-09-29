@@ -73,6 +73,7 @@ mod key {
     pub const J: u32 = 36;
     pub const V: u32 = 47;
     pub const ENTER: u32 = 28;
+    pub const BACKSPACE: u32 = 14;
     pub const LEFT_META: u32 = 125;
     pub const BTN_LEFT: u32 = 0x110;
 }
@@ -481,6 +482,16 @@ fn handles_keys_and_prompt(session: &Session, input: &mut Input) {
     wait_for("the prompt to reopen", || {
         session.state()["focus"] == "prompt"
     });
+    // A held key repeats.
+    for _ in 0..4 {
+        input.tap(key::THREE);
+    }
+    wait_for("typing", || session.state()["prompt"]["input"] == "3333");
+    input.key(key::BACKSPACE, true);
+    wait_for("a held BackSpace to repeat", || {
+        session.state()["prompt"]["input"] == ""
+    });
+    input.key(key::BACKSPACE, false);
     input.tap(key::ESC);
     wait_for("Escape to close the prompt", || {
         session.state()["prompt"].is_null()
