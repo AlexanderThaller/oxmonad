@@ -4,7 +4,6 @@
 //! (MIT licensed, © Isaac Freund). They are stable: river guarantees window
 //! managers written against 0.4 keep working with 1.0 and later.
 
-#![expect(clippy::pedantic, reason = "generated code")]
 #![expect(unused_imports, reason = "generated code")]
 
 macro_rules! protocol {
