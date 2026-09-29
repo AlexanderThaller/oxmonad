@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=oxmonad
+Comment=xmonad-style tiling window manager for the river Wayland compositor
+Exec=/usr/local/bin/oxmonad-session
+Type=Application
+DesktopNames=oxmonad
