@@ -435,7 +435,7 @@ impl State {
         self.stop_repeat(None);
         let timer = Timer::from_duration(timing.delay);
         let token = self.handle.insert_source(timer, move |_, (), state| {
-            let held = state.seats.get(&seat).is_some() && state.wm.is_prompt_open();
+            let held = state.seats.contains_key(&seat) && state.wm.is_prompt_open();
             if !held {
                 state.repeat = None;
                 return TimeoutAction::Drop;
