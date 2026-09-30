@@ -86,7 +86,8 @@ The layout picker shows the pictures above with the layout names, the
 current layout outlined and the selection highlighted (starting on the
 current layout). `j`/`k` (or the arrow keys, `Tab`/`Shift`+`Tab`) move the
 selection, wrapping; `Return` (or `Space`) applies it, `1`..`9`/`0` apply the
-first to tenth layout directly, a click on a picture applies that layout, and
+first to tenth layout directly, the pointer highlights the picture under it
+and a click applies that layout, and
 `Escape` or `Super` + `Ctrl` + `Space` close the picker unchanged.
 
 ## Workspaces
