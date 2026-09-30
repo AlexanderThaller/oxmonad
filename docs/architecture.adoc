@@ -215,8 +215,12 @@ filtered with FreeType's default LCD filter) coverage; subpixel glyphs are
 only drawn in opaque colors over opaque pixels, anything else falls back to
 grayscale. The default font is Fira Mono embedded from
 `assets/FiraMono-Regular.ttf` (SIL OFL, see `assets/FiraMono-LICENSE.txt`),
-so renders are deterministic across machines; a config font family found via
-`fontdb` may override it at runtime.
+so renders are deterministic across machines. A config asking for "Fira Mono"
+uses the embedded font without looking at the installed ones; any other
+family is found via `fontdb`, which scans every installed font file (~85 ms
+with thousands of fonts). The binary (`crates/oxmonad/src/font_cache.rs`)
+remembers the file it found in `$XDG_CACHE_HOME/oxmonad/fonts` and only
+scans again when that file is gone, keeping startup and restarts fast.
 
 == Configuration
 

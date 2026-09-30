@@ -6,13 +6,11 @@
 //! the windows.
 
 use std::{
-    collections::{
-        BTreeMap,
-        HashMap,
-    },
+    collections::BTreeMap,
     rc::Rc,
 };
 
+use crate::font_cache::FontCache;
 use oxmonad_core::{
     BarModel,
     HelpModel,
@@ -115,27 +113,6 @@ fn antialias(antialias: CoreAntialias) -> Antialias {
         CoreAntialias::Grayscale => Antialias::Grayscale,
         CoreAntialias::Rgb => Antialias::Rgb,
         CoreAntialias::Bgr => Antialias::Bgr,
-    }
-}
-
-/// Loaded fonts by family; loading scans the system fonts, so each family
-/// is loaded once.
-#[derive(Debug, Default)]
-pub struct FontCache(HashMap<String, Rc<Fonts>>);
-
-impl FontCache {
-    /// The fonts for `family`.
-    pub fn get(&mut self, family: &str) -> Rc<Fonts> {
-        self.0
-            .entry(family.to_owned())
-            .or_insert_with(|| {
-                let fonts = Fonts::from_family(family);
-                if fonts.family() != family {
-                    tracing::info!(family, loaded = fonts.family(), "font fallback");
-                }
-                Rc::new(fonts)
-            })
-            .clone()
     }
 }
 

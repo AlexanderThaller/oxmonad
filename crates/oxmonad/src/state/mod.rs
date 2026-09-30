@@ -96,6 +96,7 @@ use crate::{
         Command,
         Reply,
     },
+    font_cache::FontCache,
     keyboard::{
         Keyboard,
         RepeatTiming,
@@ -115,7 +116,6 @@ use crate::{
         self,
         Click,
         Content,
-        FontCache,
         ShellGlobals,
         Shells,
         Status,

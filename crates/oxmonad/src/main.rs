@@ -6,6 +6,7 @@
 
 mod config_file;
 mod control;
+mod font_cache;
 mod keyboard;
 mod keys;
 mod plan;

@@ -79,5 +79,6 @@ pub use tabs::{
 pub use text::{
     Antialias,
     FontError,
+    FontFile,
     Fonts,
 };

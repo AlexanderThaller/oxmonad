@@ -10,6 +10,8 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     fmt,
+    fs,
+    path::PathBuf,
     rc::Rc,
 };
 
@@ -114,6 +116,25 @@ impl OutlinePen for Pen {
     }
 }
 
+/// Where an installed font lives, as found by [`Fonts::locate`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontFile {
+    /// The font file.
+    pub path: PathBuf,
+    /// The face within a font collection.
+    pub index: u32,
+    /// The family name the font reports.
+    pub family: String,
+}
+
+impl FontFile {
+    /// Whether the file still exists.
+    #[must_use]
+    pub fn exists(&self) -> bool {
+        self.path.is_file()
+    }
+}
+
 /// The font every widget draws with, plus a cache of rasterized glyphs.
 ///
 /// Sizes are always pixel sizes (the em size in device pixels). The cache is
@@ -151,13 +172,67 @@ impl Fonts {
             .expect("the embedded Fira Mono is a valid font")
     }
 
-    /// Looks `family` up among the installed fonts (fontconfig-style names
-    /// such as `"Fira Mono"`, or the generic `monospace`, `sans-serif`,
-    /// `serif`), falling back to the embedded Fira Mono when it is missing or
-    /// unreadable. [`Fonts::family`] tells which one was loaded.
+    /// Whether `family` names the embedded font (Fira Mono, in any case).
+    #[must_use]
+    pub fn is_embedded_family(family: &str) -> bool {
+        family.to_lowercase() == EMBEDDED_FAMILY.to_lowercase()
+    }
+
+    /// The fonts for `family`: the embedded Fira Mono when `family` names it
+    /// (without touching the installed fonts), else the installed font
+    /// [`Fonts::locate`] finds, falling back to the embedded Fira Mono when
+    /// it is missing or unreadable. [`Fonts::family`] tells which one was
+    /// loaded.
     #[must_use]
     pub fn from_family(family: &str) -> Self {
-        Self::load_system(family).unwrap_or_else(Self::embedded)
+        if Self::is_embedded_family(family) {
+            return Self::embedded();
+        }
+        Self::locate(family)
+            .and_then(|found| Self::from_file(&found).ok())
+            .unwrap_or_else(Self::embedded)
+    }
+
+    /// Looks `family` up among the installed fonts (fontconfig-style names
+    /// such as `"DejaVu Sans Mono"`, or the generic `monospace`,
+    /// `sans-serif`, `serif`). This scans every installed font file, which
+    /// takes a while on systems with many fonts, so callers should remember
+    /// the result (see [`FontFile`]).
+    #[must_use]
+    pub fn locate(family: &str) -> Option<FontFile> {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+        let wanted = match family.to_lowercase().as_str() {
+            "monospace" => fontdb::Family::Monospace,
+            "sans-serif" | "sans" => fontdb::Family::SansSerif,
+            "serif" => fontdb::Family::Serif,
+            _ => fontdb::Family::Name(family),
+        };
+        let id = db.query(&fontdb::Query {
+            families: &[wanted],
+            ..fontdb::Query::default()
+        })?;
+        let face = db.face(id)?;
+        let path = match &face.source {
+            fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => path.clone(),
+            fontdb::Source::Binary(_) => return None,
+        };
+        let name = face
+            .families
+            .first()
+            .map_or_else(|| family.to_owned(), |(name, _)| name.clone());
+        Some(FontFile {
+            path,
+            index: face.index,
+            family: name,
+        })
+    }
+
+    /// Loads the font `file` points to.
+    pub fn from_file(file: &FontFile) -> Result<Self, FontError> {
+        let data = fs::read(&file.path)
+            .map_err(|err| FontError(format!("{}: {err}", file.path.display())))?;
+        Self::new(Cow::Owned(data), file.index, &file.family)
     }
 
     /// Parses a TTF/OTF font (face `index` of a collection).
@@ -177,27 +252,6 @@ impl Fonts {
             hinters: RefCell::default(),
             glyphs: RefCell::default(),
         })
-    }
-
-    fn load_system(family: &str) -> Option<Self> {
-        let mut db = fontdb::Database::new();
-        db.load_system_fonts();
-        let wanted = match family.to_lowercase().as_str() {
-            "monospace" => fontdb::Family::Monospace,
-            "sans-serif" | "sans" => fontdb::Family::SansSerif,
-            "serif" => fontdb::Family::Serif,
-            _ => fontdb::Family::Name(family),
-        };
-        let id = db.query(&fontdb::Query {
-            families: &[wanted],
-            ..fontdb::Query::default()
-        })?;
-        let name = db
-            .face(id)
-            .and_then(|face| face.families.first())
-            .map_or_else(|| family.to_owned(), |(name, _)| name.clone());
-        db.with_face_data(id, |data, index| Self::from_bytes(data, index, &name).ok())
-            .flatten()
     }
 
     /// The family name of the loaded font.
