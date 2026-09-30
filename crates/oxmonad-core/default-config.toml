@@ -31,6 +31,12 @@ width = 1            # myBorderWidth
 focused = "#C62828"  # myFocusedBorderColor (colorRed)
 normal = "#969694"   # myNormalBorderColor (colorLightGrey)
 
+# Text of the bar, prompt and tab strip.
+[font]
+# "grayscale", or subpixel antialiasing for the screen's subpixel order:
+# "rgb" or "bgr". Subpixel text is only drawn over opaque backgrounds.
+antialias = "grayscale"
+
 [bar]
 visible = true
 position = "top"     # "top" or "bottom"

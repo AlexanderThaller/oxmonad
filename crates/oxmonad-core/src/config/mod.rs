@@ -107,6 +107,28 @@ pub enum BarPosition {
     Bottom,
 }
 
+/// How glyph edges of oxmonad's own text are antialiased.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Antialias {
+    /// One coverage value per pixel.
+    #[default]
+    Grayscale,
+    /// Subpixel antialiasing for red, green, blue subpixel order.
+    Rgb,
+    /// Subpixel antialiasing for blue, green, red subpixel order.
+    Bgr,
+}
+
+/// Text rendering settings shared by the bar, prompt and tab strip.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FontConfig {
+    /// Glyph edge antialiasing; subpixel modes only apply over opaque
+    /// backgrounds.
+    pub antialias: Antialias,
+}
+
 /// Window border settings.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -266,6 +288,8 @@ pub struct Config {
     pub workspaces: Vec<String>,
     /// Window borders.
     pub border: BorderConfig,
+    /// Text rendering.
+    pub font: FontConfig,
     /// Status bar.
     pub bar: BarConfig,
     /// Workspace prompt.
@@ -291,6 +315,7 @@ struct RawConfig {
     focus_follows_mouse: bool,
     workspaces: Vec<String>,
     border: BorderConfig,
+    font: FontConfig,
     bar: BarConfig,
     prompt: PromptConfig,
     tabs: TabConfig,
@@ -374,6 +399,7 @@ impl Config {
             focus_follows_mouse: raw.focus_follows_mouse,
             workspaces: raw.workspaces,
             border: raw.border,
+            font: raw.font,
             bar: raw.bar,
             prompt: raw.prompt,
             tabs: raw.tabs,

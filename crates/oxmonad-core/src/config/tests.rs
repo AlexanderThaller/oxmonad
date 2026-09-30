@@ -31,6 +31,12 @@ fn defaults_parse() {
     assert_eq!(config.border.width, 1);
     assert_eq!(config.border.focused, Color::rgb(0xC6, 0x28, 0x28));
     assert_eq!(config.border.normal, Color::rgb(0x96, 0x96, 0x94));
+    assert_eq!(config.font.antialias, Antialias::Grayscale);
+    assert_eq!(
+        load("[font]\nantialias = \"bgr\"").font.antialias,
+        Antialias::Bgr
+    );
+    assert!(Config::from_toml("[font]\nantialias = \"lcd\"").is_err());
     assert!(config.bar.visible);
     assert_eq!(config.bar.position, BarPosition::Top);
     assert_eq!(config.bar.output, None);

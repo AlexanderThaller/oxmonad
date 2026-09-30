@@ -20,12 +20,14 @@ use oxmonad_core::{
     WindowId,
     WorkspaceState as CoreWorkspaceState,
     config::{
+        Antialias as CoreAntialias,
         BarPosition,
         Color as CoreColor,
         Config,
     },
 };
 use oxmonad_ui::{
+    Antialias,
     BarStyle,
     BarView,
     BatteryState,
@@ -87,6 +89,14 @@ fn color(c: CoreColor) -> Color {
     Color::rgba(c.r, c.g, c.b, c.a)
 }
 
+fn antialias(antialias: CoreAntialias) -> Antialias {
+    match antialias {
+        CoreAntialias::Grayscale => Antialias::Grayscale,
+        CoreAntialias::Rgb => Antialias::Rgb,
+        CoreAntialias::Bgr => Antialias::Bgr,
+    }
+}
+
 /// Loaded fonts by family; loading scans the system fonts, so each family
 /// is loaded once.
 #[derive(Debug, Default)]
@@ -127,11 +137,13 @@ impl Styles {
         let bar = &config.bar;
         let prompt = &config.prompt;
         let tabs = &config.tabs;
+        let antialias = antialias(config.font.antialias);
         Self {
             bar: BarStyle {
                 bg: color(bar.colors.background),
                 fg: color(bar.colors.foreground),
                 font_size: points_to_px(bar.font_size),
+                antialias,
                 height: bar.height.unsigned_abs(),
                 ..BarStyle::default()
             },
@@ -151,6 +163,7 @@ impl Styles {
                 fg_highlight: color(prompt.colors.highlight_foreground),
                 border: color(prompt.colors.border),
                 font_size: points_to_px(prompt.font_size),
+                antialias,
                 height: prompt.height.unsigned_abs(),
                 position: match prompt.position {
                     BarPosition::Top => PromptPosition::Top,
@@ -171,6 +184,7 @@ impl Styles {
                     text: color(tabs.inactive_text_color),
                 },
                 font_size: points_to_px(tabs.font_size),
+                antialias,
                 height: tabs.height.unsigned_abs(),
                 ..TabStyle::default()
             },
