@@ -35,6 +35,9 @@ items are marked N/A with a rationale.
 * Tab strip for the tabbed layout, clickable.
 * Workspace prompt with completion, `XMonad.Prompt` editing keys and key
   repeat.
+* Key binding help overlay (`Mod+Shift+/`, xmonad's default help): every
+  active key and pointer binding grouped into sections, scrollable, closed
+  by `Escape`/`q`/`Return`/a click.
 * Focus follows mouse (xmonad default), click to focus.
 * TOML configuration merged over embedded defaults: modifier, terminal,
   workspaces, colors, fonts, bar/prompt/tabs, key and pointer bindings, rules,
@@ -77,6 +80,13 @@ items are marked N/A with a rationale.
 == Keybindings still missing
 
 * [ ] Volume / brightness keys (common additions, not in the xmonad config).
+* [ ] xmonad default bindings not implemented yet:
+** `Mod+Tab` / `Mod+Shift+Tab`: focus next / previous window.
+** `Mod+w`/`e`/`r` and `Mod+Shift+w`/`e`/`r`: view / shift to physical
+   screen 1/2/3.
+** `Mod+Button2`: focus the window under the pointer and `shiftMaster` it.
+* [ ] Java apps: set `_JAVA_AWT_WM_NONREPARENTING=1` in the session
+  environment (the Wayland/Xwayland replacement for `setWMName "LG3D"`).
 
 == Test coverage
 
@@ -86,7 +96,8 @@ items are marked N/A with a rationale.
 
 == Not applicable (Wayland-only)
 
-* `setWMName "LG3D"` — an X11 hack to fix Java AWT/Swing apps.
+* `setWMName "LG3D"` — an X11 hack to fix Java AWT/Swing apps; see the
+  `_JAVA_AWT_WM_NONREPARENTING=1` open item above.
 * `dmenu_run` / X11 launchers — replaced by a layer-shell launcher (tofi).
 * `slock` — X11-only; the lock binding spawns `swaylock` instead.
 * xmobar itself — replaced by the built-in bar.

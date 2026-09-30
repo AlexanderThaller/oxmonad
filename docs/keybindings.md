@@ -44,6 +44,7 @@ xmonad's classic `mod1Mask`. The tables below assume Super.
 | Click a workspace in the bar | View that workspace                             |
 | Click a tab                 | Focus that window                                |
 | Click a layout in the layout picker | Switch to that layout                    |
+| Click the key binding help  | Close it                                         |
 
 Focus follows the mouse (`focus_follows_mouse = true`, xmonad's default):
 moving the pointer onto a window focuses it. Windows that ask to be moved or
@@ -130,6 +131,13 @@ monitor counts as several screens (its virtual screens, left to right).
 | `Super` + `n`           | Refresh (retile all workspaces) |
 | `Super` + `q`           | Restart in place: re-run the oxmonad binary (e.g. after a rebuild) and reload the configuration, keeping windows, workspaces and layouts |
 | `Super` + `Shift` + `q` | Quit: end the river session     |
+| `Super` + `Shift` + `/` | Key binding help: every active binding, grouped |
+
+The key binding help lists the bindings of your configuration (overrides and
+removals included, `Mod` shown as the configured modifier) in sections, in
+as many columns as fit the screen. `j`/`k` (or `Up`/`Down`),
+`PageUp`/`PageDown` and `Home`/`End` scroll it when it does not fit;
+`Escape`, `q`, `Return`, a click or `Super` + `Shift` + `/` close it.
 
 ## Notes
 
