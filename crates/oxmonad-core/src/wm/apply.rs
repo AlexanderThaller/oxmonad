@@ -50,7 +50,10 @@ impl Wm {
             Action::ToggleWs => ss.toggle_ws(&[SCRATCHPAD_TAG]),
             Action::Prompt(kind) => self.open_prompt(kind),
             Action::RemoveWorkspace => {
-                ss.remove_current_workspace();
+                let tag = ss.current_workspace().tag.clone();
+                if ss.remove_current_workspace() {
+                    self.bar_overrides.remove(&tag);
+                }
             }
             Action::FocusScreen(direction) => {
                 if let Some(id) = ss.neighbour(direction) {
@@ -62,7 +65,7 @@ impl Wm {
             Action::SwapNextScreen => ss.swap_next_screen(),
             Action::SplitScreen(n) => ss.split_screen(n),
             Action::Rescreen => ss.rescreen(),
-            Action::ToggleBar => self.bar_visible = !self.bar_visible,
+            Action::ToggleBar => self.toggle_bar(),
             Action::Refresh => {}
             Action::Quit => return vec![Effect::Quit],
             Action::Reload => return vec![Effect::Reload],

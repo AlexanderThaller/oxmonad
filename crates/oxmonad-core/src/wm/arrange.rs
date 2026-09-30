@@ -164,20 +164,32 @@ struct Layers {
 
 impl Wm {
     /// The output the bar is shown on, if it is visible: the output named
-    /// by `bar.output`, else the first output.
+    /// by `bar.output`, else the first output. Whether it is visible
+    /// follows the workspace on that output (see [`Wm::bar_visible_on`]):
+    /// the current screen's if it is on the output, else the output's
+    /// first screen's (a split output has several).
     #[must_use]
     pub fn bar_output(&self) -> Option<OutputId> {
-        if !self.bar_visible {
-            return None;
-        }
         let outputs = self.stack_set.outputs();
-        self.config
+        let output = self
+            .config
             .bar
             .output
             .as_ref()
             .and_then(|name| outputs.iter().find(|o| &o.name == name))
-            .or_else(|| outputs.first())
-            .map(|o| o.id)
+            .or_else(|| outputs.first())?
+            .id;
+        let current = self
+            .stack_set
+            .current_screen()
+            .filter(|s| s.output == output);
+        let screen =
+            current.or_else(|| self.stack_set.screens().iter().find(|s| s.output == output));
+        let tag = screen.map_or_else(
+            || self.stack_set.current_workspace().tag.as_str(),
+            |s| s.workspace.tag.as_str(),
+        );
+        self.bar_visible_on(tag).then_some(output)
     }
 
     /// The bar's output and rectangle, if it is shown: a strip along the

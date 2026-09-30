@@ -121,7 +121,8 @@ fn reconfigure_keeps_state_and_adds_workspaces() {
     config.workspaces.push("extra".into());
     config.terminal = "foot".into();
     wm.reconfigure(config);
-    assert!(wm.bar_visible());
+    // The workspace's bar toggle survives a reload.
+    assert!(!wm.bar_visible());
     assert!(wm.stack_set().has_tag("extra"));
     assert_eq!(windows(&wm), [w(1)]);
     assert_eq!(

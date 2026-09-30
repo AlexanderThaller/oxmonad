@@ -127,7 +127,7 @@ monitor counts as several screens (its virtual screens, left to right).
 
 | Shortcut                | Action                          |
 | ----------------------- | ------------------------------- |
-| `Super` + `b`           | Show / hide the built-in bar    |
+| `Super` + `b`           | Show / hide the bar for this workspace (each workspace remembers it) |
 | `Super` + `n`           | Refresh (retile all workspaces) |
 | `Super` + `q`           | Restart in place: re-run the oxmonad binary (e.g. after a rebuild) and reload the configuration, keeping windows, workspaces and layouts |
 | `Super` + `Shift` + `q` | Quit: end the river session     |

@@ -203,6 +203,56 @@ fn toggle_bar_changes_tiling_area() {
 }
 
 #[test]
+fn toggle_bar_is_per_workspace() {
+    let mut wm = wm();
+    apply(&mut wm, "toggle-bar");
+    assert!(!wm.bar_visible());
+    // Another workspace keeps the configured default...
+    apply(&mut wm, "view 2");
+    assert!(wm.bar_visible());
+    assert!(wm.arrange().bar.is_some());
+    // ...and can be toggled on its own.
+    apply(&mut wm, "toggle-bar");
+    apply(&mut wm, "toggle-bar");
+    assert!(wm.bar_visible());
+    // Back on 1 the bar is hidden again.
+    apply(&mut wm, "view 1");
+    assert!(!wm.bar_visible());
+    assert_eq!(wm.arrange().bar, None);
+}
+
+#[test]
+fn bar_toggle_follows_renames_and_survives_reload() {
+    let mut wm = wm();
+    apply(&mut wm, "toggle-bar");
+    wm.apply(Action::Prompt(PromptKind::RenameWorkspace));
+    for c in "web".chars() {
+        wm.prompt_key(PromptKey::Char(c));
+    }
+    wm.prompt_key(PromptKey::Return);
+    assert_eq!(wm.stack_set().current_tag(), "web");
+    assert!(!wm.bar_visible());
+    assert!(!wm.bar_visible_on("web"));
+    assert!(wm.bar_visible_on("1"));
+    wm.reconfigure(Config::defaults());
+    assert!(!wm.bar_visible());
+}
+
+#[test]
+fn bar_follows_the_workspace_on_the_bar_output() {
+    let mut wm = wm2();
+    // Hide the bar on workspace 2, shown on the second (bar-less) screen.
+    apply(&mut wm, "focus-screen next");
+    apply(&mut wm, "toggle-bar");
+    // The bar output still shows workspace 1, so the bar stays.
+    assert!(wm.bar_visible());
+    // Bring workspace 2 to the bar output: now it hides.
+    apply(&mut wm, "focus-screen prev");
+    apply(&mut wm, "view 2");
+    assert!(!wm.bar_visible());
+}
+
+#[test]
 fn toggle_fullscreen_action() {
     let mut wm = wm();
     manage_all(&mut wm, [1, 2]);

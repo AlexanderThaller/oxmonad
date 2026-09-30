@@ -96,7 +96,9 @@ pub struct Wm {
     windows: BTreeMap<WindowId, WindowInfo>,
     fullscreen: BTreeSet<WindowId>,
     config: Config,
-    bar_visible: bool,
+    /// Per-workspace bar visibility toggled with `toggle-bar`, by tag;
+    /// workspaces without an entry use `bar.visible` from the config.
+    bar_overrides: BTreeMap<String, bool>,
     prompt: Option<Prompt>,
     /// The open layout picker; never open together with the prompt.
     picker: Option<LayoutPicker>,
@@ -116,7 +118,7 @@ impl Wm {
             stack_set,
             windows: BTreeMap::new(),
             fullscreen: BTreeSet::new(),
-            bar_visible: config.bar.visible,
+            bar_overrides: BTreeMap::new(),
             config,
             prompt: None,
             picker: None,
@@ -128,13 +130,12 @@ impl Wm {
     /// Applies a reloaded configuration. Existing workspaces and windows
     /// are kept; configured workspaces that do not exist yet are added, new
     /// workspaces and `reset-layout` use the new layout settings, and the
-    /// bar visibility is reset to the configured value.
+    /// per-workspace bar toggles are kept.
     pub fn reconfigure(&mut self, config: Config) {
         self.stack_set.set_layout_template(layout_ring(&config));
         for tag in &config.workspaces {
             self.stack_set.add_workspace(tag);
         }
-        self.bar_visible = config.bar.visible;
         self.config = config;
     }
 
@@ -153,7 +154,25 @@ impl Wm {
     /// Whether the bar is currently shown.
     #[must_use]
     pub fn bar_visible(&self) -> bool {
-        self.bar_visible
+        self.bar_output().is_some()
+    }
+
+    /// Whether the bar should show while workspace `tag` is on its output:
+    /// the workspace's `toggle-bar` state, else `bar.visible`.
+    #[must_use]
+    pub fn bar_visible_on(&self, tag: &str) -> bool {
+        self.bar_overrides
+            .get(tag)
+            .copied()
+            .unwrap_or(self.config.bar.visible)
+    }
+
+    /// `toggle-bar`: flips the bar for the current workspace only (like
+    /// xmonad's per-workspace `ToggleStruts`).
+    pub(crate) fn toggle_bar(&mut self) {
+        let tag = self.stack_set.current_workspace().tag.clone();
+        let visible = !self.bar_visible_on(&tag);
+        self.bar_overrides.insert(tag, visible);
     }
 
     // ----------------------------------------------------------------
@@ -430,7 +449,12 @@ impl Wm {
                 ss.copy(tag);
             }
             PromptKind::RenameWorkspace => {
-                ss.rename_current(tag);
+                let old = ss.current_workspace().tag.clone();
+                if ss.rename_current(tag)
+                    && let Some(visible) = self.bar_overrides.remove(&old)
+                {
+                    self.bar_overrides.insert(tag.to_owned(), visible);
+                }
             }
         }
     }

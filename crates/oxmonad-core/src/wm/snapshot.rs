@@ -66,8 +66,9 @@ pub struct Snapshot {
     pub floating: BTreeMap<String, RationalRect>,
     /// Fullscreen windows.
     pub fullscreen: BTreeSet<String>,
-    /// Whether the bar was shown.
-    pub bar_visible: bool,
+    /// Per-workspace bar toggles (see [`Wm::bar_visible_on`]).
+    #[serde(default)]
+    pub bar_overrides: BTreeMap<String, bool>,
 }
 
 impl Snapshot {
@@ -170,7 +171,7 @@ impl Wm {
                 .filter_map(|(&w, &rect)| Some((id_of(w)?, rect)))
                 .collect(),
             fullscreen: self.fullscreen.iter().filter_map(|&w| id_of(w)).collect(),
-            bar_visible: self.bar_visible,
+            bar_overrides: self.bar_overrides.clone(),
         }
     }
 
@@ -218,7 +219,7 @@ impl Wm {
         self.fullscreen.clear();
         self.prompt = None;
         self.picker = None;
-        self.bar_visible = snapshot.bar_visible;
+        self.bar_overrides.clone_from(&snapshot.bar_overrides);
         self.restore = Some(PendingRestore {
             snapshot,
             windows: BTreeMap::new(),

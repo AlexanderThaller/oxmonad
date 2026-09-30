@@ -38,7 +38,7 @@ normal = "#969694"   # myNormalBorderColor (colorLightGrey)
 antialias = "grayscale"
 
 [bar]
-visible = true
+visible = true       # default for every workspace; Mod+b toggles it per workspace
 position = "top"     # "top" or "bottom"
 height = 24
 # output = "DP-1"    # show the bar on this output (default: first screen)

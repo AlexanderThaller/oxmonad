@@ -712,7 +712,7 @@ fn snapshot_describes_the_state() {
     assert_eq!(s.workspaces[1].tag, "2");
     assert_eq!(s.workspaces[0].focus, Some(ident(6)));
     assert!(s.floating.contains_key(&ident(5)));
-    assert!(s.bar_visible);
+    assert!(s.bar_overrides.is_empty());
 }
 
 #[test]
