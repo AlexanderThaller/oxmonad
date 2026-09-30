@@ -276,11 +276,17 @@ fn draw_completions(
                 round_i32(text_x) - pad,
                 round_i32(text_x + fonts.text_width(&text, size)) + pad,
             );
+            // Kept inside its row, so it never covers the prompt's border or
+            // the neighbouring rows.
+            let highlight_top = (text_top - pad).max(cell_top).max(border);
+            let highlight_bottom = (text_top - pad + round_i32(ascent + descent) + 2 * pad)
+                .min(cell_top + row_height)
+                .min(painter.height() - border);
             painter.fill_rect(
                 start,
-                text_top - pad,
+                highlight_top,
                 end - start,
-                round_i32(ascent + descent) + 2 * pad,
+                highlight_bottom - highlight_top,
                 style.bg_highlight,
             );
             fg = style.fg_highlight;
