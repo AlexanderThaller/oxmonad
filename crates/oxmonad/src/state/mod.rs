@@ -1159,7 +1159,7 @@ impl State {
                     "rect": rect(s.rect),
                     "usable": rect(s.usable_rect),
                     "workspace": s.workspace.tag,
-                    "layout": s.workspace.layout.description(),
+                    "layout": s.workspace.layout.name(),
                     "tabs": shells.and_then(|sa| sa.tab_strip.as_ref()).map(|t| json!({
                         "rect": rect(t.rect),
                         "titles": t.tabs.iter().map(|tab| tab.title.clone()).collect::<Vec<_>>(),

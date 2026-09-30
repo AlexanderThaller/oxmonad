@@ -105,7 +105,7 @@ fn bar_view(title: &str, battery: BatteryState) -> BarView {
     ];
     let style = BarStyle::default();
     BarView {
-        segments_left: pp_segments(&tags, "ResizableTall", title, &PpStyle::default()),
+        segments_left: pp_segments(&tags, "Tall", title, &PpStyle::default()),
         segments_right: join_groups(
             [
                 format_battery(battery, &BatteryStyle::default()),

@@ -82,6 +82,30 @@ fn descriptions_match_xmonad() {
 }
 
 #[test]
+fn names_describe_where_the_master_goes() {
+    let mut ring = LayoutRing::xmonad_default(20);
+    let mut names = Vec::new();
+    for _ in 0..ring.len() {
+        names.push(ring.name());
+        ring.next();
+    }
+    assert_eq!(
+        names,
+        [
+            "Tall Right",
+            "Tall",
+            "Wide",
+            "Full",
+            "Tabs",
+            "Grid Rows",
+            "Grid",
+            "Three Columns",
+            "Three Columns Right",
+        ]
+    );
+}
+
+#[test]
 fn only_no_borders_full_drops_borders() {
     let mut ring = LayoutRing::xmonad_default(20);
     let mut borders = Vec::new();

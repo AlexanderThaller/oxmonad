@@ -157,7 +157,34 @@ impl Layout {
         }
     }
 
-    /// xmonad's `description`, as shown in the bar.
+    /// The name shown in the bar: plain words for where the master
+    /// window goes, instead of xmonad's modifier chains (see
+    /// [`Self::description`]).
+    #[must_use]
+    pub fn name(&self) -> String {
+        match self {
+            Self::Tall(_) => "Tall".to_owned(),
+            Self::ThreeCol(_) => "Three Columns".to_owned(),
+            Self::Grid => "Grid".to_owned(),
+            Self::Full => "Full".to_owned(),
+            Self::Tabbed { .. } => "Tabs".to_owned(),
+            Self::Mirror(inner) => match **inner {
+                Self::Tall(_) => "Wide".to_owned(),
+                Self::Grid => "Grid Rows".to_owned(),
+                Self::ThreeCol(_)
+                | Self::Full
+                | Self::Tabbed { .. }
+                | Self::Mirror(_)
+                | Self::ReflectX(_)
+                | Self::NoBorders(_) => format!("{} Mirrored", inner.name()),
+            },
+            Self::ReflectX(inner) => format!("{} Right", inner.name()),
+            Self::NoBorders(inner) => inner.name(),
+        }
+    }
+
+    /// xmonad's `description`. Not shown to users; it identifies a layout
+    /// in restart snapshots, so it must stay stable.
     #[must_use]
     pub fn description(&self) -> String {
         match self {
@@ -356,10 +383,16 @@ impl LayoutRing {
         self.current_mut().handle(msg, ctx)
     }
 
-    /// Description of the active layout.
+    /// Description of the active layout (see [`Layout::description`]).
     #[must_use]
     pub fn description(&self) -> String {
         self.current().description()
+    }
+
+    /// Display name of the active layout (see [`Layout::name`]).
+    #[must_use]
+    pub fn name(&self) -> String {
+        self.current().name()
     }
 
     /// Whether the active layout draws borders.

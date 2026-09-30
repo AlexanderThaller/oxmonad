@@ -50,8 +50,20 @@ resized (dragging a client-side title bar) float, like xmonad's `mod+drag`.
 
 ## Layouts & resizing
 
-The layout ring matches the xmonad config: ReflectTall → Tall → Mirror Tall →
-Full (no borders) → Tabbed → Mirror Grid → Grid → ThreeCol → ReflectThreeCol.
+The layout ring matches the xmonad config. The bar shows these names:
+
+| Name                | Arrangement                                      | xmonad equivalent            |
+| ------------------- | ------------------------------------------------ | ---------------------------- |
+| Tall Right          | master column on the right, stack on the left    | `reflectHoriz ResizableTall` |
+| Tall                | master column on the left, stack on the right    | `ResizableTall`              |
+| Wide                | master row on top, stack below                   | `Mirror ResizableTall`       |
+| Full                | focused window fills the screen, no borders      | `noBorders Full`             |
+| Tabs                | focused window below a tab strip                 | `tabbed`                     |
+| Grid Rows           | grid filled row by row                           | `Mirror Grid`                |
+| Grid                | grid filled column by column                     | `Grid`                       |
+| Three Columns       | master on the left, two stack columns            | `ThreeCol`                   |
+| Three Columns Right | master on the right, two stack columns           | `reflectHoriz ThreeCol`      |
+
 Each workspace cycles independently and each layout keeps its own state.
 
 | Shortcut                    | Action                                        |

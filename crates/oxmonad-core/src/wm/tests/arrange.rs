@@ -76,7 +76,7 @@ fn tabbed_layout_exposes_tab_strip() {
     for _ in 0..4 {
         apply(&mut wm, "next-layout");
     }
-    assert_eq!(wm.bar_model().layout, "Tabbed Simplest");
+    assert_eq!(wm.bar_model().layout, "Tabs");
     let a = wm.arrange();
     assert_eq!(a.windows.len(), 1);
     // Below the 20px strip, with the 1px border inside the slot.

@@ -60,25 +60,25 @@ fn sink_tiles_a_floating_window() {
 #[test]
 fn layout_cycle_and_reset() {
     let mut wm = wm();
-    assert_eq!(wm.bar_model().layout, "ReflectX ResizableTall");
+    assert_eq!(wm.bar_model().layout, "Tall Right");
     let expected = [
-        "ResizableTall",
-        "Mirror ResizableTall",
+        "Tall",
+        "Wide",
         "Full",
-        "Tabbed Simplest",
-        "Mirror Grid",
+        "Tabs",
+        "Grid Rows",
         "Grid",
-        "ThreeCol",
-        "ReflectX ThreeCol",
-        "ReflectX ResizableTall",
+        "Three Columns",
+        "Three Columns Right",
+        "Tall Right",
     ];
-    for description in expected {
+    for name in expected {
         apply(&mut wm, "next-layout");
-        assert_eq!(wm.bar_model().layout, description);
+        assert_eq!(wm.bar_model().layout, name);
     }
     apply(&mut wm, "next-layout");
     apply(&mut wm, "reset-layout");
-    assert_eq!(wm.bar_model().layout, "ReflectX ResizableTall");
+    assert_eq!(wm.bar_model().layout, "Tall Right");
 }
 
 #[test]
@@ -86,9 +86,9 @@ fn layouts_are_per_workspace() {
     let mut wm = wm();
     apply(&mut wm, "next-layout");
     apply(&mut wm, "view 2");
-    assert_eq!(wm.bar_model().layout, "ReflectX ResizableTall");
+    assert_eq!(wm.bar_model().layout, "Tall Right");
     apply(&mut wm, "view 1");
-    assert_eq!(wm.bar_model().layout, "ResizableTall");
+    assert_eq!(wm.bar_model().layout, "Tall");
 }
 
 #[test]

@@ -76,7 +76,7 @@ impl Wm {
         let title = ss.peek().map(|w| self.title(w)).unwrap_or_default();
         BarModel {
             workspaces,
-            layout: ss.current_workspace().layout.description(),
+            layout: ss.current_workspace().layout.name(),
             title: match self.config.bar.title_max_len {
                 Some(max) => shorten(&title, max),
                 None => title,
