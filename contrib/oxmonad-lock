@@ -13,8 +13,8 @@ input=005577 # slock INPUT
 fail=CC3333  # slock FAILED
 
 if command -v waylock >/dev/null 2>&1; then
-    exec waylock -init-color "0x$init" -input-color "0x$input" \
-        -input-alt-color "0x$input" -fail-color "0x$fail"
+    exec waylock -ignore-empty-password -init-color "0x$init" \
+        -input-color "0x$input" -input-alt-color "0x$input" -fail-color "0x$fail"
 fi
 
 none=00000000
