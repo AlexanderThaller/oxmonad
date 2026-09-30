@@ -162,7 +162,11 @@ mod tests {
         for value in 0..=255u8 {
             for alpha in 0..=255u8 {
                 let exact = (f64::from(value) * f64::from(alpha) / 255.0).round();
-                assert_eq!(f64::from(premultiply(value, alpha)), exact);
+                // Exact: both are whole numbers.
+                assert_eq!(
+                    f64::from(premultiply(value, alpha)).to_bits(),
+                    exact.to_bits()
+                );
             }
         }
     }
