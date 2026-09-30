@@ -97,7 +97,9 @@ inactive_border_color = "#BBBBBB"
 [keybindings]
 # Launching programs
 "Mod+Shift+Return" = "spawn-terminal"
-"Mod+p" = "spawn tofi-run | xargs --no-run-if-empty setsid --fork"
+# The launcher, styled like the old dmenu_run call (Fira Mono 14, #161616 /
+# #F2F2F2, selection #F9A825) as a single line across the top.
+"Mod+p" = "spawn tofi-run --anchor top --width 100% --height 30 --horizontal true --prompt-text 'run: ' --font 'Fira Mono' --font-size 14 --background-color '#161616' --text-color '#F2F2F2' --selection-color '#F9A825' --border-width 0 --outline-width 0 --padding-top 0 --padding-left 8 --result-spacing 15 | xargs --no-run-if-empty setsid --fork"
 "Mod+Shift+l" = "spawn swaylock"
 
 # Focus and window movement

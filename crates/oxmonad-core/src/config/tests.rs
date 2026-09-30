@@ -61,7 +61,13 @@ fn default_keybindings_cover_the_documented_set() {
         ("Mod+Shift+Return", Some(Action::SpawnTerminal)),
         (
             "Mod+p",
-            spawn("tofi-run | xargs --no-run-if-empty setsid --fork"),
+            spawn(
+                "tofi-run --anchor top --width 100% --height 30 --horizontal true --prompt-text \
+                 'run: ' --font 'Fira Mono' --font-size 14 --background-color '#161616' \
+                 --text-color '#F2F2F2' --selection-color '#F9A825' --border-width 0 \
+                 --outline-width 0 --padding-top 0 --padding-left 8 --result-spacing 15 | xargs \
+                 --no-run-if-empty setsid --fork",
+            ),
         ),
         ("Mod+Shift+l", spawn("swaylock")),
         ("Mod+j", Some(Action::FocusNext)),

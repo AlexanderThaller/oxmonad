@@ -16,7 +16,7 @@ xmonad's classic `mod1Mask`. The tables below assume Super.
 | Shortcut                     | Action                                     |
 | ---------------------------- | ------------------------------------------ |
 | `Super` + `Shift` + `Return` | Spawn the terminal (`alacritty`)           |
-| `Super` + `p`                | Open the application launcher (`tofi-run`) |
+| `Super` + `p`                | Open the application launcher (`tofi-run`, styled like the old `dmenu_run`) |
 | `Super` + `Shift` + `l`      | Lock the screen (`swaylock`)               |
 
 ## Focus & window movement
