@@ -393,7 +393,8 @@ fn tiles_three_terminals(session: &mut Session) {
     let state = session.state();
     let screen = &state["screens"][0];
     let area = rect(&screen["rect"]);
-    assert_eq!(rect(&screen["bar"]), [area[0], area[1], area[2], 24]);
+    assert_eq!(rect(&state["bar"]["rect"]), [area[0], area[1], area[2], 24]);
+    assert_eq!(state["bar"]["name"], screen["name"]);
     assert_eq!(state["current_workspace"], "1");
 
     for title in ["one", "two", "three"] {
@@ -661,7 +662,8 @@ fn arrangement(state: &Value) -> Value {
                 "workspace": s["workspace"],
                 "layout": s["layout"],
                 "rect": s["rect"],
-                "bar": s["bar"],
+                "usable": s["usable"],
+                "split": s["split"],
                 "tabs": s["tabs"],
             })
         })
@@ -682,6 +684,7 @@ fn arrangement(state: &Value) -> Value {
     serde_json::json!({
         "current_workspace": state["current_workspace"],
         "screens": screens,
+        "bar": state["bar"]["rect"],
         "windows": placed_now,
         "hidden": state["hidden"].as_array().map(Vec::len),
         "focus": name(&state["focus"]),
@@ -956,6 +959,155 @@ fn restarts_in_place() {
             .args(["-TERM", "--", &format!("-{child}")])
             .status();
     }
+    session.act("quit");
+    wait_for("river to exit", || {
+        session.river.try_wait().ok().flatten().is_some()
+    });
+    let log = session.log();
+    assert!(!log.contains("protocol error"), "{log}");
+    assert!(!log.contains("panicked"), "{log}");
+}
+
+// --------------------------------------------------------------------
+// Virtual screens
+
+/// The windows titled `title` in `state`.
+fn window_titled(state: &Value, title: &str) -> Value {
+    windows(state)
+        .into_iter()
+        .find(|w| w["title"] == title)
+        .unwrap_or_else(|| panic!("{title} is shown: {state}"))
+}
+
+/// Whether `inner` lies within `outer`.
+fn within(inner: [i64; 4], outer: [i64; 4]) -> bool {
+    inner[0] >= outer[0]
+        && inner[1] >= outer[1]
+        && inner[0] + inner[2] <= outer[0] + outer[2]
+        && inner[1] + inner[3] <= outer[1] + outer[3]
+}
+
+/// Saves a screenshot to `$OXMONAD_E2E_SCREENSHOTS/<name>.png` if that
+/// variable is set (and `grim` is installed).
+fn screenshot(session: &Session, name: &str) {
+    let Some(dir) = env::var_os("OXMONAD_E2E_SCREENSHOTS") else {
+        return;
+    };
+    let path = PathBuf::from(dir).join(format!("{name}.png"));
+    let status = Command::new("grim")
+        .arg(&path)
+        .env("XDG_RUNTIME_DIR", &session.dir)
+        .env("WAYLAND_DISPLAY", session.wayland_display())
+        .status()
+        .expect("grim runs");
+    assert!(status.success(), "grim {}", path.display());
+}
+
+/// `split-screen 2`: two tilings side by side under one bar spanning the
+/// output, a fullscreen window covering only its half, a restart keeping
+/// the split, and `rescreen` merging back without losing a window.
+#[test]
+#[ignore = "needs river and alacritty; run with --ignored"]
+fn splits_screens() {
+    if !have("river") || !have("alacritty") {
+        eprintln!("skipping: river or alacritty is not installed");
+        return;
+    }
+    let mut session = Session::start_in(
+        Session::dir("split"),
+        Path::new(env!("CARGO_BIN_EXE_oxmonad")),
+    );
+    let output = rect(&session.state()["screens"][0]["rect"]);
+    let [x, y, w, h] = output;
+    spawn_and_wait(&mut session, "left");
+
+    session.act("split-screen 2");
+    let state = session.state();
+    let screens = state["screens"].as_array().cloned().unwrap_or_default();
+    assert_eq!(screens.len(), 2, "{state}");
+    let (left, right) = (rect(&screens[0]["rect"]), rect(&screens[1]["rect"]));
+    assert_eq!(left, [x, y, w / 2, h]);
+    assert_eq!(right, [x + w / 2, y, w - w / 2, h]);
+    assert_eq!(screens[0]["output"], screens[1]["output"]);
+    assert_eq!(screens[0]["split"], true);
+    assert_eq!(
+        (&screens[0]["workspace"], &screens[1]["workspace"]),
+        (&Value::from("1"), &Value::from("2"))
+    );
+    // One bar across the whole output.
+    assert_eq!(rect(&state["bar"]["rect"]), [x, y, w, 24]);
+    assert_eq!(
+        rect(&window_titled(&state, "left")["rect"]),
+        [x + 1, y + 25, w / 2 - 2, h - 26]
+    );
+
+    session.act("focus-screen next");
+    for title in ["right one", "right two"] {
+        spawn_and_wait(&mut session, title);
+    }
+    wait_for("every window to get its size", || {
+        windows(&session.state())
+            .iter()
+            .all(|w| !w["size"].is_null())
+    });
+    let state = session.state();
+    assert_eq!(state["current_workspace"], "2");
+    let left_area = [left[0], left[1] + 24, left[2], left[3] - 24];
+    let right_area = [right[0], right[1] + 24, right[2], right[3] - 24];
+    assert!(within(
+        rect(&window_titled(&state, "left")["rect"]),
+        left_area
+    ));
+    for title in ["right one", "right two"] {
+        let window = window_titled(&state, title);
+        assert!(within(rect(&window["rect"]), right_area), "{window}");
+        assert_eq!(window["layer"], "tiled");
+    }
+    screenshot(&session, "split");
+
+    // Fullscreen covers the right half only, over the bar.
+    session.act("toggle-fullscreen");
+    wait_for("the fullscreen window to fill its half", || {
+        let window = window_titled(&session.state(), "right two");
+        window["layer"] == "virtualfullscreen"
+            && rect(&window["rect"]) == right
+            && window["size"] == serde_json::json!([right[2], right[3]])
+            && window["position"] == serde_json::json!([right[0], right[1]])
+    });
+    let state = session.state();
+    assert_eq!(window_titled(&state, "left")["layer"], "tiled");
+    screenshot(&session, "split-fullscreen");
+
+    // A restart keeps the split, the workspaces and the fullscreen window.
+    let before = settled(&session).expect("settled");
+    let restores = |s: &Session| s.log().matches("restoring the state").count();
+    restart(&session, &before);
+    wait_for("the restarted oxmonad", || restores(&session) == 1);
+    restart(&session, &before);
+
+    // rescreen: one screen again, the current workspace keeps the output,
+    // the left half's workspace is hidden, no window is lost.
+    session.act("rescreen");
+    let state = session.state();
+    let screens = state["screens"].as_array().cloned().unwrap_or_default();
+    assert_eq!(screens.len(), 1, "{state}");
+    assert_eq!(rect(&screens[0]["rect"]), output);
+    assert_eq!(screens[0]["split"], false);
+    assert_eq!(state["current_workspace"], "2");
+    assert_eq!(state["managed"], 3);
+    let full = window_titled(&state, "right two");
+    assert_eq!(full["layer"], "fullscreen");
+    assert_eq!(rect(&full["rect"]), output);
+    assert!(windows(&state).iter().all(|w| w["title"] != "left"));
+    session.act("toggle-ws");
+    wait_for("the left half's workspace to come back", || {
+        let state = session.state();
+        state["current_workspace"] == "1"
+            && windows(&state).iter().any(|window| {
+                window["title"] == "left" && within(rect(&window["rect"]), [x, y + 24, w, h - 24])
+            })
+    });
+
     session.act("quit");
     wait_for("river to exit", || {
         session.river.try_wait().ok().flatten().is_some()
