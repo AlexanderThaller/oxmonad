@@ -67,9 +67,18 @@ oxmonad --check-config            # validate the config file and exit
 oxmonad --config ./my-config.toml # use another file
 ```
 
-`Super+q` (or `kill -USR1` on oxmonad) reloads the file; an invalid file is
-reported in the log and the previous configuration stays active. The default
-bindings are listed in [`docs/keybindings.md`](docs/keybindings.md).
+`kill -USR1` on oxmonad (or the unbound `reload` action) reloads the file;
+an invalid file is reported in the log and the previous configuration stays
+active. The default bindings are listed in
+[`docs/keybindings.md`](docs/keybindings.md).
+
+`Super+q` restarts oxmonad in place, like xmonad's: it re-executes the
+oxmonad binary at the path it was started from, so a freshly built or
+installed version takes over, and the new process reads the configuration
+again. river and your windows keep running; workspaces, window order,
+focus, floating and fullscreen windows, layouts and the bar toggle are
+restored. If the binary is missing or `--check-config` fails, oxmonad logs
+the error and keeps running.
 
 Logs go to stderr (river passes them on); filter them with `RUST_LOG`, e.g.
 `RUST_LOG=oxmonad=debug`.

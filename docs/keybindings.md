@@ -103,7 +103,7 @@ Physical screens are ordered top-to-bottom, then left-to-right.
 | ----------------------- | ------------------------------- |
 | `Super` + `b`           | Show / hide the built-in bar    |
 | `Super` + `n`           | Refresh (retile all workspaces) |
-| `Super` + `q`           | Reload the configuration file   |
+| `Super` + `q`           | Restart in place: re-run the oxmonad binary (e.g. after a rebuild) and reload the configuration, keeping windows, workspaces and layouts |
 | `Super` + `Shift` + `q` | Quit: end the river session     |
 
 ## Notes

@@ -37,7 +37,11 @@ items are marked N/A with a rationale.
 * Focus follows mouse (xmonad default), click to focus.
 * TOML configuration merged over embedded defaults: modifier, terminal,
   workspaces, colors, fonts, bar/prompt/tabs, key and pointer bindings, rules,
-  scratchpads; reload with `Mod+q` / `SIGUSR1`; `--check-config`.
+  scratchpads; reload with `SIGUSR1` (or the `reload` action);
+  `--check-config`.
+* In-place restart (`Mod+q`, xmonad's `restart`): the state is saved keyed
+  by river window identifiers, the binary re-executed and the state
+  restored; falls back to resuming in-process if the exec fails.
 * Spawns: terminal, launcher (tofi), editor, locker (swaylock), media keys.
 * Quit (`Mod+Shift+q`) ends the river session.
 * Control socket (`OXMONAD_CONTROL`) for scripting and tests.

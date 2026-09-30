@@ -125,9 +125,12 @@ prompt. The binary talks to core only through `Wm`:
 * input: `apply(Action) -> Vec<Effect>`; `prompt_key(PromptKey) -> Vec<Effect>`
 * output: `arrange() -> Arrangement`, plus view models for the bar
   (`bar_model(screen)`), prompt (`prompt_model()`) and tab strips.
+* restart: `snapshot(id_of) -> Snapshot`, `restore(Snapshot)`,
+  `manage_as(id, identifier, info)`, `finish_restore()` (see
+  <<Restart in place>>).
 
 `Effect` is everything core wants the outside world to do:
-`Spawn(String)`, `Close(WindowId)`, `Quit`, `Reload`,
+`Spawn(String)`, `Close(WindowId)`, `Quit`, `Reload`, `Restart`,
 `StartPointerMove(WindowId)`, `StartPointerResize(WindowId)`,
 `WarpPointer`… The binary executes effects; core never performs I/O.
 
@@ -154,7 +157,8 @@ so renders are deterministic across machines; a config font family found via
 
 `$XDG_CONFIG_HOME/oxmonad/config.toml`, merged over the defaults embedded
 from `crates/oxmonad-core/default-config.toml` (the single source of truth for
-default keybindings, colors, commands and rules). `Mod+q` reloads it.
+default keybindings, colors, commands and rules). `SIGUSR1` (or the
+`reload` action) reloads it; `Mod+q` restarts oxmonad, which reads it anew.
 
 == Testing
 
@@ -165,7 +169,9 @@ default keybindings, colors, commands and rules). `Mod+q` reloads it.
 * `oxmonad`: unit tests for arrangement → request translation against a
   recording fake; an `#[ignore]`d end-to-end test runs river headless
   (`WLR_BACKENDS=headless WLR_RENDERER=pixman river -c <oxmonad>`) when
-  `river` is installed.
+  `river` is installed; another one restarts a copy of the binary in place
+  (after replacing it, with it missing, and with `exec` failing) and checks
+  the arrangement, pids and open descriptors are unchanged.
 
 == Core implementation notes (deviations)
 
@@ -210,7 +216,8 @@ How `crates/oxmonad` realises the protocol loop above:
   prompt as `river_shell_surface_v1`s in memfd-backed `wl_shm` buffers),
   `keys` / `keyboard` (keysym resolution and the prompt's keyboard via the
   pure-Rust `kbvm`), `status` (clock and battery), `control` (the
-  `OXMONAD_CONTROL` socket), `spawn`.
+  `OXMONAD_CONTROL` socket), `spawn`, `restart` (saving the snapshot and
+  re-executing).
 * **Shell surfaces are redrawn in the manage sequence**, not the render
   sequence: their content only depends on core state, and committing them
   (with `sync_next_commit`) during the manage sequence maps the prompt before
@@ -228,4 +235,67 @@ How `crates/oxmonad` realises the protocol loop above:
   modifiers (media keys) run.
 * **Signals** use a self-pipe (`signal-hook`), leaving the signal mask that
   spawned children inherit untouched; children run via `sh -c` in their own
-  process group and are reaped on `SIGCHLD`.
+  process group and are reaped on `SIGCHLD` (any exited child, so children
+  spawned before a restart are reaped too).
+
+== Restart in place
+
+`restart` (`Mod+q`) replaces the running oxmonad with the binary now at the
+path it was started from, keeping every window where it was — xmonad's
+`restart`, which serializes the `WindowSet` and resumes it in the new
+process.
+
+It relies on three properties of river 0.4.8, verified with a headless
+river:
+
+. When the window manager sends `stop`, receives `finished`, destroys its
+  objects and disconnects, river keeps running and keeps every window
+  alive. Before `finished` river sends `closed` for every window and
+  `removed` for every output and seat; oxmonad ignores those.
+. A newly bound `river_window_manager_v1` receives `output` (with position
+  and dimensions), `seat` and `window` events (with `identifier`, `app_id`
+  and `title`) for everything that exists, all before its first
+  `manage_start`. `wl_output`s are bound before the window manager, so
+  their names are known by then too.
+. `river_window_v1.identifier` is stable across window-manager reconnects
+  (and unique, never reused).
+
+The sequence:
+
+. Core turns `Action::Restart` into `Effect::Restart`. After the manage
+  sequence, the binary runs `<binary> --check-config` (with the original
+  arguments); if that fails (binary missing, broken, or an invalid config)
+  it logs the error and carries on as if nothing happened.
+. It takes `Wm::snapshot` — a serde `Snapshot` (with a `version`) of the
+  workspaces in xmonad order with their layout rings (each layout's state),
+  window order and focus, which workspace each screen (by output name)
+  shows, the current workspace, floating rectangles, fullscreen windows and
+  the bar toggle, naming windows by river identifier — and sends `stop`.
+. On `finished` it answers pending control commands, destroys every
+  window-management object, writes the snapshot to
+  `$XDG_RUNTIME_DIR/oxmonad-restart-<pid>.json` and `exec`s the binary path
+  resolved at startup (`/proc/self/exe` would point at the replaced, deleted
+  inode after a rebuild) with the original `argv` plus
+  `OXMONAD_RESTORE=<file>`. The pid stays the same, so river does not
+  notice its child exiting; every descriptor oxmonad opens is close-on-exec
+  (Wayland socket, epoll, signal self-pipes, control socket, memfds), and
+  the new process rebinds the control socket.
+. The new process reads and deletes the file (an unreadable or incompatible
+  snapshot is logged and ignored), loads the configuration, calls
+  `Wm::restore`, binds the window manager and manages the announced windows
+  with `Wm::manage_as(id, identifier, info)`: a window the snapshot knows
+  goes back to its workspaces, floating or fullscreen, without manage
+  rules; others are managed normally. At the end of the first manage
+  sequence `Wm::finish_restore` restores each workspace's window order and
+  focus and the screens' workspaces (matched by output name, then by
+  order), and forgets windows that did not come back.
+. If `exec` itself fails after the check passed, the old process restores
+  the snapshot into a fresh `Wm` with the configuration reloaded and binds
+  the window manager again on its existing connection.
+
+Not preserved: an open prompt, a pointer move/resize in progress, and
+xmonad's workspace history beyond the hidden-workspace order. A layout ring
+whose layouts changed between the two binaries falls back to the
+configured ring (keeping the active layout if it still exists). river keeps
+fullscreen windows fullscreen and does not report their dimensions to the
+new window manager again, so their size is unknown until they change.
