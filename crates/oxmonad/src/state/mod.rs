@@ -595,6 +595,10 @@ impl State {
             self.handle_input(input, &mut deferred);
         }
         self.answers.extend(deferred);
+        if self.lifecycle == Lifecycle::Quitting {
+            // The session ends before another render sequence would answer.
+            self.send_answers();
+        }
 
         if std::mem::take(&mut self.reload) {
             self.reload_config();
@@ -844,6 +848,17 @@ impl State {
     }
 
     /// `quit`: ends the whole session, like xmonad's `Mod+Shift+q`.
+    /// Answers the control commands handled so far (normally after the
+    /// render sequence that shows their effect).
+    fn send_answers(&mut self) {
+        for (command, reply) in std::mem::take(&mut self.answers) {
+            match command {
+                Command::Action(_) => reply.send("ok"),
+                Command::DumpState => reply.send(&self.dump_state()),
+            }
+        }
+    }
+
     fn quit(&mut self) {
         tracing::info!("quit: exiting the session");
         self.lifecycle = Lifecycle::Quitting;
@@ -895,12 +910,7 @@ impl State {
         let Some(snapshot) = self.restart.take() else {
             return;
         };
-        for (command, reply) in std::mem::take(&mut self.answers) {
-            match command {
-                Command::Action(_) => reply.send("ok"),
-                Command::DumpState => reply.send(&self.dump_state()),
-            }
-        }
+        self.send_answers();
         self.teardown();
         self.flush();
 
@@ -1193,12 +1203,7 @@ impl State {
             );
         }
         self.globals.wm.render_finish();
-        for (command, reply) in std::mem::take(&mut self.answers) {
-            match command {
-                Command::Action(_) => reply.send("ok"),
-                Command::DumpState => reply.send(&self.dump_state()),
-            }
-        }
+        self.send_answers();
     }
 
     /// The open layout picker for `dump-state`: entries, selection and the
