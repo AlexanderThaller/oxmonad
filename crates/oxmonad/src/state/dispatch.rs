@@ -234,13 +234,8 @@ impl Dispatch<RiverWindowV1, WindowId> for State {
                 max_width,
                 max_height,
             } => {
-                let preferred =
-                    if max_width > 0 && max_width == min_width && max_height == min_height {
-                        Some(Size::new(max_width, max_height))
-                    } else {
-                        (min_width > 0 && min_height > 0).then(|| Size::new(min_width, min_height))
-                    };
-                window.info.preferred_size = preferred;
+                window.info.preferred_size =
+                    preferred_size(min_width, min_height, max_width, max_height);
                 window.info_changed = true;
             }
             Event::AppId { app_id } => {
@@ -643,5 +638,44 @@ impl Dispatch<RiverShellSurfaceV1, Node> for State {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+    }
+}
+
+/// The size a floating window should get from its dimension hints.
+///
+/// Only a fixed-size window (min == max) states a size it wants; a minimum
+/// alone is a lower bound, not a preference (alacritty's is a few pixels), so
+/// such windows get core's default float size instead.
+fn preferred_size(
+    min_width: i32,
+    min_height: i32,
+    max_width: i32,
+    max_height: i32,
+) -> Option<Size> {
+    (min_width > 0 && min_height > 0 && min_width == max_width && min_height == max_height)
+        .then(|| Size::new(min_width, min_height))
+}
+
+#[cfg(test)]
+mod preferred_size_tests {
+    use super::*;
+
+    #[test]
+    fn fixed_size_windows_keep_their_size() {
+        assert_eq!(
+            preferred_size(400, 300, 400, 300),
+            Some(Size::new(400, 300))
+        );
+    }
+
+    #[test]
+    fn a_minimum_alone_is_not_a_preference() {
+        assert_eq!(preferred_size(2, 1, 0, 0), None);
+        assert_eq!(preferred_size(200, 100, 800, 600), None);
+    }
+
+    #[test]
+    fn missing_hints_give_no_preference() {
+        assert_eq!(preferred_size(0, 0, 0, 0), None);
     }
 }

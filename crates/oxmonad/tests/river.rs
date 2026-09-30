@@ -200,7 +200,13 @@ impl Session {
     }
 
     fn spawn_terminal(&mut self, title: &str) {
+        self.spawn_terminal_with(title, &[]);
+    }
+
+    /// Opens a terminal titled `title` with extra alacritty arguments.
+    fn spawn_terminal_with(&mut self, title: &str, args: &[&str]) {
         let child = Command::new("alacritty")
+            .args(args)
             .args(["-T", title, "-e", "sleep", "1000"])
             .env_remove("DISPLAY")
             .env("XDG_RUNTIME_DIR", &self.dir)
@@ -750,6 +756,21 @@ fn spawn_and_wait(session: &mut Session, title: &str) {
     wait_for(title, || session.state()["managed"].as_u64() == Some(count));
 }
 
+/// The content rectangle of a window floated by a rule on the 1280x720
+/// screen: the middle quarter, less the 1px border.
+const RULE_FLOAT: [i64; 4] = [321, 181, 638, 358];
+
+/// The window floated by the `floater` rule.
+fn rule_float(session: &Session) -> Value {
+    let state = session.state();
+    let window = windows(&state)
+        .into_iter()
+        .find(|w| w["app_id"] == "floater")
+        .unwrap_or_else(|| panic!("the rule-floated window is shown: {state}"));
+    assert_eq!(window["layer"], "floating", "{state}");
+    window
+}
+
 /// A non-trivial state: windows on three workspaces (one copied, one
 /// fullscreen), a floating window, a changed layout with two masters and a
 /// wider master column, focus off the master, a hidden scratchpad and the
@@ -783,6 +804,11 @@ fn arrange_for_restart(session: &mut Session, input: &mut Input) {
             .iter()
             .any(|w| w["id"] == five["id"] && w["layer"] == "floating")
     });
+    // "six" floats by a manage rule, centred at half the screen size.
+    let count = session.state()["managed"].as_u64().unwrap_or(0) + 1;
+    session.spawn_terminal_with("six", &["--class", "floater"]);
+    wait_for("six", || session.state()["managed"].as_u64() == Some(count));
+    assert_eq!(rule_float(session)["rect"], serde_json::json!(RULE_FLOAT));
     session.act("next-layout");
     session.act("expand");
     session.act("inc-master 1");
@@ -814,6 +840,13 @@ fn restarts_in_place() {
         return;
     }
     let dir = Session::dir("restart");
+    let config = dir.join("config/oxmonad");
+    fs::create_dir_all(&config).expect("config dir");
+    fs::write(
+        config.join("config.toml"),
+        "[[rules]]\napp_id = \"floater\"\naction = \"float\"\n",
+    )
+    .expect("config");
     let bin = dir.join("bin");
     fs::create_dir_all(&bin).expect("bin dir");
     let binary = bin.join("oxmonad");
@@ -841,6 +874,7 @@ fn restarts_in_place() {
             assert!(client.try_wait().expect("alacritty").is_none());
         }
         assert_eq!(children_of(pid), scratchpad, "the scratchpad survives");
+        assert_eq!(rule_float(session)["rect"], serde_json::json!(RULE_FLOAT));
     };
 
     // A rebuilt binary replaces the running one.
