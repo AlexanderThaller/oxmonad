@@ -15,6 +15,10 @@ use oxmonad_ui::{
     BatteryStyle,
     Canvas,
     Fonts,
+    HelpBinding,
+    HelpGroup,
+    HelpStyle,
+    HelpView,
     LayoutPickerStyle,
     LayoutPickerView,
     PickerEntry,
@@ -31,10 +35,13 @@ use oxmonad_ui::{
     WorkspaceState,
     WorkspaceTag,
     format_battery,
+    help_size,
+    help_viewport,
     join_groups,
     layout_picker_size,
     pp_segments,
     render_bar,
+    render_help,
     render_layout_picker,
     render_prompt,
     render_tabs,
@@ -473,6 +480,150 @@ fn layout_pickers() {
         let canvas = render_layout_picker(&view, &style, &fonts, width, height, scale);
         let (w, h) = layout_picker_size(&view, &style, width, height);
         assert_eq!((canvas.width(), canvas.height()), (w * scale, h * scale));
+        assert_snapshot(name, &canvas);
+    }
+}
+
+/// The default bindings, grouped like core's `help_groups`.
+const HELP_GROUPS: &[(&str, &[(&str, &str)])] = &[
+    (
+        "Launch",
+        &[
+            ("Super+Shift+Return", "spawn-terminal"),
+            (
+                "Super+p",
+                "spawn tofi-run --anchor top --width 100% --height 30 | xargs --no-run-if-empty \
+                 setsid --fork",
+            ),
+            ("Super+Shift+l", "spawn swaylock"),
+            ("Super+grave", "toggle-scratchpad term"),
+        ],
+    ),
+    (
+        "Windows",
+        &[
+            ("Super+j", "focus-next"),
+            ("Super+k", "focus-prev"),
+            ("Super+Shift+j", "swap-next"),
+            ("Super+Shift+k", "swap-prev"),
+            ("Super+Return", "swap-master"),
+            ("Super+t", "sink"),
+            ("Super+f", "toggle-fullscreen"),
+            ("Super+Shift+c", "close"),
+        ],
+    ),
+    (
+        "Layouts",
+        &[
+            ("Super+space", "next-layout"),
+            ("Super+Shift+space", "reset-layout"),
+            ("Super+Ctrl+space", "pick-layout"),
+            ("Super+h", "shrink"),
+            ("Super+l", "expand"),
+            ("Super+Down", "mirror-shrink"),
+            ("Super+Up", "mirror-expand"),
+            ("Super+comma", "inc-master 1"),
+            ("Super+period", "inc-master -1"),
+        ],
+    ),
+    (
+        "Workspaces",
+        &[
+            ("Super+1", "view 1"),
+            ("Super+2", "view 2"),
+            ("Super+3", "view 3"),
+            ("Super+4", "view 4"),
+            ("Super+5", "view 5"),
+            ("Super+6", "view 6"),
+            ("Super+7", "view 7"),
+            ("Super+8", "view 8"),
+            ("Super+9", "view 9"),
+            ("Super+Shift+1", "shift 1"),
+            ("Super+Shift+2", "shift 2"),
+            ("Super+Shift+3", "shift 3"),
+            ("Super+Shift+4", "shift 4"),
+            ("Super+Shift+5", "shift 5"),
+            ("Super+Shift+6", "shift 6"),
+            ("Super+Shift+7", "shift 7"),
+            ("Super+Shift+8", "shift 8"),
+            ("Super+Shift+9", "shift 9"),
+            ("Super+Shift+z", "toggle-ws"),
+            ("Super+m", "prompt move"),
+            ("Super+v", "prompt view"),
+            ("Super+Shift+m", "prompt copy"),
+            ("Super+Shift+r", "prompt rename"),
+            ("Super+Shift+BackSpace", "remove-workspace"),
+        ],
+    ),
+    (
+        "Screens",
+        &[
+            ("Super+Left", "focus-screen prev"),
+            ("Super+Right", "focus-screen next"),
+            ("Super+Shift+Left", "shift-screen prev"),
+            ("Super+Shift+Right", "shift-screen next"),
+            ("Super+o", "shift-screen-follow next"),
+            ("Super+z", "swap-next-screen"),
+            ("Super+Shift+s", "split-screen 2"),
+            ("Super+Ctrl+Shift+s", "rescreen"),
+        ],
+    ),
+    (
+        "Session",
+        &[
+            ("Super+Shift+slash", "help"),
+            ("Super+b", "toggle-bar"),
+            ("Super+n", "refresh"),
+            ("Super+q", "restart"),
+            ("Super+Shift+q", "quit"),
+        ],
+    ),
+    (
+        "Mouse",
+        &[
+            ("Super+Button1", "float-move"),
+            ("Super+Button3", "float-resize"),
+        ],
+    ),
+];
+
+fn help(scroll: usize) -> HelpView {
+    HelpView {
+        title: "Key bindings".to_owned(),
+        hint: "Esc: close  j/k: scroll".to_owned(),
+        groups: HELP_GROUPS
+            .iter()
+            .map(|(title, bindings)| HelpGroup {
+                title: (*title).to_owned(),
+                bindings: bindings
+                    .iter()
+                    .map(|(combo, action)| HelpBinding {
+                        combo: (*combo).to_owned(),
+                        action: (*action).to_owned(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        scroll,
+    }
+}
+
+#[test]
+fn help_overlays() {
+    let fonts = Fonts::embedded();
+    let style = HelpStyle::default();
+    for (name, view, (width, height), scale, scrolls) in [
+        ("help_full_hd", help(0), (1920, 1080), 1, false),
+        ("help_scale_2", help(0), (1920, 1080), 2, false),
+        ("help_small_screen", help(0), (800, 480), 1, true),
+        ("help_small_screen_scrolled", help(12), (800, 480), 1, true),
+    ] {
+        let canvas = render_help(&view, &style, &fonts, width, height, scale);
+        let (w, h) = help_size(&view, &style, &fonts, width, height, scale);
+        assert_eq!((canvas.width(), canvas.height()), (w * scale, h * scale));
+        assert!(w <= width && h <= height, "{name}: {w}x{h}");
+        let (_, max_scroll) = help_viewport(&view, &style, &fonts, width, height, scale);
+        assert_eq!(max_scroll > 0, scrolls, "{name}");
         assert_snapshot(name, &canvas);
     }
 }
