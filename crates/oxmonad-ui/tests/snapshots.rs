@@ -15,7 +15,12 @@ use oxmonad_ui::{
     BatteryStyle,
     Canvas,
     Fonts,
+    LayoutPickerStyle,
+    LayoutPickerView,
+    PickerEntry,
     PpStyle,
+    PreviewRect,
+    PreviewWindow,
     PromptPosition,
     PromptStyle,
     PromptView,
@@ -27,8 +32,10 @@ use oxmonad_ui::{
     WorkspaceTag,
     format_battery,
     join_groups,
+    layout_picker_size,
     pp_segments,
     render_bar,
+    render_layout_picker,
     render_prompt,
     render_tabs,
 };
@@ -323,4 +330,149 @@ fn tab_strips() {
         "tabs_scale_2",
         &render_tabs(&tabs(&["alacritty", "emacs"], 0), &style, &fonts, 300, 2),
     );
+}
+
+/// The standard ring's previews (`Layout::preview` in oxmonad-core), so the
+/// UI crate stays independent of core.
+#[expect(clippy::type_complexity, reason = "a literal table")]
+const LAYOUTS: &[(
+    &str,
+    &[(usize, i32, i32, i32, i32)],
+    &[(i32, i32, i32, i32)],
+)] = &[
+    (
+        "Tall Right",
+        &[
+            (0, 128, 0, 192, 180),
+            (1, 0, 0, 128, 60),
+            (2, 0, 60, 128, 60),
+            (3, 0, 120, 128, 60),
+        ],
+        &[],
+    ),
+    (
+        "Tall",
+        &[
+            (0, 0, 0, 192, 180),
+            (1, 192, 0, 128, 60),
+            (2, 192, 60, 128, 60),
+            (3, 192, 120, 128, 60),
+        ],
+        &[],
+    ),
+    (
+        "Wide",
+        &[
+            (0, 0, 0, 320, 108),
+            (1, 0, 108, 106, 72),
+            (2, 106, 108, 107, 72),
+            (3, 213, 108, 107, 72),
+        ],
+        &[],
+    ),
+    ("Full", &[(0, 0, 0, 320, 180)], &[]),
+    (
+        "Tabs",
+        &[(0, 0, 20, 320, 160)],
+        &[
+            (0, 0, 80, 20),
+            (80, 0, 80, 20),
+            (160, 0, 80, 20),
+            (240, 0, 80, 20),
+        ],
+    ),
+    (
+        "Grid Rows",
+        &[
+            (0, 0, 0, 80, 180),
+            (1, 80, 0, 80, 180),
+            (2, 160, 0, 80, 180),
+            (3, 240, 0, 80, 180),
+        ],
+        &[],
+    ),
+    (
+        "Grid",
+        &[
+            (0, 0, 0, 160, 90),
+            (1, 0, 90, 160, 90),
+            (2, 160, 0, 160, 90),
+            (3, 160, 90, 160, 90),
+        ],
+        &[],
+    ),
+    (
+        "Three Columns",
+        &[
+            (0, 0, 0, 160, 180),
+            (1, 160, 0, 80, 90),
+            (2, 160, 90, 80, 90),
+            (3, 240, 0, 80, 180),
+        ],
+        &[],
+    ),
+    (
+        "Three Columns Right",
+        &[
+            (0, 160, 0, 160, 180),
+            (1, 80, 0, 80, 90),
+            (2, 80, 90, 80, 90),
+            (3, 0, 0, 80, 180),
+        ],
+        &[],
+    ),
+    (
+        "Corner",
+        &[
+            (0, 0, 0, 213, 120),
+            (1, 213, 0, 107, 90),
+            (2, 213, 90, 107, 90),
+            (3, 0, 120, 213, 60),
+        ],
+        &[],
+    ),
+];
+
+fn picker(selected: usize, active: usize) -> LayoutPickerView {
+    LayoutPickerView {
+        title: "Layout of workspace 1".to_owned(),
+        hint: "j/k: select  Return: apply  Esc: cancel".to_owned(),
+        preview_size: (320, 180),
+        entries: LAYOUTS
+            .iter()
+            .map(|(name, windows, tabs)| PickerEntry {
+                name: (*name).to_owned(),
+                windows: windows
+                    .iter()
+                    .map(|&(index, x, y, w, h)| PreviewWindow {
+                        index,
+                        rect: PreviewRect::new(x, y, w, h),
+                    })
+                    .collect(),
+                tabs: tabs
+                    .iter()
+                    .map(|&(x, y, w, h)| PreviewRect::new(x, y, w, h))
+                    .collect(),
+            })
+            .collect(),
+        selected,
+        active,
+    }
+}
+
+#[test]
+fn layout_pickers() {
+    let fonts = Fonts::embedded();
+    let style = LayoutPickerStyle::default();
+    for (name, view, (width, height), scale) in [
+        ("picker_first", picker(0, 0), (1920, 1080), 1),
+        ("picker_middle", picker(6, 1), (1920, 1080), 1),
+        ("picker_small_screen", picker(4, 4), (800, 600), 1),
+        ("picker_scale_2", picker(2, 0), (1920, 1080), 2),
+    ] {
+        let canvas = render_layout_picker(&view, &style, &fonts, width, height, scale);
+        let (w, h) = layout_picker_size(&view, &style, width, height);
+        assert_eq!((canvas.width(), canvas.height()), (w * scale, h * scale));
+        assert_snapshot(name, &canvas);
+    }
 }

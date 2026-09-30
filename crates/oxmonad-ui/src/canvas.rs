@@ -3,9 +3,12 @@
 use std::fmt;
 
 use tiny_skia::{
+    FillRule,
     Paint,
+    PathBuilder,
     Pixmap,
     Rect,
+    Stroke,
     Transform,
 };
 
@@ -160,6 +163,63 @@ impl Painter {
         self.fill_rect(x, y + height - t, width, t, color);
         self.fill_rect(x, y + t, t, height - 2 * t, color);
         self.fill_rect(x + width - t, y + t, t, height - 2 * t, color);
+    }
+
+    /// Draws an antialiased rectangle with corners rounded by `radius`,
+    /// filled with `fill` and outlined along the inside with a `stroke`
+    /// (color, width). All values are device pixels.
+    pub fn rounded_rect(
+        &mut self,
+        (x, y, width, height): (f32, f32, f32, f32),
+        radius: f32,
+        fill: Option<Color>,
+        stroke: Option<(Color, f32)>,
+    ) {
+        let paint = |color: Color| {
+            let mut paint = Paint::default();
+            paint.set_color_rgba8(color.r, color.g, color.b, color.a);
+            paint.anti_alias = true;
+            paint
+        };
+        let path = |inset: f32| {
+            let (x0, y0) = (x + inset, y + inset);
+            let (x1, y1) = (x + width - inset, y + height - inset);
+            let r = (radius - inset).clamp(0.0, (x1 - x0).min(y1 - y0) / 2.0);
+            let mut pb = PathBuilder::new();
+            pb.move_to(x0 + r, y0);
+            pb.line_to(x1 - r, y0);
+            pb.quad_to(x1, y0, x1, y0 + r);
+            pb.line_to(x1, y1 - r);
+            pb.quad_to(x1, y1, x1 - r, y1);
+            pb.line_to(x0 + r, y1);
+            pb.quad_to(x0, y1, x0, y1 - r);
+            pb.line_to(x0, y0 + r);
+            pb.quad_to(x0, y0, x0 + r, y0);
+            pb.close();
+            pb.finish()
+        };
+        if let Some(color) = fill
+            && let Some(path) = path(0.0)
+        {
+            self.pixmap.fill_path(
+                &path,
+                &paint(color),
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+        if let Some((color, stroke_width)) = stroke
+            && stroke_width > 0.0
+            && let Some(path) = path(stroke_width / 2.0)
+        {
+            let stroke = Stroke {
+                width: stroke_width,
+                ..Stroke::default()
+            };
+            self.pixmap
+                .stroke_path(&path, &paint(color), &stroke, Transform::identity(), None);
+        }
     }
 
     /// Draws `text` starting at pen position `x`, vertically centered in the
