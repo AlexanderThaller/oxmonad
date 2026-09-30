@@ -30,6 +30,13 @@ use std::{
         PathBuf,
     },
     process::ExitCode,
+    sync::{
+        Arc,
+        atomic::{
+            AtomicBool,
+            Ordering,
+        },
+    },
     time::Duration,
 };
 
@@ -196,6 +203,14 @@ fn run(
     config: oxmonad_core::config::Config,
     config_path: Option<PathBuf>,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    // Catch reload/restart requests from the very start: until the event
+    // loop watches them (after connecting and loading fonts, which takes
+    // a while), SIGUSR1/SIGUSR2 would otherwise kill oxmonad — e.g. an
+    // `oxmonad --restart` right after a restart.
+    let early_reload = Arc::new(AtomicBool::new(false));
+    let early_restart = Arc::new(AtomicBool::new(false));
+    signal_hook::flag::register(SIGUSR1, Arc::clone(&early_reload))?;
+    signal_hook::flag::register(SIGUSR2, Arc::clone(&early_restart))?;
     let restore = restart::take();
     let conn = Connection::connect_to_env().map_err(|err| {
         format!("cannot connect to river ({err}); run oxmonad with `river -c oxmonad`")
@@ -243,6 +258,12 @@ fn run(
     watch_signal(&handle, &[SIGTERM, SIGINT], State::stop)?;
     watch_signal(&handle, &[SIGUSR1], State::request_reload)?;
     watch_signal(&handle, &[SIGUSR2], State::request_restart)?;
+    if early_reload.load(Ordering::Relaxed) {
+        state.request_reload();
+    }
+    if early_restart.load(Ordering::Relaxed) {
+        state.request_restart();
+    }
     start_status_timers(&handle, &mut state)?;
     if let Some(path) = env::var_os(control::ENV).filter(|path| !path.is_empty()) {
         listen_control(&handle, Path::new(&path))?;

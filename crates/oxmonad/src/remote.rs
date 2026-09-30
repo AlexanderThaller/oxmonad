@@ -14,6 +14,14 @@ use std::{
     path::Path,
 };
 
+use std::{
+    thread,
+    time::{
+        Duration,
+        Instant,
+    },
+};
+
 use rustix::process::{
     Pid,
     Signal,
@@ -78,7 +86,7 @@ pub fn restart_running() -> Result<Vec<u32>, String> {
         if !caller.targets(&process) {
             continue;
         }
-        if !process.catches_restart {
+        if !process.catches_restart && !wait_for_handler(&entry.path()) {
             return Err(format!(
                 "oxmonad {} is too old for --restart (it would die from SIGUSR2); press Mod+q \
                  once instead",
@@ -98,6 +106,25 @@ pub fn restart_running() -> Result<Vec<u32>, String> {
     }
     Ok(signalled)
 }
+
+/// Waits up to [`HANDLER_WAIT`] for the process at `dir` to handle
+/// [`RESTART_SIGNAL`]. An oxmonad that just re-executed itself (a restart
+/// in progress) installs its handler a moment after starting; an old
+/// build never does.
+fn wait_for_handler(dir: &Path) -> bool {
+    let deadline = Instant::now() + HANDLER_WAIT;
+    while Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+        let status = fs::read_to_string(dir.join("status")).unwrap_or_default();
+        if catches(&status, RESTART_SIGNAL) {
+            return true;
+        }
+    }
+    false
+}
+
+/// How long `--restart` waits for a restarting oxmonad's signal handler.
+const HANDLER_WAIT: Duration = Duration::from_secs(3);
 
 /// Reads what [`Caller::targets`] needs from `/proc/<pid>`; `None` for
 /// non-process entries and processes that vanished or aren't readable.
