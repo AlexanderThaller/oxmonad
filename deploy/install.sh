@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build oxmonad with the deploy profile and install it, together with the
-# LightDM session wrapper and greeter entry (see contrib/lightdm/README.md).
+# LightDM session wrapper and greeter entry (see contrib/lightdm/README.adoc).
 #
 # Run as your normal user; only the install steps use sudo. Safe while
 # oxmonad is running: `install` replaces the file instead of writing into it,

@@ -1,76 +1,80 @@
-# oxmonad
+= oxmonad
 
 An xmonad-style tiling window manager for Wayland, written in Rust.
 
 oxmonad is not a compositor: it is the window-manager client of
-[river](https://codeberg.org/river/river) 0.4+, speaking river's stable
+https://codeberg.org/river/river[river] 0.4+, speaking river's stable
 `river-window-management-v1` protocol. river handles the display, input,
 rendering, xdg-shell, layer-shell, screen locking and Xwayland; oxmonad decides
 where windows go, which one has focus, the key bindings, borders, and draws its
 own bar, workspace prompt, layout picker and tab strips. See
-[`docs/architecture.adoc`](docs/architecture.adoc).
+link:docs/architecture.adoc[`docs/architecture.adoc`].
 
-## Building
+== Building
 
 oxmonad is pure Rust (fonts, keymaps and drawing included); it needs no system
 libraries beyond libc. river is the runtime dependency.
 
-```sh
+[source,sh]
+----
 sudo pacman -S --needed river   # Arch Linux; river 0.4 or later
 cargo build --release
-```
+----
 
-## Running
+== Running
 
 river starts its window manager itself with `-c`:
 
-```sh
+[source,sh]
+----
 river -c oxmonad
-```
+----
 
-### Nested, for development
+=== Nested, for development
 
 Inside an existing Wayland session river opens as a window. Run it from a
 terminal with the freshly built binary:
 
-```sh
+[source,sh]
+----
 cargo build
 river -c ./target/debug/oxmonad
-```
+----
 
 Clients started from inside (Super+Shift+Return opens `alacritty`) connect to
 the nested river automatically; from another terminal point them at river's
 socket, e.g. `WAYLAND_DISPLAY=wayland-1 alacritty`.
 
-### On a TTY
+=== On a TTY
 
 Log in on a virtual terminal and run `river -c oxmonad`. river needs seat
 access (logind, or `seatd` with your user in the `seat` group).
 
-### As a display-manager session (LightDM)
+=== As a display-manager session (LightDM)
 
 Install the session wrapper and Wayland session entry from
-[`contrib/lightdm/`](contrib/lightdm/README.md), then pick **oxmonad** in the
+link:contrib/lightdm/README.adoc[`contrib/lightdm/`], then pick *oxmonad* in the
 greeter.
 
-## Configuration
+== Configuration
 
 oxmonad reads `$XDG_CONFIG_HOME/oxmonad/config.toml` (default
 `~/.config/oxmonad/config.toml`) and merges it over the built-in defaults in
-[`crates/oxmonad-core/default-config.toml`](crates/oxmonad-core/default-config.toml),
+link:crates/oxmonad-core/default-config.toml[`crates/oxmonad-core/default-config.toml`],
 which documents every setting: modifier, terminal, workspaces, colors, fonts,
 bar, prompt, tabs, key and pointer bindings, manage rules and scratchpads. You
 only write what you change.
 
-```sh
+[source,sh]
+----
 oxmonad --check-config            # validate the config file and exit
 oxmonad --config ./my-config.toml # use another file
-```
+----
 
 `kill -USR1` on oxmonad (or the unbound `reload` action) reloads the file;
 an invalid file is reported in the log and the previous configuration stays
 active. The default bindings are listed in
-[`docs/keybindings.md`](docs/keybindings.md).
+link:docs/keybindings.adoc[`docs/keybindings.adoc`].
 
 `Super+q` restarts oxmonad in place, like xmonad's: it re-executes the
 oxmonad binary at the path it was started from, so a freshly built or
@@ -88,7 +92,7 @@ binary.
 Logs go to stderr (river passes them on); filter them with `RUST_LOG`, e.g.
 `RUST_LOG=oxmonad=debug`.
 
-## Scripting: the control socket
+== Scripting: the control socket
 
 With `OXMONAD_CONTROL=/path/to/socket` set, oxmonad listens on that Unix
 socket. Every line is an action in config syntax (`view 3`, `next-layout`,
@@ -96,18 +100,20 @@ socket. Every line is an action in config syntax (`view 3`, `next-layout`,
 `dump-state`, answered with one line of JSON describing screens, windows and
 focus:
 
-```sh
+[source,sh]
+----
 echo 'view 2' | socat - UNIX-CONNECT:$OXMONAD_CONTROL
-```
+----
 
-## Testing
+== Testing
 
-```sh
+[source,sh]
+----
 cargo test --workspace
 # End-to-end: headless river with alacritty clients (needs both installed).
 # Keep TMPDIR short: Wayland socket paths are limited to 108 bytes.
 cargo test -p oxmonad --test river -- --ignored
-```
+----
 
 UI golden images live in `crates/oxmonad-ui/tests/snapshots/`; regenerate them
 with `OXMONAD_BLESS=1 cargo test -p oxmonad-ui`.

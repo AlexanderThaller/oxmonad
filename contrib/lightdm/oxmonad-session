@@ -1,6 +1,6 @@
 #!/bin/sh
 # Session wrapper used by display managers (e.g. LightDM) to start river with
-# oxmonad as its window manager. See contrib/lightdm/README.md.
+# oxmonad as its window manager. See contrib/lightdm/README.adoc.
 #
 # A display manager's X11 greeter can leak DISPLAY/WAYLAND_DISPLAY into the
 # session; unset them so river runs on the DRM/KMS backend, not nested.
