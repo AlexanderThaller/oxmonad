@@ -29,6 +29,9 @@ struct Process {
     pid: u32,
     uid: u32,
     comm: String,
+    /// Whether it handles [`RESTART_SIGNAL`]; an oxmonad from before
+    /// `--restart` existed would be killed by it instead.
+    catches_restart: bool,
     runtime_dir: Option<String>,
     wayland_display: Option<String>,
 }
@@ -75,6 +78,13 @@ pub fn restart_running() -> Result<Vec<u32>, String> {
         if !caller.targets(&process) {
             continue;
         }
+        if !process.catches_restart {
+            return Err(format!(
+                "oxmonad {} is too old for --restart (it would die from SIGUSR2); press Mod+q \
+                 once instead",
+                process.pid
+            ));
+        }
         let pid = i32::try_from(process.pid)
             .ok()
             .and_then(Pid::from_raw)
@@ -96,13 +106,25 @@ fn read_process(dir: &Path) -> Option<Process> {
     let uid = fs::metadata(dir).ok()?.uid();
     let comm = fs::read_to_string(dir.join("comm")).ok()?;
     let environ = fs::read(dir.join("environ")).unwrap_or_default();
+    let status = fs::read_to_string(dir.join("status")).unwrap_or_default();
     Some(Process {
         pid,
         uid,
         comm: comm.trim_end().to_owned(),
+        catches_restart: catches(&status, RESTART_SIGNAL),
         runtime_dir: env_value(&environ, "XDG_RUNTIME_DIR"),
         wayland_display: env_value(&environ, "WAYLAND_DISPLAY"),
     })
+}
+
+/// Whether the `SigCgt` mask in `/proc/<pid>/status` has a handler for
+/// `signal`.
+fn catches(status: &str, signal: Signal) -> bool {
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("SigCgt:"))
+        .and_then(|mask| u64::from_str_radix(mask.trim(), 16).ok())
+        .is_some_and(|mask| mask & (1 << (signal.as_raw() - 1)) != 0)
 }
 
 /// The value of `name` in a NUL-separated `/proc/<pid>/environ`.
@@ -131,6 +153,7 @@ mod tests {
             pid,
             uid: 1000,
             comm: "oxmonad".into(),
+            catches_restart: true,
             runtime_dir: Some("/run/user/1000".into()),
             wayland_display: Some("wayland-1".into()),
         }
@@ -174,6 +197,22 @@ mod tests {
             ..oxmonad(20)
         };
         assert!(me.targets(&elsewhere));
+    }
+
+    #[test]
+    fn reads_the_caught_signal_mask() {
+        // SIGUSR2 is signal 12: bit 11 (0x800).
+        let with = "Name:\toxmonad\nSigCgt:\t0000000000014a00\n";
+        let without = "Name:\toxmonad\nSigCgt:\t0000000000010000\n";
+        assert!(catches(with, Signal::USR2));
+        assert!(!catches(without, Signal::USR2));
+        assert!(!catches("", Signal::USR2));
+    }
+
+    #[test]
+    fn this_process_reports_its_mask() {
+        let status = fs::read_to_string("/proc/self/status").expect("status");
+        assert!(status.contains("SigCgt:"));
     }
 
     #[test]
