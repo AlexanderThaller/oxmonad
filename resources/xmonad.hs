@@ -110,7 +110,7 @@ myKeys = customKeys delkeys addkeys
       , ((0                   , 0x1008ff16), spawn "playerctl previous")
       -- ScreenDefault
       , ((modm .|. shiftMask, xK_s), layoutSplitScreen 2 (TwoPane 0.5 0.5))
-      , ((modm .|. controlMask .|. shiftMask, xK_s), rescreen)
+      , ((modm .|. controlMask .|. shiftMask, xK_s), XMonad.Actions.PhysicalScreens.rescreen def)
       ]
 
 -- Workspaces
