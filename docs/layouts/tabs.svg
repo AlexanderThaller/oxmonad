@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" role="img" aria-label="Tabs layout with four windows">
+  <rect width="320" height="180" fill="#f4f4f4" stroke="#888888"/>
+  <rect x="0" y="0" width="80" height="20" fill="#9ec5f0" stroke="#444444"/>
+  <text x="40" y="10" font-family="sans-serif" font-size="12" fill="#222222" text-anchor="middle" dominant-baseline="central">1</text>
+  <rect x="80" y="0" width="80" height="20" fill="#dddddd" stroke="#444444"/>
+  <text x="120" y="10" font-family="sans-serif" font-size="12" fill="#222222" text-anchor="middle" dominant-baseline="central">2</text>
+  <rect x="160" y="0" width="80" height="20" fill="#dddddd" stroke="#444444"/>
+  <text x="200" y="10" font-family="sans-serif" font-size="12" fill="#222222" text-anchor="middle" dominant-baseline="central">3</text>
+  <rect x="240" y="0" width="80" height="20" fill="#dddddd" stroke="#444444"/>
+  <text x="280" y="10" font-family="sans-serif" font-size="12" fill="#222222" text-anchor="middle" dominant-baseline="central">4</text>
+  <rect x="2" y="22" width="316" height="156" rx="3" fill="#9ec5f0" stroke="#444444" stroke-width="1.5"/>
+  <text x="160" y="100" font-family="sans-serif" font-size="16" fill="#222222" text-anchor="middle" dominant-baseline="central">1</text>
+</svg>

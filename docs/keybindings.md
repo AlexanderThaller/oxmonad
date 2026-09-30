@@ -50,19 +50,21 @@ resized (dragging a client-side title bar) float, like xmonad's `mod+drag`.
 
 ## Layouts & resizing
 
-The layout ring matches the xmonad config. The bar shows these names:
+The layout ring matches the xmonad config. The bar shows these names; the
+pictures are generated from the layout code itself (regenerate with
+`OXMONAD_BLESS=1 cargo test -p oxmonad-core --test layout_svgs`):
 
-| Name                | Arrangement                                      | xmonad equivalent            |
-| ------------------- | ------------------------------------------------ | ---------------------------- |
-| Tall Right          | master column on the right, stack on the left    | `reflectHoriz ResizableTall` |
-| Tall                | master column on the left, stack on the right    | `ResizableTall`              |
-| Wide                | master row on top, stack below                   | `Mirror ResizableTall`       |
-| Full                | focused window fills the screen, no borders      | `noBorders Full`             |
-| Tabs                | focused window below a tab strip                 | `tabbed`                     |
-| Grid Rows           | grid filled row by row                           | `Mirror Grid`                |
-| Grid                | grid filled column by column                     | `Grid`                       |
-| Three Columns       | master on the left, two stack columns            | `ThreeCol`                   |
-| Three Columns Right | master on the right, two stack columns           | `reflectHoriz ThreeCol`      |
+| Layout | Example (4 windows, 1 = master) | Arrangement | xmonad equivalent |
+| --- | --- | --- | --- |
+| Tall Right | <img src="layouts/tall-right.svg" width="160" alt="Tall Right"> | master column on the right, stack on the left | `reflectHoriz ResizableTall` |
+| Tall | <img src="layouts/tall.svg" width="160" alt="Tall"> | master column on the left, stack on the right | `ResizableTall` |
+| Wide | <img src="layouts/wide.svg" width="160" alt="Wide"> | master row on top, stack below | `Mirror ResizableTall` |
+| Full | <img src="layouts/full.svg" width="160" alt="Full"> | focused window fills the screen, no borders | `noBorders Full` |
+| Tabs | <img src="layouts/tabs.svg" width="160" alt="Tabs"> | focused window below a tab strip | `tabbed` |
+| Grid Rows | <img src="layouts/grid-rows.svg" width="160" alt="Grid Rows"> | grid filled row by row (a single row of columns until there are many windows) | `Mirror Grid` |
+| Grid | <img src="layouts/grid.svg" width="160" alt="Grid"> | grid filled column by column | `Grid` |
+| Three Columns | <img src="layouts/three-columns.svg" width="160" alt="Three Columns"> | wide master column on the left, stack split over two columns | `ThreeCol` |
+| Three Columns Right | <img src="layouts/three-columns-right.svg" width="160" alt="Three Columns Right"> | mirror image of Three Columns | `reflectHoriz ThreeCol` |
 
 Each workspace cycles independently and each layout keeps its own state.
 
