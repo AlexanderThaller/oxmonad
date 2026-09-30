@@ -2,6 +2,7 @@
 
 mod actions;
 mod arrange;
+mod help;
 mod layout_picker;
 mod manage;
 mod multimon;

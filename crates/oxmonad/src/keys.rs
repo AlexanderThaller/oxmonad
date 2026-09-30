@@ -1,5 +1,6 @@
 //! Resolving config key combinations to xkb keysyms and river modifier
-//! masks, and translating keys typed into the prompt or layout picker.
+//! masks, and translating keys typed into the prompt, layout picker or help
+//! overlay.
 
 use kbvm::Keysym;
 use oxmonad_core::{
@@ -100,6 +101,8 @@ pub fn prompt_key(sym: Keysym, ctrl: bool, shift: bool) -> Option<PromptKey> {
         syms::Right | syms::KP_Right => PromptKey::Right,
         syms::Up | syms::KP_Up => PromptKey::Up,
         syms::Down | syms::KP_Down => PromptKey::Down,
+        syms::Page_Up | syms::KP_Page_Up => PromptKey::PageUp,
+        syms::Page_Down | syms::KP_Page_Down => PromptKey::PageDown,
         syms::Home | syms::KP_Home => PromptKey::Home,
         syms::End | syms::KP_End => PromptKey::End,
         _ => PromptKey::Char(sym.char().filter(|c| !c.is_control())?),
@@ -144,6 +147,24 @@ mod tests {
     }
 
     #[test]
+    fn help_binding_resolves_to_shift_slash() {
+        // river matches the unshifted keysym plus the modifiers.
+        let config = Config::defaults();
+        let help = config
+            .keybindings
+            .iter()
+            .find(|b| b.action == oxmonad_core::Action::Help)
+            .expect("help is bound");
+        assert_eq!(
+            resolve(&help.combo),
+            Some(ResolvedKey {
+                keysym: u32::from(b'/'),
+                modifiers: river_mods::MOD4 | river_mods::SHIFT,
+            })
+        );
+    }
+
+    #[test]
     fn modifiers() {
         let combo = KeyCombo::parse("Mod+Shift+Return", Modifiers::SUPER).expect("valid");
         assert_eq!(
@@ -185,6 +206,14 @@ mod tests {
         );
         assert_eq!(prompt_key(syms::Down, false, false), Some(PromptKey::Down));
         assert_eq!(prompt_key(syms::KP_Up, false, false), Some(PromptKey::Up));
+        assert_eq!(
+            prompt_key(syms::Page_Down, false, false),
+            Some(PromptKey::PageDown)
+        );
+        assert_eq!(
+            prompt_key(syms::KP_Page_Up, false, false),
+            Some(PromptKey::PageUp)
+        );
         assert_eq!(
             prompt_key(syms::j, false, false),
             Some(PromptKey::Char('j'))

@@ -33,14 +33,16 @@ pub enum Node {
     Prompt,
     /// The layout picker.
     LayoutPicker,
+    /// The key binding help overlay.
+    Help,
 }
 
 impl Node {
-    /// Whether this is an overlay that takes the keyboard (prompt or
-    /// layout picker), stacked above everything.
+    /// Whether this is an overlay that takes the keyboard (prompt, layout
+    /// picker or help), stacked above everything.
     #[must_use]
     pub const fn is_overlay(self) -> bool {
-        matches!(self, Self::Prompt | Self::LayoutPicker)
+        matches!(self, Self::Prompt | Self::LayoutPicker | Self::Help)
     }
 }
 
@@ -338,6 +340,7 @@ mod tests {
             bar: None,
             prompt: None,
             layout_picker: None,
+            help: None,
         }
     }
 

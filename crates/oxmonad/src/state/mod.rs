@@ -34,6 +34,7 @@ use oxmonad_core::{
     Focus,
     OutputId,
     Rect,
+    ScreenId,
     Size,
     Snapshot,
     WindowId,
@@ -601,6 +602,7 @@ impl State {
         self.update_pointer_op();
 
         let arrangement = self.wm.arrange();
+        self.update_help_viewport(&arrangement);
         let wanted = self.wanted_shells(&arrangement);
         let globals = ShellGlobals {
             wm: &self.globals.wm,
@@ -790,6 +792,7 @@ impl State {
                     Some(Click::Workspace(tag)) => self.apply(Action::View(tag), Some(seat)),
                     Some(Click::Window(window)) => self.wm.focus_window(window),
                     Some(Click::Layout(index)) => self.wm.pick_layout(index),
+                    Some(Click::Dismiss) => self.wm.close_help(),
                     None => {}
                 }
             }
@@ -1085,6 +1088,26 @@ impl State {
             .map_or(1, |info| info.scale.max(1).unsigned_abs())
     }
 
+    /// Tells core how many rows of the open help overlay fit its screen,
+    /// so scrolling stops at the end.
+    fn update_help_viewport(&mut self, arrangement: &Arrangement) {
+        let (Some((screen, area)), Some(model)) = (arrangement.help, self.wm.help_model()) else {
+            return;
+        };
+        let scale = self.screen_scale(screen);
+        let (page, max_scroll) =
+            shell::help_rows(&shell::help_view(&model), area, scale, &self.styles);
+        self.wm.set_help_viewport(page, max_scroll);
+    }
+
+    /// The buffer scale of `screen`'s output.
+    fn screen_scale(&self, screen: ScreenId) -> u32 {
+        self.wm
+            .stack_set()
+            .screen(screen)
+            .map_or(1, |s| self.scale_of(s.output))
+    }
+
     fn wanted_shells(&self, arrangement: &Arrangement) -> Vec<Wanted> {
         let mut wanted = Vec::new();
         if let Some((output, rect)) = arrangement.bar {
@@ -1136,6 +1159,14 @@ impl State {
                 rect: area,
                 scale,
                 content: Content::LayoutPicker(shell::layout_picker_view(&model)),
+            });
+        }
+        if let (Some((screen, area)), Some(model)) = (arrangement.help, self.wm.help_model()) {
+            wanted.push(Wanted {
+                node: Node::Help,
+                rect: area,
+                scale: self.screen_scale(screen),
+                content: Content::Help(shell::help_view(&model)),
             });
         }
         wanted
@@ -1249,6 +1280,7 @@ impl State {
             Some(Focus::Window(id)) => json!(id.0),
             Some(Focus::Prompt) => json!("prompt"),
             Some(Focus::LayoutPicker) => json!("layout-picker"),
+            Some(Focus::Help) => json!("help"),
             Some(Focus::None) | None => json!(null),
         };
         json!({
@@ -1268,6 +1300,12 @@ impl State {
                 "completions": m.completions,
             })),
             "layout_picker": self.layout_picker_state(),
+            "help": self.wm.help_model().map(|m| json!({
+                "scroll": m.scroll,
+                "max_scroll": m.max_scroll,
+                "sections": m.groups.iter().map(|g| g.section.title()).collect::<Vec<_>>(),
+                "bindings": m.groups.iter().map(|g| g.entries.len()).sum::<usize>(),
+            })),
             "shells": self.shells.placements(&self.styles).iter().map(|s| json!({
                 "node": format!("{:?}", s.node),
                 "rect": rect(s.rect),
@@ -1278,7 +1316,7 @@ impl State {
                 .into_iter()
                 .filter_map(|(start, end, click)| match click {
                     Click::Workspace(tag) => Some(json!({ "workspace": tag, "x": [start, end] })),
-                    Click::Window(_) | Click::Layout(_) => None,
+                    Click::Window(_) | Click::Layout(_) | Click::Dismiss => None,
                 })
                 .collect::<Vec<_>>(),
             "bar_visible": self.wm.bar_visible(),
@@ -1418,6 +1456,10 @@ impl Requests for RiverRequests<'_> {
                     Some(picker) => seat.proxy.focus_shell_surface(picker),
                     None => seat.proxy.clear_focus(),
                 },
+                Focus::Help => match self.shells.shell_surface(Node::Help) {
+                    Some(help) => seat.proxy.focus_shell_surface(help),
+                    None => seat.proxy.clear_focus(),
+                },
                 Focus::None => seat.proxy.clear_focus(),
             }
         }
@@ -1455,7 +1497,7 @@ impl Requests for RiverRequests<'_> {
     fn set_position(&mut self, node: Node, x: i32, y: i32) {
         let proxy = match node {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
-            Node::Bar | Node::Tabs(_) | Node::Prompt | Node::LayoutPicker => {
+            Node::Bar | Node::Tabs(_) | Node::Prompt | Node::LayoutPicker | Node::Help => {
                 self.shells.node_proxy(node)
             }
         };
@@ -1467,7 +1509,7 @@ impl Requests for RiverRequests<'_> {
     fn place_top(&mut self, node: Node) {
         let proxy = match node {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
-            Node::Bar | Node::Tabs(_) | Node::Prompt | Node::LayoutPicker => {
+            Node::Bar | Node::Tabs(_) | Node::Prompt | Node::LayoutPicker | Node::Help => {
                 self.shells.node_proxy(node)
             }
         };

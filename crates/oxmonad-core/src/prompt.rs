@@ -80,6 +80,10 @@ pub enum PromptKey {
     Up,
     /// Arrow down (the layout picker's next entry; the prompt ignores it).
     Down,
+    /// Page up (the help overlay scrolls; the prompt ignores it).
+    PageUp,
+    /// Page down (the help overlay scrolls; the prompt ignores it).
+    PageDown,
     /// Move the cursor to the start.
     Home,
     /// Move the cursor to the end.
@@ -189,7 +193,7 @@ impl Prompt {
             PromptKey::BackTab => self.cycle(false),
             PromptKey::Left => self.cursor = self.cursor.saturating_sub(1),
             PromptKey::Right => self.cursor = (self.cursor + 1).min(self.len()),
-            PromptKey::Up | PromptKey::Down => {}
+            PromptKey::Up | PromptKey::Down | PromptKey::PageUp | PromptKey::PageDown => {}
             PromptKey::Home => self.cursor = 0,
             PromptKey::End => self.cursor = self.len(),
             PromptKey::Char(c) => {

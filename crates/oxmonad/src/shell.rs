@@ -1,5 +1,5 @@
-//! The WM-drawn shell surfaces: the bar, the tab strips, the prompt and the
-//! layout picker.
+//! The WM-drawn shell surfaces: the bar, the tab strips, the prompt, the
+//! layout picker and the key binding help.
 //!
 //! Their content is derived from core state in each manage sequence and
 //! committed with `sync_next_commit`, so it changes in the same frame as
@@ -15,6 +15,7 @@ use std::{
 
 use oxmonad_core::{
     BarModel,
+    HelpModel,
     LayoutPickerModel,
     PromptModel,
     Rect,
@@ -39,6 +40,10 @@ use oxmonad_ui::{
     Canvas,
     Color,
     Fonts,
+    HelpBinding,
+    HelpGroup,
+    HelpStyle,
+    HelpView,
     LayoutPickerStyle,
     LayoutPickerView,
     PickerEntry,
@@ -57,6 +62,8 @@ use oxmonad_ui::{
     WorkspaceState,
     WorkspaceTag,
     format_battery,
+    help_size,
+    help_viewport,
     join_groups,
     layout_bar,
     layout_picker_size,
@@ -65,6 +72,7 @@ use oxmonad_ui::{
     pp_segments,
     prompt_size,
     render_bar,
+    render_help,
     render_layout_picker,
     render_prompt,
     render_tabs,
@@ -141,6 +149,7 @@ pub struct Styles {
     prompt: PromptStyle,
     prompt_fonts: Rc<Fonts>,
     picker: LayoutPickerStyle,
+    help: HelpStyle,
     tabs: TabStyle,
     tab_fonts: Rc<Fonts>,
 }
@@ -195,6 +204,16 @@ impl Styles {
                 font_size: points_to_px(bar.font_size),
                 antialias,
                 ..LayoutPickerStyle::default()
+            },
+            help: HelpStyle {
+                bg: color(prompt.colors.background),
+                fg: color(prompt.colors.foreground),
+                border: color(prompt.colors.border),
+                // Section headings like the bar's current workspace.
+                heading: color(bar.colors.current),
+                font_size: points_to_px(bar.font_size),
+                antialias,
+                ..HelpStyle::default()
             },
             prompt_fonts: fonts.get(&prompt.font_family),
             tabs: TabStyle {
@@ -310,6 +329,45 @@ pub fn layout_picker_view(model: &LayoutPickerModel) -> LayoutPickerView {
     }
 }
 
+/// The help overlay view for `model`.
+#[must_use]
+pub fn help_view(model: &HelpModel) -> HelpView {
+    HelpView {
+        title: "Key bindings".to_owned(),
+        hint: "Esc: close  j/k: scroll".to_owned(),
+        groups: model
+            .groups
+            .iter()
+            .map(|group| HelpGroup {
+                title: group.section.title().to_owned(),
+                bindings: group
+                    .entries
+                    .iter()
+                    .map(|entry| HelpBinding {
+                        combo: entry.combo.clone(),
+                        action: entry.action.clone(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        scroll: model.scroll,
+    }
+}
+
+/// How many rows of `view` fit in `area` at `scale`, and how far it can
+/// scroll (for `Wm::set_help_viewport`).
+#[must_use]
+pub fn help_rows(view: &HelpView, area: Rect, scale: u32, styles: &Styles) -> (usize, usize) {
+    help_viewport(
+        view,
+        &styles.help,
+        &styles.prompt_fonts,
+        area.w.max(1).unsigned_abs(),
+        area.h.max(1).unsigned_abs(),
+        scale,
+    )
+}
+
 /// What one surface shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Content {
@@ -321,6 +379,8 @@ pub enum Content {
     Prompt(PromptView, u32),
     /// The layout picker, centred in [`Wanted::rect`].
     LayoutPicker(LayoutPickerView),
+    /// The key binding help, centred in [`Wanted::rect`].
+    Help(HelpView),
 }
 
 /// A surface oxmonad wants to show.
@@ -329,7 +389,7 @@ pub struct Wanted {
     /// Which surface.
     pub node: Node,
     /// Where it goes (for the prompt: the input line's strip; for the
-    /// layout picker: the area it is centred in).
+    /// layout picker and the help: the area it is centred in).
     pub rect: Rect,
     /// Its buffer scale.
     pub scale: u32,
@@ -570,6 +630,7 @@ impl Shells {
                 f64::from(y - rect.y),
             )
             .map(Click::Layout),
+            Content::Help(_) => Some(Click::Dismiss),
             Content::Prompt(..) => None,
         }
     }
@@ -584,6 +645,8 @@ pub enum Click {
     Window(WindowId),
     /// Apply the layout at this ring index (a layout picker card).
     Layout(usize),
+    /// Close the overlay (anywhere on the help).
+    Dismiss,
 }
 
 /// The logical rectangle a surface covers.
@@ -610,6 +673,21 @@ fn surface_rect(want: &Wanted, styles: &Styles) -> Rect {
                 &styles.picker,
                 want.rect.w.unsigned_abs(),
                 want.rect.h.unsigned_abs(),
+            );
+            let size = Size::new(
+                i32::try_from(w).unwrap_or(want.rect.w),
+                i32::try_from(h).unwrap_or(want.rect.h),
+            );
+            want.rect.centered(size)
+        }
+        Content::Help(view) => {
+            let (w, h) = help_size(
+                view,
+                &styles.help,
+                &styles.prompt_fonts,
+                want.rect.w.max(1).unsigned_abs(),
+                want.rect.h.max(1).unsigned_abs(),
+                want.scale,
             );
             let size = Size::new(
                 i32::try_from(w).unwrap_or(want.rect.w),
@@ -644,6 +722,14 @@ fn draw(want: &Wanted, styles: &Styles) -> Canvas {
         Content::LayoutPicker(view) => render_layout_picker(
             view,
             &styles.picker,
+            &styles.prompt_fonts,
+            width,
+            want.rect.h.max(1).unsigned_abs(),
+            want.scale,
+        ),
+        Content::Help(view) => render_help(
+            view,
+            &styles.help,
             &styles.prompt_fonts,
             width,
             want.rect.h.max(1).unsigned_abs(),

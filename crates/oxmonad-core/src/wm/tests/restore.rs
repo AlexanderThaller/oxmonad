@@ -140,6 +140,7 @@ fn normalized(wm: &Wm) -> Normalized {
             Focus::Window(id) => Some(name(id)),
             Focus::Prompt => Some("prompt".into()),
             Focus::LayoutPicker => Some("layout picker".into()),
+            Focus::Help => Some("help".into()),
             Focus::None => None,
         },
         screens,

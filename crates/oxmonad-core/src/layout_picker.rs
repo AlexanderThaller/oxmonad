@@ -88,6 +88,8 @@ impl LayoutPicker {
             | PromptKey::Delete
             | PromptKey::Home
             | PromptKey::End
+            | PromptKey::PageUp
+            | PromptKey::PageDown
             | PromptKey::DeleteWord
             | PromptKey::KillToEnd
             | PromptKey::KillToStart => {}

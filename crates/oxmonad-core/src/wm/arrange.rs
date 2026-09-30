@@ -82,6 +82,8 @@ pub enum Focus {
     Prompt,
     /// The layout picker.
     LayoutPicker,
+    /// The key binding help overlay.
+    Help,
     /// Nothing (an empty workspace).
     None,
 }
@@ -139,6 +141,9 @@ pub struct Arrangement {
     /// While the layout picker is open: its screen and the area it is
     /// centred in (the screen's usable rectangle).
     pub layout_picker: Option<(ScreenId, Rect)>,
+    /// While the help overlay is open: its screen (the current one) and the
+    /// area it is centred in (the screen's usable rectangle).
+    pub help: Option<(ScreenId, Rect)>,
 }
 
 impl Arrangement {
@@ -263,6 +268,8 @@ impl Wm {
             Focus::Prompt
         } else if self.picker.is_some() {
             Focus::LayoutPicker
+        } else if self.help.is_some() {
+            Focus::Help
         } else {
             self.stack_set.peek().map_or(Focus::None, Focus::Window)
         };
@@ -274,6 +281,7 @@ impl Wm {
             bar: self.bar_rect(),
             prompt: self.prompt_rect(),
             layout_picker: self.layout_picker_area(),
+            help: self.help_area(),
         }
     }
 
@@ -403,6 +411,14 @@ impl Wm {
             .screen_of_tag(picker.tag())
             .and_then(|id| self.stack_set.screen(id))
             .or_else(|| self.stack_set.current_screen())?;
+        Some((screen.id, screen.usable_rect))
+    }
+
+    /// The help overlay's screen and area while it is open: the current
+    /// screen's usable rectangle.
+    fn help_area(&self) -> Option<(ScreenId, Rect)> {
+        self.help.as_ref()?;
+        let screen = self.stack_set.current_screen()?;
         Some((screen.id, screen.usable_rect))
     }
 

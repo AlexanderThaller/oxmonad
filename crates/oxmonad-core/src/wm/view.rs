@@ -1,8 +1,12 @@
-//! View models for the WM-drawn surfaces (bar, prompt and layout picker;
-//! tab strips are part of the [`super::Arrangement`]).
+//! View models for the WM-drawn surfaces (bar, prompt, layout picker and
+//! help overlay; tab strips are part of the [`super::Arrangement`]).
 
 use super::Wm;
 use crate::{
+    help::{
+        HelpGroup,
+        help_groups,
+    },
     layout::LayoutOutput,
     prompt::PromptKind,
     stack_set::SCRATCHPAD_TAG,
@@ -75,6 +79,17 @@ pub struct LayoutPickerModel {
     pub active: usize,
 }
 
+/// What the help overlay shows.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HelpModel {
+    /// Every active binding, grouped (see [`help_groups`]).
+    pub groups: Vec<HelpGroup>,
+    /// The first visible row.
+    pub scroll: usize,
+    /// The largest scroll offset the renderer last reported.
+    pub max_scroll: usize,
+}
+
 impl Wm {
     /// The bar's contents.
     #[must_use]
@@ -143,6 +158,17 @@ impl Wm {
                 .collect(),
             selected: picker.selected(),
             active: ring.index(),
+        })
+    }
+
+    /// The help overlay's contents, if it is open.
+    #[must_use]
+    pub fn help_model(&self) -> Option<HelpModel> {
+        let help = self.help.as_ref()?;
+        Some(HelpModel {
+            groups: help_groups(&self.config),
+            scroll: help.scroll(),
+            max_scroll: help.max_scroll(),
         })
     }
 

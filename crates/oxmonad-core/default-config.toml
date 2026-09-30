@@ -93,7 +93,7 @@ inactive_border_color = "#BBBBBB"
 # shift-screen next|prev, shift-screen-follow next|prev, swap-next-screen,
 # split-screen <n>, rescreen,
 # toggle-bar, refresh, quit, reload, restart, toggle-fullscreen,
-# toggle-scratchpad <name>, float-move, float-resize.
+# toggle-scratchpad <name>, float-move, float-resize, help.
 [keybindings]
 # Launching programs
 "Mod+Shift+Return" = "spawn-terminal"
@@ -172,6 +172,8 @@ inactive_border_color = "#BBBBBB"
 # keeping windows and workspaces) and reload this file. "reload" only
 # reloads the file; so does SIGUSR1.
 "Mod+q" = "restart"
+# Every binding of this file, grouped (Escape, q or a click closes it).
+"Mod+Shift+slash" = "help"
 
 # Pointer bindings: "Modifiers+Button" = "action" (Button1 left, Button2
 # middle, Button3 right).

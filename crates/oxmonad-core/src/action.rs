@@ -132,6 +132,9 @@ pub enum Action {
     /// Float the focused window and start an interactive pointer resize
     /// (`float-resize`, `mouseResizeWindow`).
     FloatResize,
+    /// Show every key and pointer binding, or close that overlay if it is
+    /// open (`help`, xmonad's `Mod+Shift+/`).
+    Help,
 }
 
 /// Side effects core wants the outside world to perform. Core never does
@@ -214,6 +217,7 @@ const PLAIN: &[(&str, Action)] = &[
     ("toggle-fullscreen", Action::ToggleFullscreen),
     ("float-move", Action::FloatMove),
     ("float-resize", Action::FloatResize),
+    ("help", Action::Help),
 ];
 
 impl FromStr for Action {
@@ -338,7 +342,8 @@ impl fmt::Display for Action {
             | Self::Restart
             | Self::ToggleFullscreen
             | Self::FloatMove
-            | Self::FloatResize => unreachable!("plain actions are listed in PLAIN"),
+            | Self::FloatResize
+            | Self::Help => unreachable!("plain actions are listed in PLAIN"),
         }
     }
 }
@@ -364,6 +369,8 @@ mod tests {
         assert_eq!(parse("split-screen 2"), Action::SplitScreen(2));
         assert_eq!(parse("rescreen"), Action::Rescreen);
         assert_eq!(parse("pick-layout"), Action::PickLayout);
+        assert_eq!(parse("help"), Action::Help);
+        assert_eq!(Action::Help.to_string(), "help");
         assert_eq!(
             parse("prompt move"),
             Action::Prompt(PromptKind::MoveToWorkspace)

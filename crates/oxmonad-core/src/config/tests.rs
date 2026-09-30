@@ -113,6 +113,7 @@ fn default_keybindings_cover_the_documented_set() {
         ("Mod+n", Some(Action::Refresh)),
         ("Mod+Shift+q", Some(Action::Quit)),
         ("Mod+q", Some(Action::Restart)),
+        ("Mod+Shift+slash", Some(Action::Help)),
         ("Mod+f", Some(Action::ToggleFullscreen)),
         ("Mod+grave", Some(Action::ToggleScratchpad("term".into()))),
     ];
@@ -130,7 +131,7 @@ fn default_keybindings_cover_the_documented_set() {
             Some(Action::Shift(n.to_string()))
         );
     }
-    // 45 listed + 18 workspace bindings.
+    // 46 listed + 18 workspace bindings.
     assert_eq!(c.keybindings.len(), listed + 18);
 }
 

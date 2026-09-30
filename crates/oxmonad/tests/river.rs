@@ -79,11 +79,16 @@ mod key {
     pub const ENTER: u32 = 28;
     pub const BACKSPACE: u32 = 14;
     pub const LEFT_META: u32 = 125;
+    pub const LEFT_SHIFT: u32 = 42;
+    pub const SLASH: u32 = 53;
+    pub const Q: u32 = 16;
+    pub const PAGE_DOWN: u32 = 109;
     pub const BTN_LEFT: u32 = 0x110;
 }
 
 /// The xkb modifier mask of Mod4 in the `us` keymap.
 const MOD4: u32 = 1 << 6;
+const SHIFT: u32 = 1;
 
 fn have(program: &str) -> bool {
     Command::new("sh")
@@ -386,6 +391,18 @@ impl Input {
         self.hold_super(true);
         self.tap(code);
         self.hold_super(false);
+    }
+
+    /// Presses `code` while holding Super and Shift.
+    fn super_shift_tap(&mut self, code: u32) {
+        self.key(key::LEFT_META, true);
+        self.key(key::LEFT_SHIFT, true);
+        self.keyboard.modifiers(MOD4 | SHIFT, 0, 0, 0);
+        self.tap(code);
+        self.key(key::LEFT_SHIFT, false);
+        self.key(key::LEFT_META, false);
+        self.keyboard.modifiers(0, 0, 0, 0);
+        self.flush();
     }
 }
 
@@ -1217,6 +1234,118 @@ fn picks_layouts() {
     assert!(session.state()["layout_picker"].is_null());
     assert_eq!(layout(&session), "Grid");
     assert_ne!(session.state()["focus"], "layout-picker");
+
+    session.act("quit");
+    wait_for("river to exit", || {
+        session.river.try_wait().ok().flatten().is_some()
+    });
+    let log = session.log();
+    assert!(!log.contains("protocol error"), "{log}");
+    assert!(!log.contains("panicked"), "{log}");
+}
+
+/// The key binding help: `Super+Shift+/` and the `help` action open it with
+/// the keyboard focus, `Escape`, `q`, a click and a second `help` close it.
+#[test]
+#[ignore = "needs river and alacritty; run with --ignored"]
+fn shows_key_help() {
+    if !have("river") || !have("alacritty") {
+        eprintln!("skipping: river or alacritty is not installed");
+        return;
+    }
+    let mut session = Session::start_in(
+        Session::dir("help"),
+        Path::new(env!("CARGO_BIN_EXE_oxmonad")),
+    );
+    spawn_and_wait(&mut session, "one");
+    let area = rect(&session.state()["screens"][0]["rect"]);
+    let extent = (
+        u32::try_from(area[2]).expect("width"),
+        u32::try_from(area[3]).expect("height"),
+    );
+    let mut input = Input::connect(&session, extent);
+    let window = session.state()["focus"].clone();
+    assert!(window.is_u64(), "a window has focus: {window}");
+    let shell = |s: &Session| {
+        s.state()["shells"]
+            .as_array()
+            .and_then(|shells| shells.iter().find(|s| s["node"] == "Help").cloned())
+    };
+    let wait_open = |s: &Session, how: &str| {
+        wait_for(how, || {
+            let state = s.state();
+            state["focus"] == "help" && !state["help"].is_null()
+        });
+        wait_for("the help surface", || shell(s).is_some());
+        s.state()["help"].clone()
+    };
+    let wait_closed = |s: &Session, how: &str| {
+        wait_for(how, || {
+            let state = s.state();
+            state["help"].is_null() && state["focus"] == window
+        });
+        assert!(shell(s).is_none());
+    };
+
+    // The default binding, typed.
+    input.super_shift_tap(key::SLASH);
+    let help = wait_open(&session, "Super+Shift+slash to open the help");
+    assert_eq!(help["scroll"], 0, "{help}");
+    assert_eq!(
+        help["sections"],
+        serde_json::json!([
+            "Launch",
+            "Windows",
+            "Layouts",
+            "Workspaces",
+            "Screens",
+            "Session",
+            "Mouse"
+        ])
+    );
+    assert!(help["bindings"].as_u64().is_some_and(|n| n >= 50), "{help}");
+    // Centred on the screen, above everything.
+    let r = rect(&shell(&session).expect("the help surface")["rect"]);
+    assert!(within(r, area), "{r:?}");
+    assert!((r[0] - area[0] - (area[0] + area[2] - r[0] - r[2])).abs() <= 1);
+    screenshot(&session, "help");
+    // Not everything fits the 1280x720 output: j/k and PageDown scroll,
+    // stopping at the end.
+    let max_scroll = help["max_scroll"].as_u64().expect("max_scroll");
+    assert!(max_scroll > 0, "{help}");
+    let scroll = |s: &Session| s.state()["help"]["scroll"].as_u64();
+    input.tap(key::J);
+    wait_for("j to scroll a row", || scroll(&session) == Some(1));
+    input.tap(key::K);
+    wait_for("k to scroll back", || scroll(&session) == Some(0));
+    for _ in 0..3 {
+        input.tap(key::PAGE_DOWN);
+    }
+    wait_for("PageDown to scroll to the end", || {
+        scroll(&session) == Some(max_scroll)
+    });
+    screenshot(&session, "help-scrolled");
+    input.tap(key::ESC);
+    wait_closed(&session, "Escape to close the help");
+
+    session.act("help");
+    wait_open(&session, "the help action to open it");
+    input.tap(key::Q);
+    wait_closed(&session, "q to close the help");
+
+    session.act("help");
+    wait_open(&session, "the help action to open it again");
+    let r = rect(&shell(&session).expect("the help surface")["rect"]);
+    input.click_at(r[0] + r[2] / 2, r[1] + r[3] / 2);
+    wait_closed(&session, "a click to close the help");
+
+    // Exclusive with the layout picker; a second `help` closes it.
+    session.act("pick-layout");
+    session.act("help");
+    wait_open(&session, "help to replace the layout picker");
+    assert!(session.state()["layout_picker"].is_null());
+    session.act("help");
+    wait_closed(&session, "a second help to close it");
 
     session.act("quit");
     wait_for("river to exit", || {

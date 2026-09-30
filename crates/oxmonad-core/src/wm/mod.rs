@@ -1,7 +1,8 @@
 //! The [`Wm`] facade: the only interface the binary uses.
 //!
 //! `Wm` bundles the [`StackSet`], per-window information, the resolved
-//! [`Config`], the bar toggle and the open prompt or layout picker. The binary
+//! [`Config`], the bar toggle and the open prompt, layout picker or help
+//! overlay. The binary
 //! records events through its methods, feeds user intent through [`Wm::apply`]
 //! and [`Wm::prompt_key`], executes the returned [`Effect`]s and renders
 //! [`Wm::arrange`]'s [`Arrangement`] plus the view models.
@@ -37,6 +38,7 @@ pub use snapshot::{
 };
 pub use view::{
     BarModel,
+    HelpModel,
     LayoutPickerModel,
     LayoutPreview,
     PromptModel,
@@ -53,6 +55,10 @@ use crate::{
         Rect,
         Size,
         WindowId,
+    },
+    help::{
+        Help,
+        HelpOutcome,
     },
     layout::LayoutRing,
     layout_picker::{
@@ -94,6 +100,9 @@ pub struct Wm {
     prompt: Option<Prompt>,
     /// The open layout picker; never open together with the prompt.
     picker: Option<LayoutPicker>,
+    /// The open key binding help; never open together with the prompt or
+    /// the layout picker.
+    help: Option<Help>,
     /// A snapshot being restored (see [`snapshot`]).
     restore: Option<snapshot::PendingRestore>,
 }
@@ -111,6 +120,7 @@ impl Wm {
             config,
             prompt: None,
             picker: None,
+            help: None,
             restore: None,
         }
     }
@@ -279,10 +289,10 @@ impl Wm {
 
     /// Makes the screen containing the point `(x, y)` current, like xmonad
     /// switching screens when the pointer crosses onto another screen's
-    /// root window. Does nothing while the prompt or the layout picker is
-    /// open, when the point
-    /// is on no screen, or when that screen is already current (so it never
-    /// undoes keyboard focus changes on the same screen).
+    /// root window. Does nothing while the prompt, the layout picker or the
+    /// help overlay is open, when the point is on no screen, or when that
+    /// screen is already current (so it never undoes keyboard focus changes
+    /// on the same screen).
     pub fn focus_screen_at(&mut self, x: i32, y: i32) {
         if self.grabs_keyboard() {
             return;
@@ -355,24 +365,32 @@ impl Wm {
         self.prompt.is_some()
     }
 
-    /// Whether the prompt or the layout picker is open and takes the
-    /// keyboard (keyboard input should go to [`Self::prompt_key`]).
+    /// Whether the prompt, the layout picker or the help overlay is open
+    /// and takes the keyboard (keyboard input should go to
+    /// [`Self::prompt_key`]).
     #[must_use]
     pub fn grabs_keyboard(&self) -> bool {
-        self.prompt.is_some() || self.picker.is_some()
+        self.prompt.is_some() || self.picker.is_some() || self.help.is_some()
     }
 
     /// Opens a workspace prompt completing over the workspace tags,
-    /// closing the layout picker.
+    /// closing the layout picker and the help overlay.
     fn open_prompt(&mut self, kind: PromptKind) {
         let options = self.bar_tags();
         self.picker = None;
+        self.help = None;
         self.prompt = Some(Prompt::new(kind, options));
     }
 
-    /// Feeds a key into the open prompt (executing it on `Return`) or
-    /// layout picker.
+    /// Feeds a key into the open prompt (executing it on `Return`), layout
+    /// picker or help overlay.
     pub fn prompt_key(&mut self, key: PromptKey) -> Vec<Effect> {
+        if let Some(help) = &mut self.help {
+            if help.handle_key(key) == HelpOutcome::Close {
+                self.help = None;
+            }
+            return Vec::new();
+        }
         if let Some(picker) = &mut self.picker {
             match picker.handle_key(key) {
                 PickerOutcome::Continue => {}
@@ -427,7 +445,7 @@ impl Wm {
     }
 
     /// `pick-layout`: closes the picker if it is open, otherwise opens it
-    /// for the current workspace (closing the prompt).
+    /// for the current workspace (closing the prompt and the help overlay).
     fn toggle_layout_picker(&mut self) {
         if self.picker.take().is_some() {
             return;
@@ -439,6 +457,7 @@ impl Wm {
             workspace.layout.index(),
         );
         self.prompt = None;
+        self.help = None;
         self.picker = Some(picker);
     }
 
@@ -459,6 +478,40 @@ impl Wm {
         };
         if let Some(workspace) = self.stack_set.workspace_mut(picker.tag()) {
             workspace.layout.select(index);
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Help overlay
+
+    /// Whether the key binding help overlay is open.
+    #[must_use]
+    pub fn is_help_open(&self) -> bool {
+        self.help.is_some()
+    }
+
+    /// `help`: closes the overlay if it is open, otherwise opens it
+    /// scrolled to the top (closing the prompt and the layout picker).
+    fn toggle_help(&mut self) {
+        if self.help.take().is_some() {
+            return;
+        }
+        self.prompt = None;
+        self.picker = None;
+        self.help = Some(Help::new());
+    }
+
+    /// Closes the help overlay (e.g. after a click on it).
+    pub fn close_help(&mut self) {
+        self.help = None;
+    }
+
+    /// Tells the open help overlay that `page` rows fit on screen and its
+    /// content scrolls by at most `max_scroll` rows (the renderer knows the
+    /// font metrics); clamps the scroll offset.
+    pub fn set_help_viewport(&mut self, page: usize, max_scroll: usize) {
+        if let Some(help) = self.help.as_mut() {
+            help.set_viewport(page, max_scroll);
         }
     }
 
