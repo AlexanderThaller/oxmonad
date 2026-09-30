@@ -832,6 +832,32 @@ fn arrange_for_restart(session: &mut Session, input: &mut Input) {
     assert_eq!(state["bar_visible"], false);
 }
 
+/// `oxmonad --restart` restarts the oxmonad of its own session only.
+fn restarts_via_cli(session: &Session, binary: &Path, current: &Value) {
+    // `oxmonad --restart`, run inside the session, restarts it too.
+    let restores = |s: &Session| s.log().matches("restoring the state").count();
+    let before = restores(session);
+    let output = Command::new(binary)
+        .arg("--restart")
+        .env("XDG_RUNTIME_DIR", &session.dir)
+        .env("WAYLAND_DISPLAY", session.wayland_display())
+        .output()
+        .expect("oxmonad --restart runs");
+    assert!(output.status.success(), "{output:?}");
+    wait_for("the CLI restart", || restores(session) > before);
+    wait_for("the arrangement after the CLI restart", || {
+        settled(session).as_ref() == Some(current)
+    });
+    // Outside the session there is nothing to restart.
+    let output = Command::new(binary)
+        .arg("--restart")
+        .env("XDG_RUNTIME_DIR", session.dir.join("elsewhere"))
+        .env("WAYLAND_DISPLAY", "wayland-99")
+        .output()
+        .expect("oxmonad --restart runs");
+    assert!(!output.status.success(), "{output:?}");
+}
+
 #[test]
 #[ignore = "needs river and alacritty; run with --ignored"]
 fn restarts_in_place() {
@@ -920,6 +946,9 @@ fn restarts_in_place() {
     // And restarting works again afterwards.
     fs::copy(env!("CARGO_BIN_EXE_oxmonad"), &binary).expect("copy the binary");
     restart(&session, &current);
+    unchanged(&mut session);
+
+    restarts_via_cli(&session, &binary, &current);
     unchanged(&mut session);
 
     for child in scratchpad {

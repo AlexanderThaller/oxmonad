@@ -80,6 +80,11 @@ focus, floating and fullscreen windows, layouts and the bar toggle are
 restored. If the binary is missing or `--check-config` fails, oxmonad logs
 the error and keeps running.
 
+From a shell, `oxmonad --restart` does the same for the oxmonad of the
+session it runs in (like `xmonad --restart`; it sends that oxmonad
+`SIGUSR2`). `deploy/install.sh` uses it to switch to the freshly installed
+binary.
+
 Logs go to stderr (river passes them on); filter them with `RUST_LOG`, e.g.
 `RUST_LOG=oxmonad=debug`.
 

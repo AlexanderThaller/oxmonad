@@ -9,6 +9,7 @@ mod control;
 mod keyboard;
 mod keys;
 mod plan;
+mod remote;
 mod restart;
 mod shell;
 mod shm;
@@ -55,6 +56,7 @@ use signal_hook::consts::{
     SIGINT,
     SIGTERM,
     SIGUSR1,
+    SIGUSR2,
 };
 use tracing_subscriber::EnvFilter;
 use wayland_client::{
@@ -68,7 +70,7 @@ use crate::state::{
 };
 
 const USAGE: &str = "\
-usage: oxmonad [--config PATH] [--check-config]
+usage: oxmonad [--config PATH] [--check-config | --restart]
 
 oxmonad is a window manager for the river compositor; river starts it:
 
@@ -77,6 +79,8 @@ oxmonad is a window manager for the river compositor; river starts it:
 Options:
     --config PATH    read PATH instead of $XDG_CONFIG_HOME/oxmonad/config.toml
     --check-config   validate the configuration and exit
+    --restart        restart the running oxmonad of this session in place
+                     (like Mod+q; sends it SIGUSR2)
     -h, --help       show this help
 
 Environment:
@@ -88,12 +92,14 @@ Environment:
 struct Args {
     config: Option<PathBuf>,
     check: bool,
+    restart: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
     let mut args = Args {
         config: config_file::default_path(),
         check: false,
+        restart: false,
     };
     let mut iter = env::args_os().skip(1);
     while let Some(arg) = iter.next() {
@@ -103,6 +109,7 @@ fn parse_args() -> Result<Args, String> {
                 args.config = Some(PathBuf::from(path));
             }
             Some("--check-config") => args.check = true,
+            Some("--restart") => args.restart = true,
             Some("-h" | "--help") => {
                 print!("{USAGE}");
                 std::process::exit(0);
@@ -121,6 +128,9 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if args.restart {
+        return restart_running();
+    }
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with_writer(io::stderr)
@@ -157,6 +167,26 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(err) => {
             tracing::error!("{err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `oxmonad --restart`: signals the running oxmonad of this session.
+fn restart_running() -> ExitCode {
+    match remote::restart_running() {
+        Ok(pids) if pids.is_empty() => {
+            eprintln!("oxmonad: no running oxmonad found in this session");
+            ExitCode::FAILURE
+        }
+        Ok(pids) => {
+            for pid in pids {
+                println!("restarting oxmonad (pid {pid})");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("oxmonad: {err}");
             ExitCode::FAILURE
         }
     }
@@ -212,6 +242,7 @@ fn run(
     watch_signal(&handle, &[SIGCHLD], State::reap_children)?;
     watch_signal(&handle, &[SIGTERM, SIGINT], State::stop)?;
     watch_signal(&handle, &[SIGUSR1], State::request_reload)?;
+    watch_signal(&handle, &[SIGUSR2], State::request_restart)?;
     start_status_timers(&handle, &mut state)?;
     if let Some(path) = env::var_os(control::ENV).filter(|path| !path.is_empty()) {
         listen_control(&handle, Path::new(&path))?;

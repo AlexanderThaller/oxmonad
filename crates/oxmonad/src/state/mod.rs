@@ -299,6 +299,8 @@ enum Input {
     ResizeRequested(SeatId, WindowId),
     Fullscreen(WindowId, bool),
     Control(Command, Reply),
+    /// An action from outside, e.g. `restart` on `SIGUSR2`.
+    Action(Action),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -474,6 +476,13 @@ impl State {
     /// Reloads the config in the next manage sequence (`SIGUSR1`).
     pub fn request_reload(&mut self) {
         self.reload = true;
+        self.dirty();
+    }
+
+    /// Restarts in place in the next manage sequence (`SIGUSR2`, sent by
+    /// `oxmonad --restart`).
+    pub fn request_restart(&mut self) {
+        self.inputs.push_back(Input::Action(Action::Restart));
         self.dirty();
     }
 
@@ -746,6 +755,7 @@ impl State {
                 self.execute(effects, None);
             }
             Input::Interaction(window) => self.wm.focus_window(window),
+            Input::Action(action) => self.apply(action, None),
             Input::Hover(seat, window) => {
                 // The first position river reports (e.g. right after a
                 // restart) is not a movement.
