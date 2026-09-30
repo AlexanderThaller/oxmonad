@@ -19,8 +19,9 @@ session wrapper and the greeter entry (asks for sudo):
 deploy/install.sh            # or: deploy/install.sh /opt/oxmonad
 ```
 
-It is safe to run while oxmonad is running; press Mod+q afterwards to restart
-into the new binary. Or step by step:
+It is safe to run while oxmonad is running: it then restarts the oxmonad of
+the session it runs in (`oxmonad --restart`, like Mod+q), keeping every
+window in place. Or step by step:
 
 ```sh
 # river itself (Arch Linux).

@@ -4,7 +4,8 @@
 #
 # Run as your normal user; only the install steps use sudo. Safe while
 # oxmonad is running: `install` replaces the file instead of writing into it,
-# so afterwards press Mod+q to restart into the new binary.
+# and a running oxmonad of this session is then restarted into the new
+# binary (`oxmonad --restart`, like Mod+q; windows stay where they are).
 #
 # Usage: deploy/install.sh [PREFIX]   (default PREFIX: /usr/local)
 set -eu
@@ -30,4 +31,8 @@ sudo install -Dm755 target/deploy/oxmonad "$prefix/bin/oxmonad"
 sudo install -Dm755 "$tmp/oxmonad-session" "$prefix/bin/oxmonad-session"
 sudo install -Dm644 "$tmp/oxmonad.desktop" /usr/share/wayland-sessions/oxmonad.desktop
 
-echo "installed oxmonad to $prefix/bin; pick 'oxmonad' in LightDM, or press Mod+q to restart a running session"
+echo "installed oxmonad to $prefix/bin"
+
+if ! "$prefix/bin/oxmonad" --restart 2>/dev/null; then
+    echo "no running oxmonad in this session; pick 'oxmonad' in LightDM to start it"
+fi
