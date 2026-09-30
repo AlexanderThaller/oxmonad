@@ -5,6 +5,9 @@
 - Rust project
 - Run cargo fmt after changes
 - Run cargo clippy after changes and fix issues
+- Make bigger changes in a worktree keep main clean in that case. Bigger
+  changes include changes that require working on more than one rust
+  code change that could lead to the compilation failing.
 
 ## Git Commit Messages
 
