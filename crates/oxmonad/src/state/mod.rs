@@ -35,6 +35,7 @@ use oxmonad_core::{
     Rect,
     ScreenId,
     Size,
+    Snapshot,
     WindowId,
     WindowInfo,
     Wm,
@@ -103,6 +104,10 @@ use crate::{
         Node,
         Requests,
     },
+    restart::{
+        self,
+        Exe,
+    },
     shell::{
         self,
         Click,
@@ -142,18 +147,46 @@ pub struct Globals {
     pub compositor: WlCompositor,
     /// For shell surface buffers.
     pub shm: WlShm,
+    /// The `wl_output`s and their global names, bound before `wm` (see
+    /// [`bind_wl_outputs`]).
+    pub wl_outputs: Vec<(u32, WlOutput)>,
+}
+
+/// Binds every advertised `wl_output`. Called before binding the window
+/// manager, so the output names arrive before river announces its outputs:
+/// a restart matches screens by name in the first manage sequence.
+pub fn bind_wl_outputs(list: &GlobalList, qh: &QueueHandle<State>) -> Vec<(u32, WlOutput)> {
+    let outputs: Vec<(u32, u32)> = list.contents().with_list(|list| {
+        list.iter()
+            .filter(|g| g.interface == WlOutput::interface().name)
+            .map(|g| (g.name, g.version))
+            .collect()
+    });
+    outputs
+        .into_iter()
+        .map(|(name, version)| (name, list.registry().bind(name, version.min(4), qh, name)))
+        .collect()
 }
 
 #[derive(Debug)]
 struct Window {
     proxy: RiverWindowV1,
     node: RiverNodeV1,
+    /// river's stable name for the window, kept across restarts.
+    identifier: Option<String>,
     info: WindowInfo,
     /// Dimensions river reported.
     dimensions: Option<Size>,
     managed: bool,
     info_changed: bool,
     closed: bool,
+}
+
+impl Window {
+    fn destroy(self) {
+        self.node.destroy();
+        self.proxy.destroy();
+    }
 }
 
 #[derive(Debug)]
@@ -176,6 +209,13 @@ impl Output {
         let ((x, y), (w, h)) = (self.position?, self.size?);
         Some(Rect::new(x, y, w, h))
     }
+
+    fn destroy(self) {
+        if let Some(layer) = self.layer {
+            layer.destroy();
+        }
+        self.proxy.destroy();
+    }
 }
 
 /// What oxmonad knows about a `wl_output` global.
@@ -197,6 +237,23 @@ struct Seat {
     pointer_before: Option<(i32, i32)>,
     hovered: Option<WindowId>,
     removed: bool,
+}
+
+impl Seat {
+    fn destroy(self) {
+        if let Some(layer) = self.layer {
+            layer.destroy();
+        }
+        if let Some(keyboard) = self.keyboard {
+            keyboard.release();
+        }
+        if let Some(wl) = self.wl
+            && wl.version() >= 5
+        {
+            wl.release();
+        }
+        self.proxy.destroy();
+    }
 }
 
 /// Data of a key binding object.
@@ -266,6 +323,8 @@ enum Lifecycle {
     Running,
     /// Sent `stop`, waiting for `finished`.
     Stopping,
+    /// Sent `stop` to restart, waiting for `finished`.
+    Restarting,
     /// Asked river to end the session.
     Quitting,
 }
@@ -303,36 +362,62 @@ pub struct State {
 
     locked: bool,
     reload: bool,
+    /// How to start this binary again, for `restart`.
+    exe: Option<Exe>,
+    /// `restart` was applied in the running manage sequence.
+    restart_requested: bool,
+    /// The state to restore after restarting.
+    restart: Option<Snapshot>,
     lifecycle: Lifecycle,
     exit: Option<ExitCode>,
 }
 
 impl State {
-    /// A fresh state around the bound globals.
+    /// A fresh state around the bound globals; `restore` is the state a
+    /// restarting oxmonad left.
     pub fn new(
         handle: LoopHandle<'static, Self>,
         conn: Connection,
         qh: QueueHandle<Self>,
-        globals: Globals,
-        config: Config,
-        config_path: Option<PathBuf>,
+        mut globals: Globals,
+        (config, config_path): (Config, Option<PathBuf>),
+        exe: Option<Exe>,
+        restore: Option<Snapshot>,
     ) -> Self {
         let mut fonts = FontCache::default();
         let styles = Styles::new(&config, &mut fonts);
-        let mut state = Self {
+        let mut wm = Wm::new(config);
+        if let Some(snapshot) = restore {
+            match wm.restore(snapshot) {
+                Ok(()) => tracing::info!("restoring the state from before the restart"),
+                Err(err) => tracing::warn!(%err, "starting fresh"),
+            }
+        }
+        let wl_outputs = std::mem::take(&mut globals.wl_outputs)
+            .into_iter()
+            .map(|(name, output)| {
+                let info = WlOutputInfo {
+                    output,
+                    name: String::new(),
+                    scale: 1,
+                };
+                (name, info)
+            })
+            .collect();
+        Self {
             handle,
             repeat: None,
             conn,
             qh,
             globals,
-            wm: Wm::new(config),
+            wm,
             config_path,
             fonts,
             styles,
             status: Status::default(),
             windows: BTreeMap::new(),
             outputs: BTreeMap::new(),
-            wl_outputs: BTreeMap::new(),
+            wl_outputs,
             seats: BTreeMap::new(),
             bindings: BTreeMap::new(),
             inputs: VecDeque::new(),
@@ -344,19 +429,12 @@ impl State {
             children: Children::default(),
             locked: false,
             reload: false,
+            exe,
+            restart_requested: false,
+            restart: None,
             lifecycle: Lifecycle::Running,
             exit: None,
-        };
-        let outputs: Vec<(u32, u32)> = state.globals.list.contents().with_list(|list| {
-            list.iter()
-                .filter(|g| g.interface == WlOutput::interface().name)
-                .map(|g| (g.name, g.version))
-                .collect()
-        });
-        for (name, version) in outputs {
-            state.bind_wl_output(name, version);
         }
-        state
     }
 
     /// Flushes requests; called whenever the event loop goes idle.
@@ -519,6 +597,9 @@ impl State {
             seat.pointer_before = seat.pointer;
         }
         self.globals.wm.manage_finish();
+        if std::mem::take(&mut self.restart_requested) {
+            self.begin_restart();
+        }
     }
 
     /// Applies output changes to core.
@@ -532,10 +613,7 @@ impl State {
         for id in removed {
             if let Some(output) = self.outputs.remove(&id) {
                 self.wm.remove_screen(id);
-                if let Some(layer) = output.layer {
-                    layer.destroy();
-                }
-                output.proxy.destroy();
+                output.destroy();
             }
         }
         for (&id, output) in &mut self.outputs {
@@ -570,13 +648,7 @@ impl State {
                 bindings.destroy();
             }
             if let Some(seat) = self.seats.remove(&id) {
-                if let Some(layer) = seat.layer {
-                    layer.destroy();
-                }
-                if let Some(keyboard) = seat.keyboard {
-                    keyboard.release();
-                }
-                seat.proxy.destroy();
+                seat.destroy();
             }
         }
         for (&id, seat) in &mut self.seats {
@@ -601,8 +673,7 @@ impl State {
             if let Some(window) = self.windows.remove(&id) {
                 self.wm.unmanage(id);
                 self.applied.remove(id);
-                window.node.destroy();
-                window.proxy.destroy();
+                window.destroy();
             }
             if self.op.as_ref().is_some_and(|op| op.window == id) {
                 self.end_pointer_op();
@@ -618,13 +689,17 @@ impl State {
                 tracing::debug!(?id, app_id = %window.info.app_id, "manage");
                 window.proxy.set_capabilities(Capabilities::Fullscreen);
                 window.proxy.use_ssd();
-                self.wm.manage(id, window.info.clone());
+                self.wm
+                    .manage_as(id, window.identifier.as_deref(), window.info.clone());
                 window.managed = true;
                 window.info_changed = false;
             } else if std::mem::take(&mut window.info_changed) {
                 self.wm.update_info(id, window.info.clone());
             }
         }
+        // river announces every existing window before the first manage
+        // sequence, so a restore is complete now.
+        self.wm.finish_restore();
     }
 
     fn handle_input(&mut self, input: Input, answers: &mut Vec<(Command, Reply)>) {
@@ -652,10 +727,12 @@ impl State {
             }
             Input::Interaction(window) => self.wm.focus_window(window),
             Input::Hover(seat, window) => {
+                // The first position river reports (e.g. right after a
+                // restart) is not a movement.
                 let moved = self
                     .seats
                     .get(&seat)
-                    .is_some_and(|s| s.pointer != s.pointer_before);
+                    .is_some_and(|s| s.pointer_before.is_some() && s.pointer != s.pointer_before);
                 if moved && self.wm.config().focus_follows_mouse {
                     self.wm.focus_window(window);
                 }
@@ -704,7 +781,8 @@ impl State {
                     }
                 }
                 Effect::Quit => self.quit(),
-                Effect::Reload | Effect::Restart => self.reload = true,
+                Effect::Reload => self.reload = true,
+                Effect::Restart => self.restart_requested = true,
                 Effect::StartPointerMove(window) => {
                     self.start_pointer_op(window, OpKind::Move, seat);
                 }
@@ -723,6 +801,125 @@ impl State {
             self.globals.wm.exit_session();
         } else {
             self.stop();
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Restart
+
+    /// `restart`: if the binary still works, saves the state and stops
+    /// window management; [`Self::finish_restart`] re-executes on
+    /// `finished`.
+    fn begin_restart(&mut self) {
+        if self.lifecycle != Lifecycle::Running {
+            return;
+        }
+        let Some(exe) = &self.exe else {
+            tracing::error!("restart: the oxmonad binary is unknown");
+            return;
+        };
+        if let Err(err) = exe.check() {
+            tracing::error!("restart: {err}; keeping this oxmonad");
+            return;
+        }
+        let windows = &self.windows;
+        let snapshot = self
+            .wm
+            .snapshot(|id| windows.get(&id).and_then(|w| w.identifier.clone()));
+        tracing::info!("restarting");
+        self.restart = Some(snapshot);
+        self.lifecycle = Lifecycle::Restarting;
+        self.globals.wm.stop();
+    }
+
+    /// Whether `finished` belongs to a restart.
+    fn is_restarting(&self) -> bool {
+        self.lifecycle == Lifecycle::Restarting
+    }
+
+    /// river finished with the window manager during a restart: releases
+    /// every window-management object and re-executes the binary. If that
+    /// fails, binds the window manager again and restores the snapshot in
+    /// this process.
+    fn finish_restart(&mut self) {
+        let Some(snapshot) = self.restart.take() else {
+            return;
+        };
+        for (command, reply) in std::mem::take(&mut self.answers) {
+            match command {
+                Command::Action(_) => reply.send("ok"),
+                Command::DumpState => reply.send(&self.dump_state()),
+            }
+        }
+        self.teardown();
+        self.flush();
+
+        let saved = restart::save(&snapshot);
+        match (&self.exe, saved) {
+            (Some(exe), Ok(path)) => {
+                let err = exe.exec(&path);
+                tracing::error!(%err, "restart: cannot execute the oxmonad binary");
+                restart::discard(&path);
+            }
+            (_, Err(err)) => tracing::error!(%err, "restart: cannot save the state"),
+            (None, Ok(path)) => restart::discard(&path),
+        }
+        self.resume(snapshot);
+    }
+
+    /// Destroys every object created through the window manager and
+    /// forgets river's windows, outputs and seats.
+    fn teardown(&mut self) {
+        self.stop_repeat(None);
+        self.op = None;
+        self.inputs.clear();
+        for (_, bindings) in std::mem::take(&mut self.bindings) {
+            bindings.destroy();
+        }
+        for (_, seat) in std::mem::take(&mut self.seats) {
+            seat.destroy();
+        }
+        for (_, output) in std::mem::take(&mut self.outputs) {
+            output.destroy();
+        }
+        for (_, window) in std::mem::take(&mut self.windows) {
+            window.destroy();
+        }
+        self.shells.destroy();
+        self.applied = Applied::default();
+        self.arrangement = None;
+        self.globals.wm.destroy();
+    }
+
+    /// Continues in this process after a failed restart: binds the window
+    /// manager again (river announces everything anew) and restores
+    /// `snapshot` into a fresh model with the configuration reloaded.
+    fn resume(&mut self, snapshot: Snapshot) {
+        let config = match config_file::load(self.config_path.as_deref()) {
+            Ok(config) => {
+                self.styles = Styles::new(&config, &mut self.fonts);
+                config
+            }
+            Err(err) => {
+                tracing::error!(%err, "keeping the previous configuration");
+                self.wm.config().clone()
+            }
+        };
+        let mut wm = Wm::new(config);
+        if let Err(err) = wm.restore(snapshot) {
+            tracing::warn!(%err, "cannot restore the state");
+        }
+        self.wm = wm;
+        match self.globals.list.bind(&self.qh, 1..=5, ()) {
+            Ok(wm) => {
+                tracing::info!("window management resumed");
+                self.globals.wm = wm;
+                self.lifecycle = Lifecycle::Running;
+            }
+            Err(err) => {
+                tracing::error!(%err, "cannot bind the window manager again");
+                self.exit = Some(ExitCode::FAILURE);
+            }
         }
     }
 
@@ -953,6 +1150,7 @@ impl State {
                 let (x, y) = plan::window_position(p, dimensions);
                 json!({
                     "id": p.window.0,
+                    "identifier": window.and_then(|w| w.identifier.clone()),
                     "app_id": info.map(|i| i.app_id.clone()),
                     "title": info.map(|i| i.title.clone()),
                     "screen": p.screen.0,

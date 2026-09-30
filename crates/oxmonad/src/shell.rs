@@ -368,6 +368,13 @@ impl Shells {
         }
     }
 
+    /// Destroys every surface.
+    pub fn destroy(&mut self) {
+        for (_, surface) in std::mem::take(&mut self.surfaces) {
+            surface.destroy();
+        }
+    }
+
     /// Where each drawn surface goes.
     #[must_use]
     pub fn placements(&self, styles: &Styles) -> Vec<ShellPlacement> {

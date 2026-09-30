@@ -3,15 +3,25 @@
 use std::{
     os::unix::process::CommandExt,
     process::{
-        Child,
         Command,
         Stdio,
     },
 };
 
-/// Spawned children that have not been reaped yet.
+use rustix::process::{
+    WaitOptions,
+    wait,
+};
+
+use crate::restart;
+
+/// Spawned children that have not been reaped yet (their pids).
+///
+/// Children spawned before a restart stay children of the re-executed
+/// process, which does not know them: [`Self::reap`] therefore reaps any
+/// exited child, not only those in the list.
 #[derive(Debug, Default)]
-pub struct Children(Vec<Child>);
+pub struct Children(Vec<u32>);
 
 impl Children {
     /// Runs `command` with `sh -c` in its own process group, so it
@@ -26,12 +36,13 @@ impl Children {
             .arg("-c")
             .arg(command)
             .stdin(Stdio::null())
+            .env_remove(restart::ENV)
             .process_group(0)
             .spawn();
         match spawned {
             Ok(child) => {
                 tracing::debug!(%command, pid = child.id(), "spawned");
-                self.0.push(child);
+                self.0.push(child.id());
             }
             Err(err) => tracing::warn!(%command, %err, "failed to spawn"),
         }
@@ -39,17 +50,12 @@ impl Children {
 
     /// Reaps every child that has exited.
     pub fn reap(&mut self) {
-        self.0.retain_mut(|child| match child.try_wait() {
-            Ok(Some(status)) => {
-                tracing::debug!(pid = child.id(), %status, "child exited");
-                false
-            }
-            Ok(None) => true,
-            Err(err) => {
-                tracing::warn!(pid = child.id(), %err, "cannot wait for child");
-                false
-            }
-        });
+        // Stops when no exited child is left (`ECHILD`: no child at all).
+        while let Ok(Some((pid, status))) = wait(WaitOptions::NOHANG) {
+            let pid = pid.as_raw_nonzero().get().unsigned_abs();
+            tracing::debug!(pid, ?status, "child exited");
+            self.0.retain(|&child| child != pid);
+        }
     }
 
     /// The number of children still running.

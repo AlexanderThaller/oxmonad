@@ -128,6 +128,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for State {
                 tracing::error!("river refused window management: another window manager runs");
                 state.exit = Some(ExitCode::FAILURE);
             }
+            Event::Finished if state.is_restarting() => state.finish_restart(),
             Event::Finished => {
                 tracing::info!("river finished window management");
                 wm.destroy();
@@ -145,6 +146,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for State {
                     Window {
                         proxy: id,
                         node,
+                        identifier: None,
                         info: WindowInfo::default(),
                         dimensions: None,
                         managed: false,
@@ -249,6 +251,7 @@ impl Dispatch<RiverWindowV1, WindowId> for State {
                 window.info.title = title.unwrap_or_default();
                 window.info_changed = true;
             }
+            Event::Identifier { identifier } => window.identifier = Some(identifier),
             Event::Parent { parent } => {
                 window.info.has_parent = parent.is_some();
                 window.info_changed = true;
@@ -276,7 +279,6 @@ impl Dispatch<RiverWindowV1, WindowId> for State {
             | Event::MinimizeRequested
             | Event::UnreliablePid { .. }
             | Event::PresentationHint { .. }
-            | Event::Identifier { .. }
             | Event::CaptureSessions { .. }
             | _ => {}
         }

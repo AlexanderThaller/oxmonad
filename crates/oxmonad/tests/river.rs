@@ -25,7 +25,10 @@ use std::{
         fd::AsFd,
         unix::net::UnixStream,
     },
-    path::PathBuf,
+    path::{
+        Path,
+        PathBuf,
+    },
     process::{
         Child,
         Command,
@@ -111,13 +114,26 @@ impl Drop for Session {
 }
 
 impl Session {
-    fn start() -> Self {
-        let dir = env::temp_dir().join(format!("oxm-{}", std::process::id()));
+    /// A private runtime directory `oxm-<pid>-<label>` (with a `config`
+    /// directory for `XDG_CONFIG_HOME`).
+    fn dir(label: &str) -> PathBuf {
+        let dir = env::temp_dir().join(format!("oxm-{}-{label}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("config")).expect("runtime dir");
+        dir
+    }
+
+    fn start() -> Self {
+        Self::start_in(Self::dir("e2e"), Path::new(env!("CARGO_BIN_EXE_oxmonad")))
+    }
+
+    /// Starts river in `dir` (see [`Self::dir`]) with `binary` as its
+    /// window manager.
+    fn start_in(dir: PathBuf, binary: &Path) -> Self {
         let log = File::create(dir.join("river.log")).expect("log file");
+        let init = binary.to_str().expect("UTF-8 binary path");
         let river = Command::new("river")
-            .args(["-no-xwayland", "-c", env!("CARGO_BIN_EXE_oxmonad")])
+            .args(["-no-xwayland", "-c", init])
             .env_remove("WAYLAND_DISPLAY")
             .env_remove("WAYLAND_SOCKET")
             .env_remove("DISPLAY")
@@ -155,16 +171,24 @@ impl Session {
     }
 
     fn command(&self, line: &str) -> String {
-        let mut stream = UnixStream::connect(self.control_path()).expect("control socket");
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .expect("timeout");
-        writeln!(stream, "{line}").expect("send");
+        self.try_command(line)
+            .unwrap_or_else(|| panic!("no answer to {line}"))
+    }
+
+    /// Sends `line`; `None` if oxmonad does not answer (e.g. while it
+    /// restarts).
+    fn try_command(&self, line: &str) -> Option<String> {
+        let mut stream = UnixStream::connect(self.control_path()).ok()?;
+        stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+        writeln!(stream, "{line}").ok()?;
         let mut answer = String::new();
-        BufReader::new(stream)
-            .read_line(&mut answer)
-            .expect("answer");
-        answer.trim().to_owned()
+        BufReader::new(stream).read_line(&mut answer).ok()?;
+        Some(answer.trim().to_owned()).filter(|answer| !answer.is_empty())
+    }
+
+    /// `dump-state`, or `None` if oxmonad does not answer.
+    fn try_state(&self) -> Option<Value> {
+        serde_json::from_str(&self.try_command("dump-state")?).ok()
     }
 
     fn act(&self, action: &str) {
@@ -557,4 +581,323 @@ fn manages_windows_under_headless_river() {
     let log = session.log();
     assert!(!log.contains("protocol error"), "{log}");
     assert!(!log.contains("ERROR"), "{log}");
+}
+
+// --------------------------------------------------------------------
+// Restart in place
+
+/// The children of process `pid`.
+fn children_of(pid: u32) -> Vec<u32> {
+    fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
+        .unwrap_or_default()
+        .split_whitespace()
+        .filter_map(|p| p.parse().ok())
+        .collect()
+}
+
+/// oxmonad's pid: river's only child.
+fn wm_pid(session: &Session) -> u32 {
+    let children = children_of(session.river.id());
+    assert_eq!(children.len(), 1, "river's children: {children:?}");
+    children[0]
+}
+
+/// oxmonad's open file descriptors by kind (`socket`, `pipe`,
+/// `anon_inode:[eventpoll]`, a path…), leaving out the memfd-backed shell
+/// buffers (their number depends on the redraw history). Waits until the
+/// set is stable, so control connections being closed do not count.
+fn open_fds(pid: u32) -> Vec<String> {
+    let read = || {
+        let mut fds: Vec<String> = fs::read_dir(format!("/proc/{pid}/fd"))
+            .map(|dir| {
+                dir.filter_map(Result::ok)
+                    .filter_map(|e| fs::read_link(e.path()).ok())
+                    .map(|target| {
+                        let target = target.to_string_lossy().into_owned();
+                        target.split(":[").next().unwrap_or_default().to_owned()
+                    })
+                    .filter(|target| !target.starts_with("/memfd:"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        fds.sort();
+        fds
+    };
+    let mut last = read();
+    loop {
+        sleep(Duration::from_millis(200));
+        let now = read();
+        if now == last {
+            return now;
+        }
+        last = now;
+    }
+}
+
+/// What must survive a restart: the arrangement with windows named by
+/// river's identifiers instead of oxmonad's ids.
+fn arrangement(state: &Value) -> Value {
+    let placed = windows(state);
+    let name = |id: &Value| {
+        placed
+            .iter()
+            .find(|w| w["id"] == *id)
+            .map_or(Value::Null, |w| w["identifier"].clone())
+    };
+    let screens: Vec<Value> = state["screens"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "name": s["name"],
+                "workspace": s["workspace"],
+                "layout": s["layout"],
+                "rect": s["rect"],
+                "bar": s["bar"],
+                "tabs": s["tabs"],
+            })
+        })
+        .collect();
+    let placed_now: Vec<Value> = placed
+        .iter()
+        .map(|w| {
+            serde_json::json!({
+                "identifier": w["identifier"],
+                "title": w["title"],
+                "app_id": w["app_id"],
+                "layer": w["layer"],
+                "rect": w["rect"],
+                "border": w["border"],
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "current_workspace": state["current_workspace"],
+        "screens": screens,
+        "windows": placed_now,
+        "hidden": state["hidden"].as_array().map(Vec::len),
+        "focus": name(&state["focus"]),
+        "bar_visible": state["bar_visible"],
+        "managed": state["managed"],
+    })
+}
+
+/// The arrangement once every window has its size, or `None` if oxmonad
+/// does not answer.
+///
+/// A window that was fullscreen before a restart has no size afterwards:
+/// river keeps it fullscreen and does not report its dimensions to the new
+/// window manager again.
+fn settled(session: &Session) -> Option<Value> {
+    let state = session.try_state()?;
+    windows(&state)
+        .iter()
+        .all(|w| (!w["size"].is_null() || w["layer"] == "fullscreen") && !w["identifier"].is_null())
+        .then(|| arrangement(&state))
+}
+
+/// The arrangement of workspaces 1, 2 and 3 (ending on 1).
+fn observe(session: &Session) -> Vec<Value> {
+    let mut seen = Vec::new();
+    for tag in ["1", "2", "3"] {
+        session.act(&format!("view {tag}"));
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let arrangement = loop {
+            if let Some(arrangement) = settled(session) {
+                break arrangement;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "workspace {tag} does not settle: {}",
+                session.command("dump-state")
+            );
+            sleep(Duration::from_millis(50));
+        };
+        seen.push(arrangement);
+    }
+    session.act("view 1");
+    seen
+}
+
+/// Sends `restart` and waits until oxmonad shows `expected` again.
+fn restart(session: &Session, expected: &Value) {
+    session.act("restart");
+    let mut last = None;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline {
+        last = settled(session);
+        if last.as_ref() == Some(expected) {
+            return;
+        }
+        sleep(Duration::from_millis(100));
+    }
+    assert_eq!(last.as_ref(), Some(expected), "{}", session.log());
+}
+
+/// Replaces the binary like cargo does: a new file renamed over the old,
+/// whose inode is then gone.
+fn rebuild(binary: &Path) {
+    let fresh = binary.with_extension("new");
+    fs::copy(env!("CARGO_BIN_EXE_oxmonad"), &fresh).expect("copy the binary");
+    fs::rename(&fresh, binary).expect("replace the binary");
+}
+
+fn spawn_and_wait(session: &mut Session, title: &str) {
+    let count = session.state()["managed"].as_u64().unwrap_or(0) + 1;
+    session.spawn_terminal(title);
+    wait_for(title, || session.state()["managed"].as_u64() == Some(count));
+}
+
+/// A non-trivial state: windows on three workspaces (one copied, one
+/// fullscreen), a floating window, a changed layout with two masters and a
+/// wider master column, focus off the master, a hidden scratchpad and the
+/// bar hidden.
+fn arrange_for_restart(session: &mut Session, input: &mut Input) {
+    for title in ["one", "two", "three"] {
+        spawn_and_wait(session, title);
+    }
+    session.act("shift 2");
+    session.act("view 2");
+    session.act("toggle-fullscreen");
+    session.act("view 1");
+    for title in ["four", "five"] {
+        spawn_and_wait(session, title);
+    }
+    // Float "five" by dragging it.
+    let five = windows(&session.state())
+        .into_iter()
+        .find(|w| w["title"] == "five")
+        .expect("five");
+    let start = rect(&five["rect"]);
+    let (x, y) = (start[0] + start[2] / 2, start[1] + start[3] / 2);
+    input.move_to(x, y);
+    input.hold_super(true);
+    input.button(true);
+    input.move_to(x - 50, y + 30);
+    input.button(false);
+    input.hold_super(false);
+    wait_for("five to float", || {
+        windows(&session.state())
+            .iter()
+            .any(|w| w["id"] == five["id"] && w["layer"] == "floating")
+    });
+    session.act("next-layout");
+    session.act("expand");
+    session.act("inc-master 1");
+    session.act("focus-master");
+    session.act("focus-prev");
+    session.act("copy 3");
+
+    let count = session.state()["managed"].as_u64().unwrap_or(0) + 1;
+    session.act("toggle-scratchpad term");
+    wait_for("the scratchpad", || {
+        session.state()["managed"].as_u64() == Some(count)
+    });
+    session.act("toggle-scratchpad term");
+    session.act("toggle-bar");
+
+    let state = session.state();
+    let placed = windows(&state);
+    assert!(placed.iter().any(|w| w["layer"] == "floating"), "{state}");
+    let master = placed.iter().find(|w| w["layer"] == "tiled");
+    assert_ne!(Some(&state["focus"]), master.map(|w| &w["id"]), "{state}");
+    assert_eq!(state["bar_visible"], false);
+}
+
+#[test]
+#[ignore = "needs river and alacritty; run with --ignored"]
+fn restarts_in_place() {
+    if !have("river") || !have("alacritty") {
+        eprintln!("skipping: river or alacritty is not installed");
+        return;
+    }
+    let dir = Session::dir("restart");
+    let bin = dir.join("bin");
+    fs::create_dir_all(&bin).expect("bin dir");
+    let binary = bin.join("oxmonad");
+    fs::copy(env!("CARGO_BIN_EXE_oxmonad"), &binary).expect("copy the binary");
+    let mut session = Session::start_in(dir, &binary);
+
+    let area = rect(&session.state()["screens"][0]["rect"]);
+    let extent = (
+        u32::try_from(area[2]).expect("width"),
+        u32::try_from(area[3]).expect("height"),
+    );
+    let mut input = Input::connect(&session, extent);
+    arrange_for_restart(&mut session, &mut input);
+    let before = observe(&session);
+    let current = before[0].clone();
+    let pid = wm_pid(&session);
+    let scratchpad = children_of(pid);
+    assert_eq!(scratchpad.len(), 1, "the scratchpad is oxmonad's child");
+    let fds = open_fds(pid);
+    let unchanged = |session: &mut Session| {
+        assert_eq!(observe(session), before);
+        assert_eq!(wm_pid(session), pid, "oxmonad keeps its pid");
+        assert!(session.river.try_wait().expect("river").is_none());
+        for client in &mut session.clients {
+            assert!(client.try_wait().expect("alacritty").is_none());
+        }
+        assert_eq!(children_of(pid), scratchpad, "the scratchpad survives");
+    };
+
+    // A rebuilt binary replaces the running one.
+    rebuild(&binary);
+    restart(&session, &current);
+    unchanged(&mut session);
+    assert_eq!(open_fds(pid), fds, "no descriptor leaks across exec");
+    // The scratchpad is still known: toggling shows the same window.
+    session.act("toggle-scratchpad term");
+    let state = session.state();
+    assert_eq!(state["managed"], current["managed"]);
+    assert!(
+        windows(&state).iter().any(|w| w["app_id"] == "scratchpad"),
+        "{state}"
+    );
+    session.act("toggle-scratchpad term");
+    wait_for("the scratchpad to hide", || {
+        settled(&session).as_ref() == Some(&current)
+    });
+
+    // Again, from the restarted process.
+    fs::remove_file(&binary).expect("remove the binary");
+    fs::copy(env!("CARGO_BIN_EXE_oxmonad"), &binary).expect("copy the binary");
+    restart(&session, &current);
+    unchanged(&mut session);
+    assert_eq!(open_fds(pid), fds, "no descriptor leaks across exec");
+
+    // Without a binary, oxmonad refuses to restart and keeps running.
+    fs::remove_file(&binary).expect("remove the binary");
+    restart(&session, &current);
+    unchanged(&mut session);
+    assert!(session.log().contains("keeping this oxmonad"));
+
+    // If exec fails after the check, oxmonad resumes in-process.
+    fs::write(&binary, "#!/bin/sh\nrm -f \"$0\"\n").expect("write the script");
+    let mut permissions = fs::metadata(&binary).expect("script").permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+    fs::set_permissions(&binary, permissions).expect("make it executable");
+    restart(&session, &current);
+    unchanged(&mut session);
+    assert!(session.log().contains("window management resumed"));
+
+    // And restarting works again afterwards.
+    fs::copy(env!("CARGO_BIN_EXE_oxmonad"), &binary).expect("copy the binary");
+    restart(&session, &current);
+    unchanged(&mut session);
+
+    for child in scratchpad {
+        let _ = Command::new("kill")
+            .args(["-TERM", "--", &format!("-{child}")])
+            .status();
+    }
+    session.act("quit");
+    wait_for("river to exit", || {
+        session.river.try_wait().ok().flatten().is_some()
+    });
+    let log = session.log();
+    assert!(!log.contains("protocol error"), "{log}");
+    assert!(!log.contains("panicked"), "{log}");
 }

@@ -9,6 +9,7 @@ mod control;
 mod keyboard;
 mod keys;
 mod plan;
+mod restart;
 mod shell;
 mod shm;
 mod spawn;
@@ -81,6 +82,7 @@ Options:
 Environment:
     RUST_LOG         log filter (default: info)
     OXMONAD_CONTROL  listen for commands on this Unix socket path
+    OXMONAD_RESTORE  (set by `restart`) the state file to restore
 ";
 
 struct Args {
@@ -164,11 +166,13 @@ fn run(
     config: oxmonad_core::config::Config,
     config_path: Option<PathBuf>,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let restore = restart::take();
     let conn = Connection::connect_to_env().map_err(|err| {
         format!("cannot connect to river ({err}); run oxmonad with `river -c oxmonad`")
     })?;
     let (list, queue) = registry_queue_init::<State>(&conn)?;
     let qh = queue.handle();
+    let wl_outputs = state::bind_wl_outputs(&list, &qh);
     let wm: RiverWindowManagerV1 = list.bind(&qh, 1..=5, ()).map_err(|_| {
         "river_window_manager_v1 is not available: oxmonad must be started by river 0.4+ (`river \
          -c oxmonad`)"
@@ -184,6 +188,7 @@ fn run(
         layer_shell,
         compositor,
         shm,
+        wl_outputs,
     };
 
     let mut event_loop: EventLoop<'static, State> = EventLoop::try_new()?;
@@ -191,7 +196,18 @@ fn run(
     WaylandSource::new(conn.clone(), queue)
         .insert(handle.clone())
         .map_err(|err| format!("cannot watch the Wayland socket: {}", err.error))?;
-    let mut state = State::new(handle.clone(), conn, qh, globals, config, config_path);
+    let exe = restart::Exe::current()
+        .inspect_err(|err| tracing::warn!(%err, "cannot locate the oxmonad binary; restart is off"))
+        .ok();
+    let mut state = State::new(
+        handle.clone(),
+        conn,
+        qh,
+        globals,
+        (config, config_path),
+        exe,
+        restore,
+    );
 
     watch_signal(&handle, &[SIGCHLD], State::reap_children)?;
     watch_signal(&handle, &[SIGTERM, SIGINT], State::stop)?;
