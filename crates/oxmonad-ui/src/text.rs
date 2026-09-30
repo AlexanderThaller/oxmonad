@@ -1,4 +1,9 @@
 //! Font loading, measuring and glyph rasterization.
+//!
+//! Outlines are hinted by `skrifa`'s automatic hinter in its normal (full)
+//! mode, which snaps stems to whole pixels horizontally and vertically, and
+//! rasterized by `zeno`. Advances are rounded to whole pixels, so every
+//! glyph starts on a pixel boundary and keeps its hinted stems crisp.
 
 use std::{
     borrow::Cow,
@@ -8,15 +13,38 @@ use std::{
     rc::Rc,
 };
 
-use fontdue::{
-    Font,
-    FontSettings,
-    Metrics,
+use skrifa::{
+    FontRef,
+    GlyphId,
+    MetadataProvider,
+    instance::{
+        LocationRef,
+        Size,
+    },
+    outline::{
+        DrawSettings,
+        Engine,
+        HintingInstance,
+        HintingOptions,
+        OutlinePen,
+        SmoothMode,
+        Target,
+    },
+};
+use zeno::{
+    Command,
+    Mask,
+    PathBuilder,
+    Transform,
 };
 
 /// Fira Mono, embedded so renders are identical on every machine.
 const EMBEDDED_FONT: &[u8] = include_bytes!("../../../assets/FiraMono-Regular.ttf");
 const EMBEDDED_FAMILY: &str = "Fira Mono";
+
+/// `FreeType`'s default LCD filter: spreads each subpixel's coverage over its
+/// neighbours to tame color fringes. The weights sum to 256.
+const LCD_FILTER: [u32; 5] = [8, 77, 86, 77, 8];
 
 /// Error returned when font data cannot be parsed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,22 +58,74 @@ impl fmt::Display for FontError {
 
 impl std::error::Error for FontError {}
 
-/// A rasterized glyph: its placement metrics and 8-bit coverage bitmap.
+/// How glyph edges are antialiased.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Antialias {
+    /// One coverage value per pixel.
+    #[default]
+    Grayscale,
+    /// Subpixel antialiasing for screens whose subpixels are ordered red,
+    /// green, blue from left to right. Only used on opaque backgrounds.
+    Rgb,
+    /// Subpixel antialiasing for blue, green, red subpixel order.
+    Bgr,
+}
+
+/// A rasterized glyph: its placement relative to the pen position on the
+/// baseline, its advance and its coverage bitmap.
 #[derive(Debug)]
 pub(crate) struct Glyph {
-    pub metrics: Metrics,
+    /// Offset from the pen position to the bitmap's left edge.
+    pub left: i32,
+    /// Offset from the baseline to the bitmap's top edge (negative is up).
+    pub top: i32,
+    pub width: usize,
+    pub height: usize,
+    /// Whole pixels the pen moves on.
+    pub advance: f32,
+    /// Coverage row by row: one byte per pixel for [`Antialias::Grayscale`],
+    /// otherwise three (red, green, blue) per pixel.
     pub coverage: Vec<u8>,
+}
+
+/// Collects outline commands, flipping y so it points down.
+#[derive(Default)]
+struct Pen(Vec<Command>);
+
+impl OutlinePen for Pen {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.move_to([x, -y]);
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.line_to([x, -y]);
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.0.quad_to([cx0, -cy0], [x, -y]);
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.0.curve_to([cx0, -cy0], [cx1, -cy1], [x, -y]);
+    }
+
+    fn close(&mut self) {
+        self.0.close();
+    }
 }
 
 /// The font every widget draws with, plus a cache of rasterized glyphs.
 ///
 /// Sizes are always pixel sizes (the em size in device pixels). The cache is
-/// keyed by character and size, so rendering the same widget repeatedly only
-/// rasterizes each glyph once.
+/// keyed by character, size and antialiasing mode, so rendering the same
+/// widget repeatedly only rasterizes each glyph once.
 pub struct Fonts {
-    font: Font,
+    data: Cow<'static, [u8]>,
+    index: u32,
     family: String,
-    glyphs: RefCell<HashMap<(char, u32), Rc<Glyph>>>,
+    /// Hinting instances by size; `None` when the font cannot be hinted.
+    hinters: RefCell<HashMap<u32, Option<HintingInstance>>>,
+    glyphs: RefCell<HashMap<(char, u32, Antialias), Rc<Glyph>>>,
 }
 
 impl fmt::Debug for Fonts {
@@ -67,7 +147,7 @@ impl Fonts {
     /// The embedded Fira Mono.
     #[must_use]
     pub fn embedded() -> Self {
-        Self::from_bytes(EMBEDDED_FONT, 0, EMBEDDED_FAMILY)
+        Self::new(Cow::Borrowed(EMBEDDED_FONT), 0, EMBEDDED_FAMILY)
             .expect("the embedded Fira Mono is a valid font")
     }
 
@@ -82,14 +162,19 @@ impl Fonts {
 
     /// Parses a TTF/OTF font (face `index` of a collection).
     pub fn from_bytes(data: &[u8], index: u32, family: &str) -> Result<Self, FontError> {
-        let settings = FontSettings {
-            collection_index: index,
-            ..FontSettings::default()
-        };
-        let font = Font::from_bytes(data, settings).map_err(|e| FontError(e.to_owned()))?;
+        Self::new(Cow::Owned(data.to_vec()), index, family)
+    }
+
+    fn new(data: Cow<'static, [u8]>, index: u32, family: &str) -> Result<Self, FontError> {
+        let font = FontRef::from_index(&data, index).map_err(|e| FontError(e.to_string()))?;
+        if font.outline_glyphs().format().is_none() {
+            return Err(FontError("no scalable outlines".to_owned()));
+        }
         Ok(Self {
-            font,
+            data,
+            index,
             family: family.to_owned(),
+            hinters: RefCell::default(),
             glyphs: RefCell::default(),
         })
     }
@@ -121,12 +206,14 @@ impl Fonts {
         &self.family
     }
 
+    fn font(&self) -> FontRef<'_> {
+        FontRef::from_index(&self.data, self.index).expect("the font was validated on load")
+    }
+
     /// The width `text` occupies at `size_px`, in pixels.
     #[must_use]
     pub fn text_width(&self, text: &str, size_px: f32) -> f32 {
-        text.chars()
-            .map(|ch| self.glyph(ch, size_px).metrics.advance_width)
-            .sum()
+        text.chars().map(|ch| self.advance(ch, size_px)).sum()
     }
 
     /// `text` shortened with an ellipsis so it fits in `max_width` pixels at
@@ -137,10 +224,10 @@ impl Fonts {
         if self.text_width(text, size_px) <= max_width {
             return Cow::Borrowed(text);
         }
-        let ellipsis = if self.font.lookup_glyph_index('…') == 0 {
-            "..."
-        } else {
+        let ellipsis = if self.font().charmap().map('…').is_some() {
             "…"
+        } else {
+            "..."
         };
         let budget = max_width - self.text_width(ellipsis, size_px);
         if budget < 0.0 {
@@ -149,7 +236,7 @@ impl Fonts {
         let mut width = 0.0;
         let mut end = 0;
         for (index, ch) in text.char_indices() {
-            width += self.glyph(ch, size_px).metrics.advance_width;
+            width += self.advance(ch, size_px);
             if width > budget {
                 break;
             }
@@ -160,21 +247,154 @@ impl Fonts {
 
     /// Ascent and descent (both positive, in pixels) at `size_px`.
     pub(crate) fn vertical_metrics(&self, size_px: f32) -> (f32, f32) {
-        self.font
-            .horizontal_line_metrics(size_px)
-            .map_or((size_px * 0.8, size_px * 0.2), |line| {
-                (line.ascent, -line.descent)
-            })
+        let metrics = self
+            .font()
+            .metrics(Size::new(size_px), LocationRef::default());
+        if metrics.ascent - metrics.descent > 0.0 {
+            (metrics.ascent, -metrics.descent)
+        } else {
+            (size_px * 0.8, size_px * 0.2)
+        }
+    }
+
+    /// The whole-pixel advance of `ch` at `size_px`.
+    fn advance(&self, ch: char, size_px: f32) -> f32 {
+        self.glyph(ch, size_px, Antialias::Grayscale).advance
     }
 
     /// The rasterized glyph for `ch` at `size_px`, from the cache if present.
-    pub(crate) fn glyph(&self, ch: char, size_px: f32) -> Rc<Glyph> {
-        let key = (ch, size_px.to_bits());
-        Rc::clone(self.glyphs.borrow_mut().entry(key).or_insert_with(|| {
-            let (metrics, coverage) = self.font.rasterize(ch, size_px);
-            Rc::new(Glyph { metrics, coverage })
-        }))
+    pub(crate) fn glyph(&self, ch: char, size_px: f32, antialias: Antialias) -> Rc<Glyph> {
+        let key = (ch, size_px.to_bits(), antialias);
+        if let Some(glyph) = self.glyphs.borrow().get(&key) {
+            return Rc::clone(glyph);
+        }
+        let glyph = Rc::new(self.rasterize(ch, size_px, antialias));
+        self.glyphs.borrow_mut().insert(key, Rc::clone(&glyph));
+        glyph
     }
+
+    fn rasterize(&self, ch: char, size_px: f32, antialias: Antialias) -> Glyph {
+        let font = self.font();
+        let size = Size::new(size_px);
+        let id = font.charmap().map(ch).unwrap_or(GlyphId::NOTDEF);
+        let linear_advance = font
+            .glyph_metrics(size, LocationRef::default())
+            .advance_width(id)
+            .unwrap_or_default();
+        let mut pen = Pen::default();
+        let mut advance = linear_advance;
+        let outlines = font.outline_glyphs();
+        if let Some(outline) = outlines.get(id) {
+            let mut hinters = self.hinters.borrow_mut();
+            let hinter = hinters.entry(size_px.to_bits()).or_insert_with(|| {
+                let options = HintingOptions {
+                    engine: Engine::Auto(None),
+                    target: Target::Smooth {
+                        mode: SmoothMode::Normal,
+                        symmetric_rendering: true,
+                        preserve_linear_metrics: false,
+                    },
+                };
+                HintingInstance::new(&outlines, size, LocationRef::default(), options).ok()
+            });
+            let settings = hinter.as_ref().map_or_else(
+                || DrawSettings::unhinted(size, LocationRef::default()),
+                |hinter| DrawSettings::hinted(hinter, false),
+            );
+            if let Ok(adjusted) = outline.draw(settings, &mut pen) {
+                advance = adjusted.advance_width.unwrap_or(linear_advance);
+            } else {
+                pen.0.clear();
+            }
+        }
+        let advance = advance.round();
+        match antialias {
+            Antialias::Grayscale => rasterize_grayscale(&pen.0, advance),
+            Antialias::Rgb | Antialias::Bgr => {
+                rasterize_subpixel(&pen.0, advance, antialias == Antialias::Bgr)
+            }
+        }
+    }
+}
+
+fn rasterize_grayscale(path: &[Command], advance: f32) -> Glyph {
+    if path.is_empty() {
+        return empty_glyph(advance);
+    }
+    let (coverage, placement) = Mask::new(path).render();
+    Glyph {
+        left: placement.left,
+        top: placement.top,
+        width: placement.width as usize,
+        height: placement.height as usize,
+        advance,
+        coverage,
+    }
+}
+
+/// Renders at three times the horizontal resolution, one sample per
+/// subpixel, and filters the samples with [`LCD_FILTER`].
+fn rasterize_subpixel(path: &[Command], advance: f32, bgr: bool) -> Glyph {
+    if path.is_empty() {
+        return empty_glyph(advance);
+    }
+    let (samples, placement) = Mask::new(path)
+        .transform(Some(Transform::scale(3.0, 1.0)))
+        .render();
+    let sample_width = placement.width as usize;
+    let height = placement.height as usize;
+    // The filter spreads each sample two subpixels either way; widen the
+    // bitmap to whole pixels covering that.
+    let first = (placement.left - 2).div_euclid(3);
+    let last = (placement.left + to_i32(sample_width) + 2).div_euclid(3);
+    let width = usize::try_from(last - first + 1).unwrap_or_default();
+    let mut filtered = vec![0u32; width * 3 * height];
+    // Subpixel index in the bitmap of sample 0.
+    let shift = placement.left - first * 3;
+    for row in 0..height {
+        let samples = &samples[row * sample_width..(row + 1) * sample_width];
+        let out = &mut filtered[row * width * 3..(row + 1) * width * 3];
+        for (column, &sample) in samples.iter().enumerate() {
+            for (tap, &weight) in LCD_FILTER.iter().enumerate() {
+                let subpixel = shift + to_i32(column) + to_i32(tap) - 2;
+                if let Some(slot) = usize::try_from(subpixel).ok().and_then(|i| out.get_mut(i)) {
+                    *slot += u32::from(sample) * weight;
+                }
+            }
+        }
+    }
+    let mut coverage: Vec<u8> = filtered
+        .into_iter()
+        .map(|value| u8::try_from(value.div_ceil(256)).unwrap_or(u8::MAX))
+        .collect();
+    if bgr {
+        for pixel in coverage.as_chunks_mut::<3>().0 {
+            pixel.swap(0, 2);
+        }
+    }
+    Glyph {
+        left: first,
+        top: placement.top,
+        width,
+        height,
+        advance,
+        coverage,
+    }
+}
+
+fn empty_glyph(advance: f32) -> Glyph {
+    Glyph {
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+        advance,
+        coverage: Vec::new(),
+    }
+}
+
+fn to_i32(value: usize) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
 }
 
 #[cfg(test)]
@@ -187,6 +407,37 @@ mod tests {
         let one = fonts.text_width("a", 16.0);
         assert!(one > 0.0);
         assert!((fonts.text_width("abcd", 16.0) - 4.0 * one).abs() < 1e-3);
+    }
+
+    #[test]
+    fn advances_are_whole_pixels() {
+        let fonts = Fonts::embedded();
+        for size in [12.0, 16.0, 21.0, 32.0] {
+            let width = fonts.text_width("a", size);
+            assert!(width > 0.0 && width.fract() == 0.0, "{size}: {width}");
+        }
+    }
+
+    #[test]
+    fn hinting_snaps_vertical_stems() {
+        // The stem of `l` is a single fully covered column at 16 px.
+        let fonts = Fonts::embedded();
+        let glyph = fonts.glyph('l', 16.0, Antialias::Grayscale);
+        let middle = glyph.height / 2;
+        let row = &glyph.coverage[middle * glyph.width..(middle + 1) * glyph.width];
+        assert!(row.contains(&255), "{row:?}");
+    }
+
+    #[test]
+    fn subpixel_glyphs_have_three_channels_and_the_same_advance() {
+        let fonts = Fonts::embedded();
+        let gray = fonts.glyph('m', 16.0, Antialias::Grayscale);
+        for antialias in [Antialias::Rgb, Antialias::Bgr] {
+            let lcd = fonts.glyph('m', 16.0, antialias);
+            assert_eq!(lcd.coverage.len(), lcd.width * lcd.height * 3);
+            assert_eq!(lcd.advance, gray.advance);
+            assert_eq!(lcd.top, gray.top);
+        }
     }
 
     #[test]

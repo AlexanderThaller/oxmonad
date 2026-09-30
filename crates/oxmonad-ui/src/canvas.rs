@@ -10,6 +10,7 @@ use tiny_skia::{
 };
 
 use crate::{
+    Antialias,
     Color,
     Fonts,
     color::premultiply,
@@ -89,6 +90,7 @@ impl Canvas {
 pub(crate) struct Painter {
     pixmap: Pixmap,
     scale: u32,
+    antialias: Antialias,
 }
 
 impl Painter {
@@ -98,7 +100,18 @@ impl Painter {
         let scale = scale.max(1);
         let pixmap = Pixmap::new(width.max(1) * scale, height.max(1) * scale)
             .expect("the canvas size is non-zero and fits in memory");
-        Self { pixmap, scale }
+        Self {
+            pixmap,
+            scale,
+            antialias: Antialias::Grayscale,
+        }
+    }
+
+    /// Draws text with `antialias`; subpixel modes still fall back to
+    /// grayscale for glyphs over translucent pixels or in translucent colors.
+    pub fn with_antialias(mut self, antialias: Antialias) -> Self {
+        self.antialias = antialias;
+        self
     }
 
     pub fn scale(&self) -> u32 {
@@ -168,23 +181,53 @@ impl Painter {
         clip: (i32, i32),
     ) {
         let baseline = baseline(fonts, top, band, size_px);
-        let mut pen = x;
+        let mut pen = round_i32(x);
         for ch in text.chars() {
-            let glyph = fonts.glyph(ch, size_px);
-            let metrics = glyph.metrics;
-            let origin_x = round_i32(pen) + metrics.xmin;
-            let origin_y = baseline - to_i32(metrics.height) - metrics.ymin;
-            for row in 0..metrics.height {
-                let coverage_row = &glyph.coverage[row * metrics.width..(row + 1) * metrics.width];
-                for (column, &coverage) in coverage_row.iter().enumerate() {
+            let mut glyph = fonts.glyph(ch, size_px, self.antialias);
+            let subpixel = self.antialias != Antialias::Grayscale
+                && color.a == u8::MAX
+                && self.is_opaque(
+                    pen + glyph.left,
+                    baseline + glyph.top,
+                    glyph.width,
+                    glyph.height,
+                );
+            if self.antialias != Antialias::Grayscale && !subpixel {
+                glyph = fonts.glyph(ch, size_px, Antialias::Grayscale);
+            }
+            let (origin_x, origin_y) = (pen + glyph.left, baseline + glyph.top);
+            let channels = if subpixel { 3 } else { 1 };
+            let row_len = glyph.width * channels;
+            for (row, coverage_row) in glyph.coverage.chunks_exact(row_len.max(1)).enumerate() {
+                let py = origin_y + to_i32(row);
+                for (column, coverage) in coverage_row.chunks_exact(channels).enumerate() {
                     let px = origin_x + to_i32(column);
-                    if px >= clip.0 && px < clip.1 {
-                        self.blend(px, origin_y + to_i32(row), color, coverage);
+                    if px < clip.0 || px >= clip.1 {
+                        continue;
+                    }
+                    if let [r, g, b] = *coverage {
+                        self.blend_subpixel(px, py, color, [r, g, b]);
+                    } else {
+                        self.blend(px, py, color, coverage[0]);
                     }
                 }
             }
-            pen += metrics.advance_width;
+            pen += round_i32(glyph.advance);
         }
+    }
+
+    /// Whether every pixel of the rectangle that lies on the canvas is
+    /// opaque.
+    fn is_opaque(&self, x: i32, y: i32, width: usize, height: usize) -> bool {
+        let (x0, y0) = (x.max(0), y.max(0));
+        let x1 = (x + to_i32(width)).min(self.width());
+        let y1 = (y + to_i32(height)).min(self.height());
+        (y0..y1).all(|py| {
+            (x0..x1).all(|px| {
+                let offset = pixel_offset(self.pixmap.width(), px, py);
+                self.pixmap.data()[offset + 3] == u8::MAX
+            })
+        })
     }
 
     /// Composites `color` at `coverage` over one pixel (source-over).
@@ -209,6 +252,26 @@ impl Painter {
         }
     }
 
+    /// Composites opaque `color` over one opaque pixel with a separate
+    /// coverage per color channel.
+    fn blend_subpixel(&mut self, x: i32, y: i32, color: Color, coverage: [u8; 3]) {
+        let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+            return;
+        };
+        if coverage == [0; 3] || x >= self.pixmap.width() || y >= self.pixmap.height() {
+            return;
+        }
+        let offset = ((y * self.pixmap.width() + x) * 4) as usize;
+        let pixel = &mut self.pixmap.data_mut()[offset..offset + 3];
+        for ((dst, src), cov) in pixel
+            .iter_mut()
+            .zip([color.r, color.g, color.b])
+            .zip(coverage)
+        {
+            *dst = premultiply(src, cov) + premultiply(*dst, 255 - cov);
+        }
+    }
+
     /// Converts the RGBA pixmap into a BGRA [`Canvas`].
     pub fn finish(self) -> Canvas {
         let (width, height) = (self.pixmap.width(), self.pixmap.height());
@@ -229,6 +292,13 @@ impl Painter {
 pub(crate) fn baseline(fonts: &Fonts, top: i32, band: i32, size_px: f32) -> i32 {
     let (ascent, descent) = fonts.vertical_metrics(size_px);
     top + round_i32((to_f32(band) - (ascent + descent)) / 2.0 + ascent)
+}
+
+/// The byte offset of pixel (`x`, `y`), both non-negative and on a canvas
+/// `width` pixels wide.
+fn pixel_offset(width: u32, x: i32, y: i32) -> usize {
+    let (x, y) = (x.unsigned_abs() as usize, y.unsigned_abs() as usize);
+    (y * width as usize + x) * 4
 }
 
 /// Converts a device pixel coordinate to `f32`.
@@ -274,6 +344,45 @@ mod tests {
         painter.blend(0, 0, Color::rgb(255, 0, 0), 128);
         let canvas = painter.finish();
         assert_eq!(canvas.pixel(0, 0), Some([127, 0, 128, 255]));
+    }
+
+    #[test]
+    fn subpixel_blending_covers_each_channel_separately() {
+        let mut painter = Painter::new(1, 1, 1);
+        painter.fill_rect(0, 0, 1, 1, Color::rgb(0, 0, 0));
+        painter.blend_subpixel(0, 0, Color::rgb(255, 255, 255), [255, 128, 0]);
+        let canvas = painter.finish();
+        assert_eq!(canvas.pixel(0, 0), Some([0, 128, 255, 255]));
+    }
+
+    #[test]
+    fn subpixel_text_falls_back_to_grayscale_on_translucent_pixels() {
+        let render = |bg: Color| {
+            let fonts = Fonts::embedded();
+            let mut painter = Painter::new(20, 20, 1).with_antialias(Antialias::Rgb);
+            painter.fill_rect(0, 0, 20, 20, bg);
+            painter.draw_text(
+                &fonts,
+                "o",
+                4.0,
+                0,
+                20,
+                16.0,
+                Color::rgb(255, 255, 255),
+                (0, 20),
+            );
+            painter.finish()
+        };
+        let colored = |canvas: &Canvas| {
+            canvas
+                .as_bytes()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|[b, g, r, _]| b != g || g != r)
+        };
+        assert!(colored(&render(Color::rgb(0, 0, 0))));
+        assert!(!colored(&render(Color::rgba(0, 0, 0, 128))));
     }
 
     #[test]

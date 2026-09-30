@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use crate::{
+    Antialias,
     Canvas,
     Color,
     Fonts,
@@ -87,6 +88,8 @@ pub struct BarStyle {
     pub fg: Color,
     /// Font size in logical pixels (xmobar's `size=12` at 96 dpi is 16 px).
     pub font_size: f32,
+    /// Glyph edge antialiasing.
+    pub antialias: Antialias,
     pub height: u32,
     /// Space before the first and after the last segment.
     pub padding: u32,
@@ -104,6 +107,7 @@ impl Default for BarStyle {
             height: 24,
             padding: 6,
             separator: " | ".to_owned(),
+            antialias: Antialias::Grayscale,
         }
     }
 }
@@ -250,7 +254,7 @@ pub fn render_bar(
     scale: u32,
 ) -> Canvas {
     let layout = layout_bar(view, style, fonts, width, scale);
-    let mut painter = Painter::new(width, style.height, scale);
+    let mut painter = Painter::new(width, style.height, scale).with_antialias(style.antialias);
     let (canvas_width, canvas_height) = (painter.width(), painter.height());
     let size = style.font_size * to_f32(to_i32(painter.scale()));
     painter.fill_rect(0, 0, canvas_width, canvas_height, style.bg);

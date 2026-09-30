@@ -1,6 +1,7 @@
 //! The tab strip of the tabbed layout (`XMonad.Layout.Tabbed`).
 
 use crate::{
+    Antialias,
     Canvas,
     Color,
     Fonts,
@@ -43,6 +44,8 @@ pub struct TabStyle {
     pub border_width: u32,
     /// Font size in logical pixels.
     pub font_size: f32,
+    /// Glyph edge antialiasing.
+    pub antialias: Antialias,
     /// `decoHeight`.
     pub height: u32,
 }
@@ -69,6 +72,7 @@ impl Default for TabStyle {
             border_width: 1,
             font_size: 14.0,
             height: 20,
+            antialias: Antialias::Grayscale,
         }
     }
 }
@@ -106,7 +110,7 @@ pub fn render_tabs(
     width: u32,
     scale: u32,
 ) -> Canvas {
-    let mut painter = Painter::new(width, style.height, scale);
+    let mut painter = Painter::new(width, style.height, scale).with_antialias(style.antialias);
     let s = to_i32(painter.scale());
     let (canvas_width, canvas_height) = (painter.width(), painter.height());
     let border = to_i32(style.border_width) * s;

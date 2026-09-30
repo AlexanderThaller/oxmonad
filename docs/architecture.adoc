@@ -25,8 +25,8 @@ dependency, packaged on Arch as `river`.
 
 | `crates/oxmonad-ui`
 | Pure software drawing of the WM-owned surfaces (bar, prompt, tab strip) into
-  pixel buffers with `tiny-skia` + `fontdue`. Knows nothing about windows or
-  Wayland; takes plain view structs. Golden-image tests live here.
+  pixel buffers with `tiny-skia`, `skrifa` and `zeno`. Knows nothing about
+  windows or Wayland; takes plain view structs. Golden-image tests live here.
 
 | `crates/river-protocols`
 | `wayland-scanner`-generated client bindings for the river protocols
@@ -148,7 +148,13 @@ prompt. The binary talks to core only through `Wm`:
 
 Draws premultiplied ARGB8888 (`wl_shm` `argb8888`, little-endian) buffers at
 an integer scale. Inputs are plain view structs (`BarView`, `PromptView`,
-`TabsView`, `Theme`). Text uses `fontdue` with Fira Mono embedded from
+`TabsView`, `Theme`). Glyph outlines come from `skrifa`, hinted by its
+automatic hinter in normal (full) mode so stems snap to whole pixels, with
+advances and the pen position rounded to whole pixels; `zeno` rasterizes
+them. `[font] antialias` selects grayscale or subpixel (`rgb`/`bgr`,
+filtered with FreeType's default LCD filter) coverage; subpixel glyphs are
+only drawn in opaque colors over opaque pixels, anything else falls back to
+grayscale. The default font is Fira Mono embedded from
 `assets/FiraMono-Regular.ttf` (SIL OFL, see `assets/FiraMono-LICENSE.txt`),
 so renders are deterministic across machines; a config font family found via
 `fontdb` may override it at runtime.

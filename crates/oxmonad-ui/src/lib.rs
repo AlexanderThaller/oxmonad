@@ -54,6 +54,7 @@ pub use tabs::{
     tab_at,
 };
 pub use text::{
+    Antialias,
     FontError,
     Fonts,
 };

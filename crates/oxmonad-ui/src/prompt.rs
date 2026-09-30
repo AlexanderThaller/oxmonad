@@ -1,6 +1,7 @@
 //! The `XMonad.Prompt`-style input line and its completion grid.
 
 use crate::{
+    Antialias,
     Canvas,
     Color,
     Fonts,
@@ -46,6 +47,8 @@ pub struct PromptStyle {
     pub border_width: u32,
     /// Font size in logical pixels.
     pub font_size: f32,
+    /// Glyph edge antialiasing.
+    pub antialias: Antialias,
     /// Height of the input line and of each completion row.
     pub height: u32,
     pub position: PromptPosition,
@@ -69,6 +72,7 @@ impl Default for PromptStyle {
             position: PromptPosition::Bottom,
             max_rows: None,
             max_columns: None,
+            antialias: Antialias::Grayscale,
         }
     }
 }
@@ -150,7 +154,7 @@ pub fn render_prompt(
 ) -> Canvas {
     let grid = grid(view, style, fonts, width, max_height);
     let (_, height) = prompt_size(view, style, fonts, width, max_height);
-    let mut painter = Painter::new(width, height, scale);
+    let mut painter = Painter::new(width, height, scale).with_antialias(style.antialias);
     let s = to_i32(painter.scale());
     let (canvas_width, canvas_height) = (painter.width(), painter.height());
     let row_height = to_i32(style.height) * s;

@@ -7,6 +7,7 @@ use std::{
 };
 
 use oxmonad_ui::{
+    Antialias,
     BarStyle,
     BarView,
     BatteryState,
@@ -171,6 +172,21 @@ fn bar_scale_2() {
     assert_snapshot("bar_scale_2", &canvas);
 }
 
+#[test]
+fn bar_subpixel() {
+    let view = bar_view("alacritty — ~/src/oxmonad", discharging(93));
+    for (name, antialias) in [("bar_rgb", Antialias::Rgb), ("bar_bgr", Antialias::Bgr)] {
+        let style = BarStyle {
+            antialias,
+            ..BarStyle::default()
+        };
+        assert_snapshot(
+            name,
+            &render_bar(&view, &style, &Fonts::embedded(), 1100, 1),
+        );
+    }
+}
+
 fn workspaces() -> Vec<String> {
     [
         "1", "2", "3", "4", "5", "6", "7", "8", "9", "web", "mail", "music", "chat", "scratch",
@@ -289,6 +305,20 @@ fn tab_strips() {
     );
     many.tabs[8].urgent = true;
     assert_snapshot("tabs_many", &render_tabs(&many, &style, &fonts, 600, 1));
+    // Subpixel text on the opaque tabs, grayscale on the translucent one.
+    let mut translucent = style.clone();
+    translucent.antialias = Antialias::Rgb;
+    translucent.inactive.fill = oxmonad_ui::Color::rgba(0x66, 0x66, 0x66, 0xC0);
+    assert_snapshot(
+        "tabs_rgb_translucent",
+        &render_tabs(
+            &tabs(&["alacritty", "emacs", "Firefox"], 1),
+            &translucent,
+            &fonts,
+            600,
+            1,
+        ),
+    );
     assert_snapshot(
         "tabs_scale_2",
         &render_tabs(&tabs(&["alacritty", "emacs"], 0), &style, &fonts, 300, 2),
