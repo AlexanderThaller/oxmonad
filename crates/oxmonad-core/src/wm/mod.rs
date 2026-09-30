@@ -8,6 +8,7 @@
 
 mod apply;
 mod arrange;
+mod snapshot;
 mod view;
 
 #[cfg(test)]
@@ -27,6 +28,12 @@ pub use arrange::{
     ScreenArrangement,
     Tab,
     TabStrip,
+};
+pub use snapshot::{
+    RestoreError,
+    ScreenSnapshot,
+    Snapshot,
+    WorkspaceSnapshot,
 };
 pub use view::{
     BarModel,
@@ -79,6 +86,8 @@ pub struct Wm {
     config: Config,
     bar_visible: bool,
     prompt: Option<Prompt>,
+    /// A snapshot being restored (see [`snapshot`]).
+    restore: Option<snapshot::PendingRestore>,
 }
 
 impl Wm {
@@ -93,6 +102,7 @@ impl Wm {
             bar_visible: config.bar.visible,
             config,
             prompt: None,
+            restore: None,
         }
     }
 

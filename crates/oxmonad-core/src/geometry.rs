@@ -4,6 +4,10 @@
 //! [`Ratio`] so the ported xmonad arithmetic (`floor (fromIntegral w * f)`
 //! on Haskell `Rational`s) rounds exactly like the original.
 
+use serde::{
+    Deserialize,
+    Serialize,
+};
 use std::{
     cmp::Ordering,
     fmt,
@@ -123,11 +127,33 @@ impl Rect {
 }
 
 /// An exact rational number, always stored reduced with a positive
-/// denominator (a small stand-in for Haskell's `Rational`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// denominator (a small stand-in for Haskell's `Rational`). Serialized as
+/// `[numerator, denominator]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(into = "(i64, i64)", try_from = "(i64, i64)")]
 pub struct Ratio {
     num: i64,
     den: i64,
+}
+
+impl From<Ratio> for (i64, i64) {
+    fn from(ratio: Ratio) -> Self {
+        (ratio.num, ratio.den)
+    }
+}
+
+impl TryFrom<(i64, i64)> for Ratio {
+    type Error = &'static str;
+
+    fn try_from((num, den): (i64, i64)) -> Result<Self, Self::Error> {
+        if den == 0 {
+            Err("ratio with zero denominator")
+        } else if num == i64::MIN || den == i64::MIN {
+            Err("ratio out of range")
+        } else {
+            Ok(Self::new(num, den))
+        }
+    }
 }
 
 impl Ratio {
@@ -285,7 +311,7 @@ impl Ord for Ratio {
 /// A rectangle expressed as fractions of a screen (xmonad's
 /// `RationalRect`), so floating windows keep their relative position when
 /// their workspace moves to a screen of a different size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RationalRect {
     /// Left edge as a fraction of the screen width.
     pub x: Ratio,
@@ -369,6 +395,27 @@ mod tests {
         assert!(Ratio::new(1, 3) < Ratio::new(1, 2));
         assert_eq!(Ratio::new(3, 5) + Ratio::new(3, 100), Ratio::new(63, 100));
         assert_eq!(Ratio::new(3, 5) - Ratio::new(3, 100), Ratio::new(57, 100));
+    }
+
+    #[test]
+    fn ratio_serializes_as_a_pair() {
+        let json = serde_json::to_string(&Ratio::new(3, 5)).expect("serializes");
+        assert_eq!(json, "[3,5]");
+        let read: Ratio = serde_json::from_str("[6,-10]").expect("deserializes");
+        assert_eq!(read, Ratio::new(-3, 5));
+        assert_eq!((read.numer(), read.denom()), (-3, 5));
+        assert!(serde_json::from_str::<Ratio>("[1,0]").is_err());
+        assert!(serde_json::from_str::<Ratio>(&format!("[{},1]", i64::MIN)).is_err());
+        assert!(serde_json::from_str::<Ratio>(&format!("[1,{}]", i64::MIN)).is_err());
+        assert!(serde_json::from_str::<Ratio>("[1]").is_err());
+        let rect = RationalRect::new(
+            Ratio::new(1, 4),
+            Ratio::new(1, 3),
+            Ratio::new(1, 2),
+            Ratio::ONE,
+        );
+        let json = serde_json::to_string(&rect).expect("serializes");
+        assert_eq!(serde_json::from_str::<RationalRect>(&json).ok(), Some(rect));
     }
 
     #[test]

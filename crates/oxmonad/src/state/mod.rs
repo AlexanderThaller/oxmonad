@@ -704,7 +704,7 @@ impl State {
                     }
                 }
                 Effect::Quit => self.quit(),
-                Effect::Reload => self.reload = true,
+                Effect::Reload | Effect::Restart => self.reload = true,
                 Effect::StartPointerMove(window) => {
                     self.start_pointer_op(window, OpKind::Move, seat);
                 }

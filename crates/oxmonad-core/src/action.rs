@@ -109,6 +109,9 @@ pub enum Action {
     Quit,
     /// Reload the configuration (`reload`).
     Reload,
+    /// Replace oxmonad with a fresh copy of its binary, keeping the
+    /// windows and their placement (`restart`, xmonad's `Mod+q`).
+    Restart,
     /// Toggle fullscreen for the focused window (`toggle-fullscreen`).
     ToggleFullscreen,
     /// Show/hide/spawn a named scratchpad (`toggle-scratchpad <name>`).
@@ -133,6 +136,9 @@ pub enum Effect {
     Quit,
     /// Re-read the configuration and pass it to `Wm::reconfigure`.
     Reload,
+    /// Restart in place: save `Wm::snapshot`, re-execute the binary and
+    /// restore the snapshot there.
+    Restart,
     /// Start an interactive pointer move of a (now floating) window; report
     /// the new geometry with `Wm::set_float_rect`.
     StartPointerMove(WindowId),
@@ -189,6 +195,7 @@ const PLAIN: &[(&str, Action)] = &[
     ("refresh", Action::Refresh),
     ("quit", Action::Quit),
     ("reload", Action::Reload),
+    ("restart", Action::Restart),
     ("toggle-fullscreen", Action::ToggleFullscreen),
     ("float-move", Action::FloatMove),
     ("float-resize", Action::FloatResize),
@@ -303,6 +310,7 @@ impl fmt::Display for Action {
             | Self::Refresh
             | Self::Quit
             | Self::Reload
+            | Self::Restart
             | Self::ToggleFullscreen
             | Self::FloatMove
             | Self::FloatResize => unreachable!("plain actions are listed in PLAIN"),

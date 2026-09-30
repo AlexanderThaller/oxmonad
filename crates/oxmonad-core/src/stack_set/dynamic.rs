@@ -99,6 +99,16 @@ impl StackSet {
         }
     }
 
+    /// Reorders the hidden workspaces to follow `tags`; hidden workspaces
+    /// not listed keep their relative order after the listed ones.
+    pub fn order_hidden(&mut self, tags: &[String]) {
+        self.hidden.sort_by_key(|w| {
+            tags.iter()
+                .position(|tag| *tag == w.tag)
+                .unwrap_or(usize::MAX)
+        });
+    }
+
     /// Restores the current workspace's layout ring to the template
     /// (`setLayout (layoutHook conf)`).
     pub fn reset_layout(&mut self) {

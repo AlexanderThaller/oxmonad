@@ -580,3 +580,58 @@ fn invariants_hold_under_random_operations() {
         }
     }
 }
+
+#[test]
+fn show_on_brings_a_hidden_workspace() {
+    let mut s = three_screens();
+    s.focus_screen(S1);
+    s.show_on(S2, "7");
+    assert_eq!(
+        screen_tags(&s),
+        [(0, "1".into()), (1, "2".into()), (2, "7".into())]
+    );
+    // The replaced workspace is the most recently hidden; the current
+    // screen does not change.
+    assert_eq!(s.hidden()[0].tag, "3");
+    assert_eq!(s.current_screen().map(|s| s.id), Some(S1));
+}
+
+#[test]
+fn show_on_swaps_a_visible_workspace() {
+    let mut s = three_screens();
+    s.insert_up(w(1));
+    let hidden: Vec<String> = hidden_tags(&s).into_iter().map(str::to_owned).collect();
+    s.show_on(S2, "1");
+    assert_eq!(
+        screen_tags(&s),
+        [(0, "3".into()), (1, "2".into()), (2, "1".into())]
+    );
+    assert_eq!(hidden_tags(&s), hidden);
+    assert_eq!(s.current_screen().map(|s| s.id), Some(S0));
+    assert!(s.workspace("1").is_some_and(|ws| ws.contains(w(1))));
+}
+
+#[test]
+fn show_on_ignores_unknown_screens_tags_and_no_ops() {
+    let mut s = three_screens();
+    let before = s.clone();
+    s.show_on(S0, "1");
+    s.show_on(ScreenId(42), "5");
+    s.show_on(S1, "nope");
+    assert_eq!(s, before);
+    // Headless: there is no screen to show anything on.
+    let mut headless = new_set(3);
+    let before = headless.clone();
+    headless.show_on(PLACEHOLDER, "2");
+    assert_eq!(headless, before);
+}
+
+#[test]
+fn order_hidden_follows_the_list() {
+    let mut s = one_screen();
+    assert_eq!(hidden_tags(&s), ["2", "3", "4", "5", "6", "7", "8", "9"]);
+    s.order_hidden(&["9".into(), "nope".into(), "4".into(), "1".into()]);
+    // Listed first in list order, the rest in their previous order.
+    assert_eq!(hidden_tags(&s), ["9", "4", "2", "3", "5", "6", "7", "8"]);
+    assert_eq!(s.current_tag(), "1");
+}

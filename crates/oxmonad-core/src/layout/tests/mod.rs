@@ -503,3 +503,93 @@ fn mirror_tall_messages_pass_through() {
         indexed(&[r(0, 0, 1920, 680), r(0, 680, 1920, 400)])
     );
 }
+
+fn tall_of(ring: &LayoutRing, index: usize) -> ResizableTall {
+    let mut ring = ring.clone();
+    while ring.index() != index {
+        ring.next();
+    }
+    let mut layout = ring.current();
+    if let Layout::ReflectX(inner) | Layout::Mirror(inner) = layout {
+        layout = inner.as_ref();
+    }
+    let Layout::Tall(tall) = layout else {
+        panic!("not tall: {layout:?}");
+    };
+    tall.clone()
+}
+
+#[test]
+fn restore_keeps_a_compatible_ring() {
+    let template = LayoutRing::xmonad_default(20);
+    let mut saved = LayoutRing::xmonad_default(30);
+    let ctx = LayoutContext {
+        focus: Some(1),
+        count: 3,
+    };
+    saved.handle(LayoutMessage::Shrink, ctx);
+    saved.handle(LayoutMessage::IncMasterN(1), ctx);
+    saved.handle(LayoutMessage::MirrorExpand, ctx);
+    saved.next();
+    saved.next();
+    saved.handle(LayoutMessage::Expand, ctx);
+    let restored = template.restore(&saved);
+    assert_eq!(restored.index(), 2);
+    assert_eq!(tall_of(&restored, 0), tall_of(&saved, 0));
+    assert_eq!(tall_of(&restored, 2), tall_of(&saved, 2));
+    assert_ne!(tall_of(&restored, 0), tall_of(&template, 0));
+    // Tabbed takes the configured tab height.
+    let mut tabbed = restored.clone();
+    while tabbed.description() != "Tabbed Simplest" {
+        tabbed.next();
+    }
+    assert_eq!(tabbed.current(), &Layout::Tabbed { tab_height: 20 });
+}
+
+#[test]
+fn restore_falls_back_to_the_template() {
+    let template = LayoutRing::xmonad_default(20);
+    // A different ring: the template, on the layout with the same name.
+    let mut saved = LayoutRing::new(vec![Layout::Full, Layout::Grid]);
+    saved.next();
+    let restored = template.restore(&saved);
+    assert_eq!(restored.description(), "Grid");
+    assert_eq!(restored.index(), 6);
+    assert_eq!(restored.len(), template.len());
+    // `Full` matches `noBorders Full` (same description).
+    let saved = LayoutRing::new(vec![Layout::Full]);
+    assert_eq!(template.restore(&saved).index(), 3);
+    // No layout with that name: the first one.
+    let saved = LayoutRing::new(vec![Layout::Mirror(Box::new(Layout::Full))]);
+    assert_eq!(template.restore(&saved), template);
+    // Same length, different layouts.
+    let saved = LayoutRing::new(vec![Layout::Grid; template.len()]);
+    let restored = template.restore(&saved);
+    assert_eq!(restored.index(), 6);
+    assert_eq!(tall_of(&restored, 0), tall_of(&template, 0));
+}
+
+#[test]
+fn restore_rejects_an_out_of_range_index() {
+    let template = LayoutRing::xmonad_default(20);
+    let mut json = serde_json::to_value(&template).expect("serializes");
+    json["current"] = serde_json::json!(99);
+    let saved: LayoutRing = serde_json::from_value(json).expect("deserializes");
+    assert_eq!(template.restore(&saved), template);
+}
+
+#[test]
+fn ring_round_trips_through_json() {
+    let mut ring = LayoutRing::xmonad_default(20);
+    ring.handle(
+        LayoutMessage::Shrink,
+        LayoutContext {
+            focus: Some(0),
+            count: 2,
+        },
+    );
+    ring.next();
+    let json = serde_json::to_string(&ring).expect("serializes");
+    let read: LayoutRing = serde_json::from_str(&json).expect("deserializes");
+    assert_eq!(read, ring);
+}

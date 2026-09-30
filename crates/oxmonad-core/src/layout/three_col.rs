@@ -13,9 +13,13 @@ use crate::geometry::{
     Ratio,
     Rect,
 };
+use serde::{
+    Deserialize,
+    Serialize,
+};
 
 /// xmonad-contrib's `ThreeCol` (not `ThreeColMid`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThreeCol {
     /// Number of windows in the master column.
     pub nmaster: usize,

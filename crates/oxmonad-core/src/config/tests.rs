@@ -103,7 +103,7 @@ fn default_keybindings_cover_the_documented_set() {
         ("Mod+b", Some(Action::ToggleBar)),
         ("Mod+n", Some(Action::Refresh)),
         ("Mod+Shift+q", Some(Action::Quit)),
-        ("Mod+q", Some(Action::Reload)),
+        ("Mod+q", Some(Action::Restart)),
         ("Mod+f", Some(Action::ToggleFullscreen)),
         ("Mod+grave", Some(Action::ToggleScratchpad("term".into()))),
     ];

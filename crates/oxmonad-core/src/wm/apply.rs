@@ -62,6 +62,7 @@ impl Wm {
             Action::Refresh => {}
             Action::Quit => return vec![Effect::Quit],
             Action::Reload => return vec![Effect::Reload],
+            Action::Restart => return vec![Effect::Restart],
             Action::ToggleFullscreen => {
                 if let Some(window) = ss.peek() {
                     let on = !self.fullscreen.contains(&window);

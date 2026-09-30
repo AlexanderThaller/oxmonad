@@ -5,6 +5,7 @@ mod arrange;
 mod manage;
 mod multimon;
 mod prompt;
+mod restore;
 mod scratchpad;
 
 use super::*;

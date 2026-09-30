@@ -13,6 +13,7 @@ fn spawn_actions_produce_effects() {
     );
     assert_eq!(apply(&mut wm, "quit"), [Effect::Quit]);
     assert_eq!(apply(&mut wm, "reload"), [Effect::Reload]);
+    assert_eq!(apply(&mut wm, "restart"), [Effect::Restart]);
     assert_eq!(apply(&mut wm, "refresh").len(), 0);
 }
 

@@ -22,6 +22,10 @@ use crate::geometry::{
     Ratio,
     Rect,
 };
+use serde::{
+    Deserialize,
+    Serialize,
+};
 
 /// Messages a layout may react to (`sendMessage`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -88,7 +92,8 @@ impl LayoutOutput {
 }
 
 /// A layout, possibly wrapped in modifiers.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Layout {
     /// `ResizableTall`.
     Tall(ResizableTall),
@@ -217,7 +222,7 @@ fn tabbed(area: Rect, n: usize, focus: usize, tab_height: i32) -> LayoutOutput {
 }
 
 /// A workspace's ring of layouts (`l1 ||| l2 ||| …`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayoutRing {
     layouts: Vec<Layout>,
     current: usize,
@@ -259,6 +264,50 @@ impl LayoutRing {
             three(),
             Layout::ReflectX(Box::new(three())),
         ])
+    }
+
+    /// The ring to use for a workspace whose ring was `saved` (e.g. before
+    /// a restart), with `self` being the configured ring.
+    ///
+    /// If `saved` has the same layouts as `self` (by description), it is
+    /// kept with every entry's state; only the `tabbed` entries take the
+    /// configured tab height. Otherwise `self` is used, switched to the
+    /// layout `saved` had active if the configured ring has one with that
+    /// description.
+    #[must_use]
+    pub fn restore(&self, saved: &Self) -> Self {
+        let compatible = saved.current < saved.layouts.len()
+            && saved.layouts.len() == self.layouts.len()
+            && saved
+                .layouts
+                .iter()
+                .zip(&self.layouts)
+                .all(|(a, b)| a.description() == b.description());
+        if compatible {
+            let layouts = saved
+                .layouts
+                .iter()
+                .zip(&self.layouts)
+                .map(|(saved, configured)| {
+                    if matches!(configured, Layout::Tabbed { .. }) {
+                        configured.clone()
+                    } else {
+                        saved.clone()
+                    }
+                })
+                .collect();
+            return Self {
+                layouts,
+                current: saved.current,
+            };
+        }
+        let mut ring = self.clone();
+        if let Some(active) = saved.layouts.get(saved.current).map(Layout::description)
+            && let Some(index) = ring.layouts.iter().position(|l| l.description() == active)
+        {
+            ring.current = index;
+        }
+        ring
     }
 
     /// The active layout.

@@ -85,7 +85,7 @@ inactive_border_color = "#BBBBBB"
 # inc-master <n>, view <tag>, shift <tag>, copy <tag>, toggle-ws,
 # prompt view|move|copy|rename, remove-workspace, focus-screen next|prev,
 # shift-screen next|prev, shift-screen-follow next|prev, swap-next-screen,
-# toggle-bar, refresh, quit, reload, toggle-fullscreen,
+# toggle-bar, refresh, quit, reload, restart, toggle-fullscreen,
 # toggle-scratchpad <name>, float-move, float-resize.
 [keybindings]
 # Launching programs
@@ -158,7 +158,10 @@ inactive_border_color = "#BBBBBB"
 "Mod+b" = "toggle-bar"
 "Mod+n" = "refresh"
 "Mod+Shift+q" = "quit"
-"Mod+q" = "reload"
+# Restart in place (re-executes the oxmonad binary, e.g. after a rebuild,
+# keeping windows and workspaces) and reload this file. "reload" only
+# reloads the file; so does SIGUSR1.
+"Mod+q" = "restart"
 
 # Pointer bindings: "Modifiers+Button" = "action" (Button1 left, Button2
 # middle, Button3 right).

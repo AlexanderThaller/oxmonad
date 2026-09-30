@@ -173,6 +173,27 @@ impl StackSet {
         order.get(next).copied()
     }
 
+    /// Shows workspace `tag` on screen `id` without changing the current
+    /// screen: a workspace visible elsewhere swaps places with the one on
+    /// `id`, a hidden one replaces it (which becomes the most recently
+    /// hidden).
+    pub fn show_on(&mut self, id: ScreenId, tag: &str) {
+        let Some(index) = self.screens().iter().position(|s| s.id == id) else {
+            return;
+        };
+        if self.screens[index].workspace.tag == tag {
+            return;
+        }
+        if let Some(other) = self.screens.iter().position(|s| s.workspace.tag == tag) {
+            let (a, b) = pair_mut(&mut self.screens, index, other);
+            std::mem::swap(&mut a.workspace, &mut b.workspace);
+        } else if let Some(hidden) = self.hidden.iter().position(|w| w.tag == tag) {
+            let incoming = self.hidden.remove(hidden);
+            let outgoing = std::mem::replace(&mut self.screens[index].workspace, incoming);
+            self.hidden.insert(0, outgoing);
+        }
+    }
+
     /// Swaps the current screen's workspace with the next screen's in
     /// screen-id order (`swapNextScreen`, i.e. `greedyView` of the next
     /// screen's workspace).

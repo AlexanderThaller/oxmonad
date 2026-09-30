@@ -10,9 +10,13 @@ use crate::geometry::{
     Ratio,
     Rect,
 };
+use serde::{
+    Deserialize,
+    Serialize,
+};
 
 /// xmonad-contrib's `ResizableTall`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResizableTall {
     /// Number of windows in the master column.
     pub nmaster: usize,
