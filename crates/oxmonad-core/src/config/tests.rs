@@ -74,6 +74,7 @@ fn default_keybindings_cover_the_documented_set() {
         ("Mod+o", Some(Action::ShiftScreenFollow(Direction::Next))),
         ("Mod+space", Some(Action::NextLayout)),
         ("Mod+Shift+space", Some(Action::ResetLayout)),
+        ("Mod+Ctrl+space", Some(Action::PickLayout)),
         ("Mod+h", Some(Action::Shrink)),
         ("Mod+l", Some(Action::Expand)),
         ("Mod+Up", Some(Action::MirrorExpand)),
@@ -123,7 +124,7 @@ fn default_keybindings_cover_the_documented_set() {
             Some(Action::Shift(n.to_string()))
         );
     }
-    // 44 listed + 18 workspace bindings.
+    // 45 listed + 18 workspace bindings.
     assert_eq!(c.keybindings.len(), listed + 18);
 }
 

@@ -61,6 +61,9 @@ pub enum Action {
     Close,
     /// Rotate to the next layout in the ring (`next-layout`).
     NextLayout,
+    /// Open the layout picker for the current workspace, or close it if it
+    /// is open (`pick-layout`).
+    PickLayout,
     /// Rebuild the current workspace's layout ring from the defaults
     /// (`reset-layout`).
     ResetLayout,
@@ -193,6 +196,7 @@ const PLAIN: &[(&str, Action)] = &[
     ("sink", Action::Sink),
     ("close", Action::Close),
     ("next-layout", Action::NextLayout),
+    ("pick-layout", Action::PickLayout),
     ("reset-layout", Action::ResetLayout),
     ("shrink", Action::Shrink),
     ("expand", Action::Expand),
@@ -317,6 +321,7 @@ impl fmt::Display for Action {
             | Self::Sink
             | Self::Close
             | Self::NextLayout
+            | Self::PickLayout
             | Self::ResetLayout
             | Self::Shrink
             | Self::Expand
@@ -358,6 +363,7 @@ mod tests {
         assert_eq!(parse("inc-master -1"), Action::IncMaster(-1));
         assert_eq!(parse("split-screen 2"), Action::SplitScreen(2));
         assert_eq!(parse("rescreen"), Action::Rescreen);
+        assert_eq!(parse("pick-layout"), Action::PickLayout);
         assert_eq!(
             parse("prompt move"),
             Action::Prompt(PromptKind::MoveToWorkspace)

@@ -29,6 +29,14 @@ use serde::{
     Serialize,
 };
 
+/// The area a layout [preview](Layout::preview) is drawn in: a 16:9
+/// screen, as in the layout pictures in `docs/layouts/`.
+pub const PREVIEW_AREA: Rect = Rect::new(0, 0, 320, 180);
+
+/// Windows in a layout [preview](Layout::preview); enough to show every
+/// layout's stack.
+pub const PREVIEW_WINDOWS: usize = 4;
+
 /// Messages a layout may react to (`sendMessage`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LayoutMessage {
@@ -148,6 +156,14 @@ impl Layout {
                 .map(|r| Rect::new(2 * area.x + area.w - r.x - r.w, r.y, r.w, r.h)),
             Self::NoBorders(inner) => inner.arrange(area, n, focus),
         }
+    }
+
+    /// What the layout does with [`PREVIEW_WINDOWS`] windows in
+    /// [`PREVIEW_AREA`], window 0 (the master) focused. Drawn by the layout
+    /// picker and the pictures in `docs/layouts/`.
+    #[must_use]
+    pub fn preview(&self) -> LayoutOutput {
+        self.arrange(PREVIEW_AREA, PREVIEW_WINDOWS, 0)
     }
 
     /// Handles a message; returns whether the layout accepted it.
@@ -362,6 +378,22 @@ impl LayoutRing {
     /// entry's state.
     pub fn next(&mut self) {
         self.current = (self.current + 1) % self.layouts.len();
+    }
+
+    /// Every layout of the ring, in ring order.
+    #[must_use]
+    pub fn layouts(&self) -> &[Layout] {
+        &self.layouts
+    }
+
+    /// Makes the layout at `index` active, keeping every entry's state;
+    /// returns `false` (and changes nothing) if there is no such entry.
+    pub fn select(&mut self, index: usize) -> bool {
+        let valid = index < self.layouts.len();
+        if valid {
+            self.current = index;
+        }
+        valid
     }
 
     /// Arranges with the active layout (see [`Layout::arrange`]).

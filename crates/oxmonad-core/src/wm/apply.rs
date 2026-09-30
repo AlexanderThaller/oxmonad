@@ -36,6 +36,7 @@ impl Wm {
             }
             Action::Close => return ss.peek().map(Effect::Close).into_iter().collect(),
             Action::NextLayout => ss.current_workspace_mut().layout.next(),
+            Action::PickLayout => self.toggle_layout_picker(),
             Action::ResetLayout => ss.reset_layout(),
             Action::Shrink => self.send_message(LayoutMessage::Shrink),
             Action::Expand => self.send_message(LayoutMessage::Expand),

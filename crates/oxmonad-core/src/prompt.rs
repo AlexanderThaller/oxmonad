@@ -76,6 +76,10 @@ pub enum PromptKey {
     Left,
     /// Move the cursor one character right.
     Right,
+    /// Arrow up (the layout picker's previous entry; the prompt ignores it).
+    Up,
+    /// Arrow down (the layout picker's next entry; the prompt ignores it).
+    Down,
     /// Move the cursor to the start.
     Home,
     /// Move the cursor to the end.
@@ -185,6 +189,7 @@ impl Prompt {
             PromptKey::BackTab => self.cycle(false),
             PromptKey::Left => self.cursor = self.cursor.saturating_sub(1),
             PromptKey::Right => self.cursor = (self.cursor + 1).min(self.len()),
+            PromptKey::Up | PromptKey::Down => {}
             PromptKey::Home => self.cursor = 0,
             PromptKey::End => self.cursor = self.len(),
             PromptKey::Char(c) => {

@@ -7,7 +7,7 @@ oxmonad is not a compositor: it is the window-manager client of
 `river-window-management-v1` protocol. river handles the display, input,
 rendering, xdg-shell, layer-shell, screen locking and Xwayland; oxmonad decides
 where windows go, which one has focus, the key bindings, borders, and draws its
-own bar, workspace prompt and tab strips. See
+own bar, workspace prompt, layout picker and tab strips. See
 [`docs/architecture.adoc`](docs/architecture.adoc).
 
 ## Building

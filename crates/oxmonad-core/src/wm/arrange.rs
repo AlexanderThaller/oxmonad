@@ -80,6 +80,8 @@ pub enum Focus {
     Window(WindowId),
     /// The workspace prompt.
     Prompt,
+    /// The layout picker.
+    LayoutPicker,
     /// Nothing (an empty workspace).
     None,
 }
@@ -134,6 +136,9 @@ pub struct Arrangement {
     pub bar: Option<(OutputId, Rect)>,
     /// Where the prompt goes while it is open.
     pub prompt: Option<(ScreenId, Rect)>,
+    /// While the layout picker is open: its screen and the area it is
+    /// centred in (the screen's usable rectangle).
+    pub layout_picker: Option<(ScreenId, Rect)>,
 }
 
 impl Arrangement {
@@ -256,6 +261,8 @@ impl Wm {
             .collect();
         let focus = if self.prompt.is_some() {
             Focus::Prompt
+        } else if self.picker.is_some() {
+            Focus::LayoutPicker
         } else {
             self.stack_set.peek().map_or(Focus::None, Focus::Window)
         };
@@ -266,6 +273,7 @@ impl Wm {
             screens,
             bar: self.bar_rect(),
             prompt: self.prompt_rect(),
+            layout_picker: self.layout_picker_area(),
         }
     }
 
@@ -383,6 +391,19 @@ impl Wm {
             BarPosition::Bottom => Rect::new(area.x, area.y + area.h - height, area.w, height),
         };
         Some((screen.id, rect))
+    }
+
+    /// The layout picker's screen and area while it is open: the usable
+    /// rectangle of the screen showing the picker's workspace, else of the
+    /// current screen.
+    fn layout_picker_area(&self) -> Option<(ScreenId, Rect)> {
+        let picker = self.picker.as_ref()?;
+        let screen = self
+            .stack_set
+            .screen_of_tag(picker.tag())
+            .and_then(|id| self.stack_set.screen(id))
+            .or_else(|| self.stack_set.current_screen())?;
+        Some((screen.id, screen.usable_rect))
     }
 
     /// The title of a managed window (empty if unknown).

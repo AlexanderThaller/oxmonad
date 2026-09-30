@@ -494,6 +494,36 @@ fn ring_keeps_per_entry_state() {
 }
 
 #[test]
+fn select_jumps_and_keeps_per_entry_state() {
+    let mut ring = LayoutRing::standard(20);
+    assert!(ring.handle(LayoutMessage::Shrink, ctx(0, 2)));
+    let shrunk = ring.arrange(FHD, 2, 0);
+    assert!(ring.select(7));
+    assert_eq!(ring.index(), 7);
+    assert_eq!(ring.name(), "Three Columns");
+    assert!(!ring.select(ring.len()));
+    assert_eq!(ring.index(), 7);
+    assert!(ring.select(0));
+    assert_eq!(ring.arrange(FHD, 2, 0), shrunk);
+}
+
+#[test]
+fn preview_is_four_windows_in_a_16_by_9_area() {
+    let ring = LayoutRing::standard(20);
+    assert_eq!(ring.layouts().len(), ring.len());
+    for layout in ring.layouts() {
+        assert_eq!(
+            layout.preview(),
+            layout.arrange(PREVIEW_AREA, PREVIEW_WINDOWS, 0)
+        );
+    }
+    assert_eq!((PREVIEW_AREA.w * 9, PREVIEW_AREA.h * 16), (2880, 2880));
+    let tabs = ring.layouts()[4].preview();
+    assert_eq!(ring.layouts()[4].name(), "Tabs");
+    assert_eq!(tabs.tabs.map(|t| t.tabs.len()), Some(PREVIEW_WINDOWS));
+}
+
+#[test]
 fn mirror_tall_messages_pass_through() {
     let mut ring = ring_at(2);
     assert!(ring.handle(LayoutMessage::Expand, ctx(0, 2)));

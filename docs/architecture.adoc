@@ -7,7 +7,8 @@ https://codeberg.org/river/river[river] 0.4+, speaking the stable
 `river-window-management-v1` protocol. river owns DRM/KMS, input devices,
 rendering, xdg-shell, layer-shell, screencopy, session lock and Xwayland;
 oxmonad owns every policy decision: which windows are visible, where they go,
-which one has focus, keybindings, borders, and the bar/prompt/tab-strip UI.
+which one has focus, keybindings, borders, and the bar/prompt/layout
+picker/tab-strip UI.
 
 Everything oxmonad ships is Rust. river (Zig) is an external runtime
 dependency, packaged on Arch as `river`.
@@ -20,11 +21,13 @@ dependency, packaged on Arch as `river`.
 
 | `crates/oxmonad-core`
 | Pure window-management model. No Wayland, no I/O, no clocks. xmonad's
-  `StackSet`, the layout ring, manage rules, the prompt state machine, actions
+  `StackSet`, the layout ring, manage rules, the prompt and layout picker
+  state machines, actions
   and the TOML config schema. Everything here is unit-tested.
 
 | `crates/oxmonad-ui`
-| Pure software drawing of the WM-owned surfaces (bar, prompt, tab strip) into
+| Pure software drawing of the WM-owned surfaces (bar, prompt, layout picker,
+  tab strip) into
   pixel buffers with `tiny-skia`, `skrifa` and `zeno`. Knows nothing about
   windows or Wayland; takes plain view structs. Golden-image tests live here.
 
@@ -135,8 +138,11 @@ prompt. The binary talks to core only through `Wm`:
   `update_info`, `request_fullscreen(id, bool)`, `focus_window(id)`
   (click / pointer focus), `float_at(id, rect)`, `set_float_rect(id, rect)`
 * input: `apply(Action) -> Vec<Effect>`; `prompt_key(PromptKey) -> Vec<Effect>`
+  (to the prompt or the layout picker, whichever is open:
+  `grabs_keyboard()`); `pick_layout(index)` (a clicked picker card)
 * output: `arrange() -> Arrangement`, plus view models for the bar
-  (`bar_model(screen)`), prompt (`prompt_model()`) and tab strips.
+  (`bar_model(screen)`), prompt (`prompt_model()`), layout picker
+  (`layout_picker_model()`) and tab strips.
 * restart: `snapshot(id_of) -> Snapshot`, `restore(Snapshot)`,
   `manage_as(id, identifier, info)`, `finish_restore()` (see
   <<Restart in place>>).
@@ -152,16 +158,35 @@ prompt. The binary talks to core only through `Wm`:
   rect, layer: Tiled | Floating | Fullscreen | VirtualFullscreen, border:
   Option<Border> }` for every visible window;
 * `hidden`: managed windows to hide;
-* `focus`: `Focus::Window(id) | Focus::Prompt | Focus::None`;
+* `focus`: `Focus::Window(id) | Focus::Prompt | Focus::LayoutPicker |
+  Focus::None`;
 * `screens`: per screen its output and its tab strip (rect + tabs) when the
   layout is `tabbed`;
 * `bar`: the bar's output and rectangle while it is shown.
+
+=== Layout picker
+
+`pick-layout` opens (or, when open, closes) a picker over the current
+workspace's ring; opening the prompt closes it and vice versa. The pure
+`LayoutPicker` (`layout_picker.rs`) holds the workspace tag and the
+selection (initially the active layout) and maps `PromptKey`s: `j`, `Down`,
+`Right`, `Tab` next and `k`, `Up`, `Left`, `Shift+Tab` previous (wrapping),
+`Return`/`space` apply, `1`–`9`/`0` apply directly, `Escape` cancels.
+Applying calls `LayoutRing::select(index)`, which keeps every layout's
+state. Each entry's picture is `Layout::preview()`: the layout arranging
+four windows in the 16:9 `PREVIEW_AREA`, the same helper that generates
+`docs/layouts/*.svg`, so the picker and the docs cannot disagree.
+`Arrangement.layout_picker` is the picker's screen and the usable area the
+binary centres it in.
 
 == UI (`oxmonad-ui`)
 
 Draws premultiplied ARGB8888 (`wl_shm` `argb8888`, little-endian) buffers at
 an integer scale. Inputs are plain view structs (`BarView`, `PromptView`,
-`TabsView`, `Theme`). Glyph outlines come from `skrifa`, hinted by its
+`LayoutPickerView`, `TabsView`, `Theme`). The layout picker is a grid of
+cards (up to five per row, shrunk to fit the screen), each a preview drawn
+in the docs pictures' colors above the layout's name; `picker_entry_at`
+hit-tests clicks against the same geometry. Glyph outlines come from `skrifa`, hinted by its
 automatic hinter in normal (full) mode so stems snap to whole pixels, with
 advances and the pen position rounded to whole pixels; `zeno` rasterizes
 them. `[font] antialias` selects grayscale or subpixel (`rgb`/`bgr`,
@@ -233,8 +258,8 @@ How `crates/oxmonad` realises the protocol loop above:
 * **Modules.** `state` (the mirror of river's objects and the two
   sequences; `state/dispatch.rs` records events), `plan` (pure
   `Arrangement` → request translation behind the `Requests` trait, diffed
-  against what river was last told), `shell` + `shm` (bar, tab strips and
-  prompt as `river_shell_surface_v1`s in memfd-backed `wl_shm` buffers),
+  against what river was last told), `shell` + `shm` (bar, tab strips,
+  prompt and layout picker as `river_shell_surface_v1`s in memfd-backed `wl_shm` buffers),
   `keys` / `keyboard` (keysym resolution and the prompt's keyboard via the
   pure-Rust `kbvm`), `status` (clock and battery), `control` (the
   `OXMONAD_CONTROL` socket), `spawn`, `restart` (saving the snapshot and
@@ -246,7 +271,7 @@ How `crates/oxmonad` realises the protocol loop above:
   restacks them with the windows.
 * **Stacking.** Tiled and floating windows bottom to top, then tab strips and
   the bar, then fullscreen windows (which therefore cover the bar), then the
-  prompt.
+  prompt or layout picker.
 * **Input ordering.** Key/pointer binding presses, clicks, pointer enters and
   control commands are queued and applied in order at `manage_start`.
   Focus-follows-mouse only acts when the pointer actually moved since the
@@ -372,7 +397,7 @@ The sequence:
   the snapshot into a fresh `Wm` with the configuration reloaded and binds
   the window manager again on its existing connection.
 
-Not preserved: an open prompt, a pointer move/resize in progress, and
+Not preserved: an open prompt or layout picker, a pointer move/resize in progress, and
 xmonad's workspace history beyond the hidden-workspace order. A layout ring
 whose layouts changed between the two binaries falls back to the
 configured ring (keeping the active layout if it still exists). river keeps

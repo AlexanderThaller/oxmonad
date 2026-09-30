@@ -43,6 +43,7 @@ xmonad's classic `mod1Mask`. The tables below assume Super.
 | Click a window              | Focus it                                         |
 | Click a workspace in the bar | View that workspace                             |
 | Click a tab                 | Focus that window                                |
+| Click a layout in the layout picker | Switch to that layout                    |
 
 Focus follows the mouse (`focus_follows_mouse = true`, xmonad's default):
 moving the pointer onto a window focuses it. Windows that ask to be moved or
@@ -73,12 +74,20 @@ Each workspace cycles independently and each layout keeps its own state.
 | --------------------------- | --------------------------------------------- |
 | `Super` + `Space`           | Next layout                                   |
 | `Super` + `Shift` + `Space` | Reset this workspace's layouts to the default |
+| `Super` + `Ctrl` + `Space`  | Layout picker: pictures of every layout to choose from |
 | `Super` + `h`               | Shrink the master area (narrower)             |
 | `Super` + `l`               | Expand the master area (wider)                |
 | `Super` + `Up`              | Expand the focused window vertically          |
 | `Super` + `Down`            | Shrink the focused window vertically          |
 | `Super` + `,`               | More windows in the master area               |
 | `Super` + `.`               | Fewer windows in the master area              |
+
+The layout picker shows the pictures above with the layout names, the
+current layout outlined and the selection highlighted (starting on the
+current layout). `j`/`k` (or the arrow keys, `Tab`/`Shift`+`Tab`) move the
+selection, wrapping; `Return` (or `Space`) applies it, `1`..`9`/`0` apply the
+first to tenth layout directly, a click on a picture applies that layout, and
+`Escape` or `Super` + `Ctrl` + `Space` close the picker unchanged.
 
 ## Workspaces
 

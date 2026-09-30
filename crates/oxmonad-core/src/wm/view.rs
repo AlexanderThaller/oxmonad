@@ -1,8 +1,9 @@
-//! View models for the WM-drawn surfaces (bar and prompt; tab strips are
-//! part of the [`super::Arrangement`]).
+//! View models for the WM-drawn surfaces (bar, prompt and layout picker;
+//! tab strips are part of the [`super::Arrangement`]).
 
 use super::Wm;
 use crate::{
+    layout::LayoutOutput,
     prompt::PromptKind,
     stack_set::SCRATCHPAD_TAG,
 };
@@ -49,6 +50,29 @@ pub struct PromptModel {
     pub completions: Vec<String>,
     /// Index of the highlighted completion.
     pub selected: Option<usize>,
+}
+
+/// One layout as the layout picker shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LayoutPreview {
+    /// The layout's name.
+    pub name: String,
+    /// What it does with four windows in a 16:9 area (see
+    /// [`crate::layout::Layout::preview`]).
+    pub preview: LayoutOutput,
+}
+
+/// What the layout picker shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LayoutPickerModel {
+    /// The workspace the picker chooses a layout for.
+    pub tag: String,
+    /// Every layout of the workspace's ring, in ring order.
+    pub entries: Vec<LayoutPreview>,
+    /// Index of the selected entry.
+    pub selected: usize,
+    /// Index of the workspace's active layout.
+    pub active: usize,
 }
 
 impl Wm {
@@ -99,6 +123,26 @@ impl Wm {
                 .map(str::to_owned)
                 .collect(),
             selected: prompt.selected(),
+        })
+    }
+
+    /// The layout picker's contents, if it is open.
+    #[must_use]
+    pub fn layout_picker_model(&self) -> Option<LayoutPickerModel> {
+        let picker = self.picker.as_ref()?;
+        let ring = &self.stack_set.workspace(picker.tag())?.layout;
+        Some(LayoutPickerModel {
+            tag: picker.tag().to_owned(),
+            entries: ring
+                .layouts()
+                .iter()
+                .map(|layout| LayoutPreview {
+                    name: layout.name(),
+                    preview: layout.preview(),
+                })
+                .collect(),
+            selected: picker.selected(),
+            active: ring.index(),
         })
     }
 

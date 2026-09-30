@@ -74,6 +74,7 @@ mod key {
     pub const ESC: u32 = 1;
     pub const THREE: u32 = 4;
     pub const J: u32 = 36;
+    pub const K: u32 = 37;
     pub const V: u32 = 47;
     pub const ENTER: u32 = 28;
     pub const BACKSPACE: u32 = 14;
@@ -1107,6 +1108,109 @@ fn splits_screens() {
                 window["title"] == "left" && within(rect(&window["rect"]), [x, y + 24, w, h - 24])
             })
     });
+
+    session.act("quit");
+    wait_for("river to exit", || {
+        session.river.try_wait().ok().flatten().is_some()
+    });
+    let log = session.log();
+    assert!(!log.contains("protocol error"), "{log}");
+    assert!(!log.contains("panicked"), "{log}");
+}
+
+/// The layout picker: `pick-layout` opens it with the active layout
+/// selected, `j`/`k` move the selection, `Return` applies it, a click on a
+/// card applies that layout, `Escape` and `pick-layout` close it unchanged.
+#[test]
+#[ignore = "needs river and alacritty; run with --ignored"]
+fn picks_layouts() {
+    if !have("river") || !have("alacritty") {
+        eprintln!("skipping: river or alacritty is not installed");
+        return;
+    }
+    let mut session = Session::start_in(
+        Session::dir("picker"),
+        Path::new(env!("CARGO_BIN_EXE_oxmonad")),
+    );
+    for title in ["one", "two", "three"] {
+        spawn_and_wait(&mut session, title);
+    }
+    let area = rect(&session.state()["screens"][0]["rect"]);
+    let extent = (
+        u32::try_from(area[2]).expect("width"),
+        u32::try_from(area[3]).expect("height"),
+    );
+    let mut input = Input::connect(&session, extent);
+    let layout = |s: &Session| s.state()["screens"][0]["layout"].clone();
+    let open = |s: &Session| {
+        s.act("pick-layout");
+        wait_for("the picker to open with its cards", || {
+            let state = s.state();
+            state["focus"] == "layout-picker"
+                && state["layout_picker"]["cards"]
+                    .as_array()
+                    .is_some_and(|cards| cards.len() == 10)
+        });
+        s.state()["layout_picker"].clone()
+    };
+
+    let picker = open(&session);
+    assert_eq!(picker["selected"], 0, "{picker}");
+    assert_eq!(picker["active"], 0);
+    assert_eq!(picker["entries"][0], "Tall Right");
+    // Centred on the screen, above everything.
+    let shell = session.state()["shells"]
+        .as_array()
+        .and_then(|shells| shells.iter().find(|s| s["node"] == "LayoutPicker").cloned())
+        .expect("the picker surface");
+    let r = rect(&shell["rect"]);
+    assert!(within(r, area), "{shell}");
+    assert!((r[0] - area[0] - (area[0] + area[2] - r[0] - r[2])).abs() <= 1);
+    screenshot(&session, "layout-picker");
+
+    for code in [key::J, key::J, key::K] {
+        input.tap(code);
+    }
+    wait_for("j/j/k to select the second layout", || {
+        session.state()["layout_picker"]["selected"] == 1
+    });
+    assert_eq!(layout(&session), "Tall Right");
+    input.tap(key::ENTER);
+    wait_for("Return to apply Tall", || {
+        let state = session.state();
+        state["layout_picker"].is_null() && state["screens"][0]["layout"] == "Tall"
+    });
+    assert_ne!(session.state()["focus"], "layout-picker");
+
+    // A click on a card applies its layout.
+    let picker = open(&session);
+    assert_eq!(picker["active"], 1);
+    let grid = picker["entries"]
+        .as_array()
+        .and_then(|names| names.iter().position(|n| n == "Grid"))
+        .expect("Grid is offered");
+    let card = rect(&picker["cards"][grid]);
+    input.click_at(card[0] + card[2] / 2, card[1] + card[3] / 2);
+    wait_for("the click to apply Grid", || {
+        let state = session.state();
+        state["layout_picker"].is_null() && state["screens"][0]["layout"] == "Grid"
+    });
+
+    // Escape and a second pick-layout close it without a change.
+    open(&session);
+    input.tap(key::J);
+    wait_for("j to move the selection", || {
+        session.state()["layout_picker"]["selected"] != 6
+    });
+    input.tap(key::ESC);
+    wait_for("Escape to close the picker", || {
+        session.state()["layout_picker"].is_null()
+    });
+    open(&session);
+    session.act("pick-layout");
+    assert!(session.state()["layout_picker"].is_null());
+    assert_eq!(layout(&session), "Grid");
+    assert_ne!(session.state()["focus"], "layout-picker");
 
     session.act("quit");
     wait_for("river to exit", || {

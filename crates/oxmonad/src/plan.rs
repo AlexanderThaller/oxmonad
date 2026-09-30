@@ -31,6 +31,17 @@ pub enum Node {
     Tabs(ScreenId),
     /// The workspace prompt.
     Prompt,
+    /// The layout picker.
+    LayoutPicker,
+}
+
+impl Node {
+    /// Whether this is an overlay that takes the keyboard (prompt or
+    /// layout picker), stacked above everything.
+    #[must_use]
+    pub const fn is_overlay(self) -> bool {
+        matches!(self, Self::Prompt | Self::LayoutPicker)
+    }
 }
 
 /// The requests the arrangement translates into. Window-management state
@@ -181,8 +192,9 @@ pub struct ShellPlacement {
 
 /// Emits the positions and stacking of a render sequence: windows bottom
 /// to top, then the bar and tab strips, then fullscreen windows (which
-/// cover the bar, also those fullscreen on a virtual screen) and the prompt on
-/// top of everything. `dimensions` are the window sizes river reported.
+/// cover the bar, also those fullscreen on a virtual screen) and the prompt
+/// or layout picker on top of everything. `dimensions` are the window sizes
+/// river reported.
 pub fn render(
     arrangement: &Arrangement,
     dimensions: impl Fn(WindowId) -> Option<Size>,
@@ -200,7 +212,7 @@ pub fn render(
         out.place_top(node);
     }
     let (prompt, bars): (Vec<&ShellPlacement>, Vec<&ShellPlacement>) =
-        shells.iter().partition(|s| s.node == Node::Prompt);
+        shells.iter().partition(|s| s.node.is_overlay());
     for shell in bars {
         out.set_position(shell.node, shell.rect.x, shell.rect.y);
         out.place_top(shell.node);
@@ -325,6 +337,7 @@ mod tests {
             }],
             bar: None,
             prompt: None,
+            layout_picker: None,
         }
     }
 

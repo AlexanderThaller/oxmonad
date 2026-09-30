@@ -1,9 +1,9 @@
 //! The [`Wm`] facade: the only interface the binary uses.
 //!
 //! `Wm` bundles the [`StackSet`], per-window information, the resolved
-//! [`Config`], the bar toggle and the open prompt. The binary records
-//! events through its methods, feeds user intent through [`Wm::apply`] and
-//! [`Wm::prompt_key`], executes the returned [`Effect`]s and renders
+//! [`Config`], the bar toggle and the open prompt or layout picker. The binary
+//! records events through its methods, feeds user intent through [`Wm::apply`]
+//! and [`Wm::prompt_key`], executes the returned [`Effect`]s and renders
 //! [`Wm::arrange`]'s [`Arrangement`] plus the view models.
 
 mod apply;
@@ -37,6 +37,8 @@ pub use snapshot::{
 };
 pub use view::{
     BarModel,
+    LayoutPickerModel,
+    LayoutPreview,
     PromptModel,
     WorkspaceState,
 };
@@ -53,6 +55,10 @@ use crate::{
         WindowId,
     },
     layout::LayoutRing,
+    layout_picker::{
+        LayoutPicker,
+        PickerOutcome,
+    },
     prompt::{
         Prompt,
         PromptKey,
@@ -86,6 +92,8 @@ pub struct Wm {
     config: Config,
     bar_visible: bool,
     prompt: Option<Prompt>,
+    /// The open layout picker; never open together with the prompt.
+    picker: Option<LayoutPicker>,
     /// A snapshot being restored (see [`snapshot`]).
     restore: Option<snapshot::PendingRestore>,
 }
@@ -102,6 +110,7 @@ impl Wm {
             bar_visible: config.bar.visible,
             config,
             prompt: None,
+            picker: None,
             restore: None,
         }
     }
@@ -270,11 +279,12 @@ impl Wm {
 
     /// Makes the screen containing the point `(x, y)` current, like xmonad
     /// switching screens when the pointer crosses onto another screen's
-    /// root window. Does nothing while the prompt is open, when the point
+    /// root window. Does nothing while the prompt or the layout picker is
+    /// open, when the point
     /// is on no screen, or when that screen is already current (so it never
     /// undoes keyboard focus changes on the same screen).
     pub fn focus_screen_at(&mut self, x: i32, y: i32) {
-        if self.is_prompt_open() {
+        if self.grabs_keyboard() {
             return;
         }
         let target = self
@@ -345,14 +355,32 @@ impl Wm {
         self.prompt.is_some()
     }
 
-    /// Opens a workspace prompt completing over the workspace tags.
+    /// Whether the prompt or the layout picker is open and takes the
+    /// keyboard (keyboard input should go to [`Self::prompt_key`]).
+    #[must_use]
+    pub fn grabs_keyboard(&self) -> bool {
+        self.prompt.is_some() || self.picker.is_some()
+    }
+
+    /// Opens a workspace prompt completing over the workspace tags,
+    /// closing the layout picker.
     fn open_prompt(&mut self, kind: PromptKind) {
         let options = self.bar_tags();
+        self.picker = None;
         self.prompt = Some(Prompt::new(kind, options));
     }
 
-    /// Feeds a key into the open prompt, executing it on `Return`.
+    /// Feeds a key into the open prompt (executing it on `Return`) or
+    /// layout picker.
     pub fn prompt_key(&mut self, key: PromptKey) -> Vec<Effect> {
+        if let Some(picker) = &mut self.picker {
+            match picker.handle_key(key) {
+                PickerOutcome::Continue => {}
+                PickerOutcome::Cancel => self.picker = None,
+                PickerOutcome::Apply(index) => self.pick_layout(index),
+            }
+            return Vec::new();
+        }
         let Some(prompt) = &mut self.prompt else {
             return Vec::new();
         };
@@ -386,6 +414,43 @@ impl Wm {
             PromptKind::RenameWorkspace => {
                 ss.rename_current(tag);
             }
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Layout picker
+
+    /// Whether the layout picker is open.
+    #[must_use]
+    pub fn is_layout_picker_open(&self) -> bool {
+        self.picker.is_some()
+    }
+
+    /// `pick-layout`: closes the picker if it is open, otherwise opens it
+    /// for the current workspace (closing the prompt).
+    fn toggle_layout_picker(&mut self) {
+        if self.picker.take().is_some() {
+            return;
+        }
+        let workspace = self.stack_set.current_workspace();
+        let picker = LayoutPicker::new(
+            workspace.tag.clone(),
+            workspace.layout.len(),
+            workspace.layout.index(),
+        );
+        self.prompt = None;
+        self.picker = Some(picker);
+    }
+
+    /// Switches the picker's workspace to the layout at ring index `index`
+    /// (e.g. a clicked entry), keeping every layout's state, and closes the
+    /// picker. Does nothing while the picker is closed.
+    pub fn pick_layout(&mut self, index: usize) {
+        let Some(picker) = self.picker.take() else {
+            return;
+        };
+        if let Some(workspace) = self.stack_set.workspace_mut(picker.tag()) {
+            workspace.layout.select(index);
         }
     }
 

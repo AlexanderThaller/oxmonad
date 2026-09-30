@@ -87,7 +87,7 @@ inactive_border_color = "#BBBBBB"
 #
 # Actions: spawn <command>, spawn-terminal, focus-next, focus-prev,
 # focus-master, swap-next, swap-prev, swap-master, sink, close, next-layout,
-# reset-layout, shrink, expand, mirror-shrink, mirror-expand,
+# pick-layout, reset-layout, shrink, expand, mirror-shrink, mirror-expand,
 # inc-master <n>, view <tag>, shift <tag>, copy <tag>, toggle-ws,
 # prompt view|move|copy|rename, remove-workspace, focus-screen next|prev,
 # shift-screen next|prev, shift-screen-follow next|prev, swap-next-screen,
@@ -115,6 +115,9 @@ inactive_border_color = "#BBBBBB"
 # Layouts and resizing
 "Mod+space" = "next-layout"
 "Mod+Shift+space" = "reset-layout"
+# A picture of every layout to choose from (j/k or the arrows, Return or a
+# click; Escape cancels).
+"Mod+Ctrl+space" = "pick-layout"
 "Mod+h" = "shrink"
 "Mod+l" = "expand"
 "Mod+Up" = "mirror-expand"

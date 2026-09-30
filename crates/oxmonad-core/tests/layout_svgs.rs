@@ -13,18 +13,12 @@ use std::{
 
 use oxmonad_core::{
     Rect,
-    layout::LayoutRing,
+    layout::{
+        LayoutRing,
+        PREVIEW_AREA as SCREEN,
+    },
 };
 
-/// The screen the examples are drawn on (16:9).
-const SCREEN: Rect = Rect {
-    x: 0,
-    y: 0,
-    w: 320,
-    h: 180,
-};
-/// Windows in each example; enough to show every layout's stack.
-const WINDOWS: usize = 4;
 /// Gap drawn around each window so neighbours stay distinguishable.
 const INSET: i32 = 2;
 
@@ -52,10 +46,10 @@ fn window(svg: &mut String, rect: Rect, label: &str, master: bool) {
     );
 }
 
-/// One layout arranging windows `1`–`4` (window 1 is the master and
-/// focused).
+/// One layout's preview: windows `1`–`4` (window 1 is the master and
+/// focused), exactly as the layout picker draws it.
 fn render(ring: &LayoutRing) -> String {
-    let output = ring.arrange(SCREEN, WINDOWS, 0);
+    let output = ring.current().preview();
     let mut svg = String::new();
     let _ = writeln!(
         svg,

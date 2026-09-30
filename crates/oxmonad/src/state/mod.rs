@@ -522,7 +522,7 @@ impl State {
         self.stop_repeat(None);
         let timer = Timer::from_duration(timing.delay);
         let token = self.handle.insert_source(timer, move |_, (), state| {
-            let held = state.seats.contains_key(&seat) && state.wm.is_prompt_open();
+            let held = state.seats.contains_key(&seat) && state.wm.grabs_keyboard();
             if !held {
                 state.repeat = None;
                 return TimeoutAction::Drop;
@@ -774,6 +774,7 @@ impl State {
                 match self.shells.click(node, x, y, &self.styles) {
                     Some(Click::Workspace(tag)) => self.apply(Action::View(tag), Some(seat)),
                     Some(Click::Window(window)) => self.wm.focus_window(window),
+                    Some(Click::Layout(index)) => self.wm.pick_layout(index),
                     None => {}
                 }
             }
@@ -1106,6 +1107,21 @@ impl State {
                 content: Content::Prompt(shell::prompt_view(&model), max_height.unsigned_abs()),
             });
         }
+        if let (Some((screen, area)), Some(model)) =
+            (arrangement.layout_picker, self.wm.layout_picker_model())
+        {
+            let scale = self
+                .wm
+                .stack_set()
+                .screen(screen)
+                .map_or(1, |s| self.scale_of(s.output));
+            wanted.push(Wanted {
+                node: Node::LayoutPicker,
+                rect: area,
+                scale,
+                content: Content::LayoutPicker(shell::layout_picker_view(&model)),
+            });
+        }
         wanted
     }
 
@@ -1136,6 +1152,28 @@ impl State {
                 Command::DumpState => reply.send(&self.dump_state()),
             }
         }
+    }
+
+    /// The open layout picker for `dump-state`: entries, selection and the
+    /// cards' global rectangles.
+    fn layout_picker_state(&self) -> serde_json::Value {
+        use serde_json::json;
+
+        let Some(model) = self.wm.layout_picker_model() else {
+            return serde_json::Value::Null;
+        };
+        json!({
+            "workspace": model.tag,
+            "entries": model.entries.iter().map(|e| e.name.clone()).collect::<Vec<_>>(),
+            "selected": model.selected,
+            "active": model.active,
+            "cards": self
+                .shells
+                .layout_picker_cards(&self.styles)
+                .into_iter()
+                .map(|r| json!([r.x, r.y, r.w, r.h]))
+                .collect::<Vec<_>>(),
+        })
     }
 
     /// The state as one line of JSON (the control socket's `dump-state`).
@@ -1194,6 +1232,7 @@ impl State {
         let focus = match arrangement.map(|a| a.focus) {
             Some(Focus::Window(id)) => json!(id.0),
             Some(Focus::Prompt) => json!("prompt"),
+            Some(Focus::LayoutPicker) => json!("layout-picker"),
             Some(Focus::None) | None => json!(null),
         };
         json!({
@@ -1212,6 +1251,7 @@ impl State {
                 "input": m.input,
                 "completions": m.completions,
             })),
+            "layout_picker": self.layout_picker_state(),
             "shells": self.shells.placements(&self.styles).iter().map(|s| json!({
                 "node": format!("{:?}", s.node),
                 "rect": rect(s.rect),
@@ -1222,7 +1262,7 @@ impl State {
                 .into_iter()
                 .filter_map(|(start, end, click)| match click {
                     Click::Workspace(tag) => Some(json!({ "workspace": tag, "x": [start, end] })),
-                    Click::Window(_) => None,
+                    Click::Window(_) | Click::Layout(_) => None,
                 })
                 .collect::<Vec<_>>(),
             "bar_visible": self.wm.bar_visible(),
@@ -1358,6 +1398,10 @@ impl Requests for RiverRequests<'_> {
                     Some(prompt) => seat.proxy.focus_shell_surface(prompt),
                     None => seat.proxy.clear_focus(),
                 },
+                Focus::LayoutPicker => match self.shells.shell_surface(Node::LayoutPicker) {
+                    Some(picker) => seat.proxy.focus_shell_surface(picker),
+                    None => seat.proxy.clear_focus(),
+                },
                 Focus::None => seat.proxy.clear_focus(),
             }
         }
@@ -1395,7 +1439,9 @@ impl Requests for RiverRequests<'_> {
     fn set_position(&mut self, node: Node, x: i32, y: i32) {
         let proxy = match node {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
-            Node::Bar | Node::Tabs(_) | Node::Prompt => self.shells.node_proxy(node),
+            Node::Bar | Node::Tabs(_) | Node::Prompt | Node::LayoutPicker => {
+                self.shells.node_proxy(node)
+            }
         };
         if let Some(proxy) = proxy {
             proxy.set_position(x, y);
@@ -1405,7 +1451,9 @@ impl Requests for RiverRequests<'_> {
     fn place_top(&mut self, node: Node) {
         let proxy = match node {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
-            Node::Bar | Node::Tabs(_) | Node::Prompt => self.shells.node_proxy(node),
+            Node::Bar | Node::Tabs(_) | Node::Prompt | Node::LayoutPicker => {
+                self.shells.node_proxy(node)
+            }
         };
         if let Some(proxy) = proxy {
             proxy.place_top();

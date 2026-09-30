@@ -1,4 +1,5 @@
-//! The WM-drawn shell surfaces: the bar, the tab strips and the prompt.
+//! The WM-drawn shell surfaces: the bar, the tab strips, the prompt and the
+//! layout picker.
 //!
 //! Their content is derived from core state in each manage sequence and
 //! committed with `sync_next_commit`, so it changes in the same frame as
@@ -14,8 +15,10 @@ use std::{
 
 use oxmonad_core::{
     BarModel,
+    LayoutPickerModel,
     PromptModel,
     Rect,
+    Size,
     TabStrip,
     WindowId,
     WorkspaceState as CoreWorkspaceState,
@@ -25,6 +28,7 @@ use oxmonad_core::{
         Color as CoreColor,
         Config,
     },
+    layout::PREVIEW_AREA,
 };
 use oxmonad_ui::{
     Antialias,
@@ -35,7 +39,12 @@ use oxmonad_ui::{
     Canvas,
     Color,
     Fonts,
+    LayoutPickerStyle,
+    LayoutPickerView,
+    PickerEntry,
     PpStyle,
+    PreviewRect,
+    PreviewWindow,
     PromptPosition,
     PromptStyle,
     PromptView,
@@ -50,9 +59,13 @@ use oxmonad_ui::{
     format_battery,
     join_groups,
     layout_bar,
+    layout_picker_size,
+    picker_entry_at,
+    picker_entry_rects,
     pp_segments,
     prompt_size,
     render_bar,
+    render_layout_picker,
     render_prompt,
     render_tabs,
     tab_at,
@@ -127,6 +140,7 @@ pub struct Styles {
     battery: BatteryStyle,
     prompt: PromptStyle,
     prompt_fonts: Rc<Fonts>,
+    picker: LayoutPickerStyle,
     tabs: TabStyle,
     tab_fonts: Rc<Fonts>,
 }
@@ -170,6 +184,17 @@ impl Styles {
                     BarPosition::Bottom => PromptPosition::Bottom,
                 },
                 ..PromptStyle::default()
+            },
+            picker: LayoutPickerStyle {
+                bg: color(prompt.colors.background),
+                fg: color(prompt.colors.foreground),
+                border: color(prompt.colors.border),
+                bg_highlight: color(prompt.colors.highlight_background),
+                fg_highlight: color(prompt.colors.highlight_foreground),
+                // The bar's text size: the prompt's is large for names.
+                font_size: points_to_px(bar.font_size),
+                antialias,
+                ..LayoutPickerStyle::default()
             },
             prompt_fonts: fonts.get(&prompt.font_family),
             tabs: TabStyle {
@@ -250,6 +275,41 @@ pub fn prompt_view(model: &PromptModel) -> PromptView {
     }
 }
 
+/// The layout picker view for `model`.
+#[must_use]
+pub fn layout_picker_view(model: &LayoutPickerModel) -> LayoutPickerView {
+    let rect = |r: Rect| PreviewRect::new(r.x, r.y, r.w, r.h);
+    LayoutPickerView {
+        title: format!("Layout of workspace {}", model.tag),
+        hint: "j/k: select  Return: apply  Esc: cancel".to_owned(),
+        preview_size: (PREVIEW_AREA.w.unsigned_abs(), PREVIEW_AREA.h.unsigned_abs()),
+        entries: model
+            .entries
+            .iter()
+            .map(|entry| PickerEntry {
+                name: entry.name.clone(),
+                windows: entry
+                    .preview
+                    .rects
+                    .iter()
+                    .map(|&(index, r)| PreviewWindow {
+                        index,
+                        rect: rect(r),
+                    })
+                    .collect(),
+                tabs: entry
+                    .preview
+                    .tabs
+                    .iter()
+                    .flat_map(|tabs| tabs.tabs.iter().copied().map(rect))
+                    .collect(),
+            })
+            .collect(),
+        selected: model.selected,
+        active: model.active,
+    }
+}
+
 /// What one surface shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Content {
@@ -259,6 +319,8 @@ pub enum Content {
     Tabs(TabsView, Vec<WindowId>),
     /// The prompt, drawn on a screen of the given logical height.
     Prompt(PromptView, u32),
+    /// The layout picker, centred in [`Wanted::rect`].
+    LayoutPicker(LayoutPickerView),
 }
 
 /// A surface oxmonad wants to show.
@@ -266,7 +328,8 @@ pub enum Content {
 pub struct Wanted {
     /// Which surface.
     pub node: Node,
-    /// Where it goes (for the prompt: the input line's strip).
+    /// Where it goes (for the prompt: the input line's strip; for the
+    /// layout picker: the area it is centred in).
     pub rect: Rect,
     /// Its buffer scale.
     pub scale: u32,
@@ -435,6 +498,27 @@ impl Shells {
         targets
     }
 
+    /// The layout picker's cards as global rectangles (for `dump-state`).
+    #[must_use]
+    pub fn layout_picker_cards(&self, styles: &Styles) -> Vec<Rect> {
+        let Some(want) = self
+            .surfaces
+            .get(&Node::LayoutPicker)
+            .and_then(|s| s.drawn.as_ref())
+        else {
+            return Vec::new();
+        };
+        let Content::LayoutPicker(view) = &want.content else {
+            return Vec::new();
+        };
+        let rect = surface_rect(want, styles);
+        let (max_w, max_h) = (want.rect.w.unsigned_abs(), want.rect.h.unsigned_abs());
+        picker_entry_rects(view, &styles.picker, max_w, max_h)
+            .into_iter()
+            .map(|(x, y, w, h)| Rect::new(rect.x + x, rect.y + y, w, h))
+            .collect()
+    }
+
     /// What a click at global `(x, y)` on shell surface `node` means.
     #[must_use]
     pub fn click(&self, node: Node, x: i32, y: i32, styles: &Styles) -> Option<Click> {
@@ -463,6 +547,15 @@ impl Shells {
                 let index = tab_at(view, rect.w.unsigned_abs(), local_x)?;
                 windows.get(index).copied().map(Click::Window)
             }
+            Content::LayoutPicker(view) => picker_entry_at(
+                view,
+                &styles.picker,
+                want.rect.w.unsigned_abs(),
+                want.rect.h.unsigned_abs(),
+                local_x,
+                f64::from(y - rect.y),
+            )
+            .map(Click::Layout),
             Content::Prompt(..) => None,
         }
     }
@@ -475,6 +568,8 @@ pub enum Click {
     Workspace(String),
     /// Focus this window (a tab).
     Window(WindowId),
+    /// Apply the layout at this ring index (a layout picker card).
+    Layout(usize),
 }
 
 /// The logical rectangle a surface covers.
@@ -494,6 +589,19 @@ fn surface_rect(want: &Wanted, styles: &Styles) -> Rect {
                 PromptPosition::Bottom => want.rect.y + want.rect.h - height,
             };
             Rect::new(want.rect.x, y, want.rect.w, height)
+        }
+        Content::LayoutPicker(view) => {
+            let (w, h) = layout_picker_size(
+                view,
+                &styles.picker,
+                want.rect.w.unsigned_abs(),
+                want.rect.h.unsigned_abs(),
+            );
+            let size = Size::new(
+                i32::try_from(w).unwrap_or(want.rect.w),
+                i32::try_from(h).unwrap_or(want.rect.h),
+            );
+            want.rect.centered(size)
         }
         Content::Bar(_) | Content::Tabs(..) => want.rect,
     }
@@ -517,6 +625,14 @@ fn draw(want: &Wanted, styles: &Styles) -> Canvas {
             &styles.prompt_fonts,
             width,
             *max_height,
+            want.scale,
+        ),
+        Content::LayoutPicker(view) => render_layout_picker(
+            view,
+            &styles.picker,
+            &styles.prompt_fonts,
+            width,
+            want.rect.h.max(1).unsigned_abs(),
             want.scale,
         ),
     }

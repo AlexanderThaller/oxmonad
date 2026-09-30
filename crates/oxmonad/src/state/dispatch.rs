@@ -506,7 +506,7 @@ impl Dispatch<WlKeyboard, SeatId> for State {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        let prompt_open = state.wm.is_prompt_open();
+        let prompt_open = state.wm.grabs_keyboard();
         let Some(keyboard) = state.seats.get_mut(id).and_then(|s| s.keyboard.as_mut()) else {
             return;
         };

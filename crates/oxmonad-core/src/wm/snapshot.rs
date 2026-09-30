@@ -217,6 +217,7 @@ impl Wm {
         self.windows.clear();
         self.fullscreen.clear();
         self.prompt = None;
+        self.picker = None;
         self.bar_visible = snapshot.bar_visible;
         self.restore = Some(PendingRestore {
             snapshot,

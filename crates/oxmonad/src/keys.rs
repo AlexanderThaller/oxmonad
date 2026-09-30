@@ -1,5 +1,5 @@
 //! Resolving config key combinations to xkb keysyms and river modifier
-//! masks, and translating keys typed into the prompt.
+//! masks, and translating keys typed into the prompt or layout picker.
 
 use kbvm::Keysym;
 use oxmonad_core::{
@@ -98,6 +98,8 @@ pub fn prompt_key(sym: Keysym, ctrl: bool, shift: bool) -> Option<PromptKey> {
         syms::ISO_Left_Tab => PromptKey::BackTab,
         syms::Left | syms::KP_Left => PromptKey::Left,
         syms::Right | syms::KP_Right => PromptKey::Right,
+        syms::Up | syms::KP_Up => PromptKey::Up,
+        syms::Down | syms::KP_Down => PromptKey::Down,
         syms::Home | syms::KP_Home => PromptKey::Home,
         syms::End | syms::KP_End => PromptKey::End,
         _ => PromptKey::Char(sym.char().filter(|c| !c.is_control())?),
@@ -180,6 +182,12 @@ mod tests {
         assert_eq!(
             prompt_key(syms::w, true, false),
             Some(PromptKey::DeleteWord)
+        );
+        assert_eq!(prompt_key(syms::Down, false, false), Some(PromptKey::Down));
+        assert_eq!(prompt_key(syms::KP_Up, false, false), Some(PromptKey::Up));
+        assert_eq!(
+            prompt_key(syms::j, false, false),
+            Some(PromptKey::Char('j'))
         );
         assert_eq!(prompt_key(syms::Shift_L, false, false), None);
         assert_eq!(prompt_key(syms::F1, false, false), None);
