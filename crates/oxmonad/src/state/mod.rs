@@ -561,6 +561,9 @@ impl State {
         self.sync_outputs();
         self.sync_seats();
         self.sync_windows();
+        // Before handling input, so a key pressed after moving the pointer
+        // to another screen acts on that screen.
+        self.follow_pointer_screen();
 
         let mut deferred = Vec::new();
         while let Some(input) = self.inputs.pop_front() {
@@ -599,6 +602,23 @@ impl State {
         self.globals.wm.manage_finish();
         if std::mem::take(&mut self.restart_requested) {
             self.begin_restart();
+        }
+    }
+
+    /// Makes the screen under a moved pointer current (focus follows
+    /// mouse across screens). river reports the pointer only in manage
+    /// sequences, so this takes effect at the next one, e.g. the key press
+    /// that follows the move.
+    fn follow_pointer_screen(&mut self) {
+        if !self.wm.config().focus_follows_mouse || self.op.is_some() {
+            return;
+        }
+        let moved = self.seats.values().find_map(|seat| {
+            seat.pointer
+                .filter(|_| seat.pointer_before.is_some() && seat.pointer != seat.pointer_before)
+        });
+        if let Some((x, y)) = moved {
+            self.wm.focus_screen_at(x, y);
         }
     }
 

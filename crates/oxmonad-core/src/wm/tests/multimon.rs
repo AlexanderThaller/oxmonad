@@ -175,3 +175,28 @@ fn more_screens_than_workspaces_creates_workspaces() {
         .collect();
     assert_eq!(tags, ["a", "1"]);
 }
+
+#[test]
+fn pointer_on_other_screen_makes_it_current() {
+    let mut wm = wm2();
+    manage_all(&mut wm, [1]);
+    // An empty second screen still becomes current.
+    wm.focus_screen_at(2500, 500);
+    assert_eq!(current_screen(&wm), Some(S1));
+    assert_eq!(wm.arrange().focus, Focus::None);
+    // Back on the first screen, its focused window gets focus again.
+    wm.focus_screen_at(100, 100);
+    assert_eq!(current_screen(&wm), Some(S0));
+    assert_eq!(wm.arrange().focus, Focus::Window(w(1)));
+    // Off every screen: nothing changes.
+    wm.focus_screen_at(-50, -50);
+    assert_eq!(current_screen(&wm), Some(S0));
+}
+
+#[test]
+fn pointer_does_not_switch_screens_while_prompting() {
+    let mut wm = wm2();
+    apply(&mut wm, "prompt view");
+    wm.focus_screen_at(2500, 500);
+    assert_eq!(current_screen(&wm), Some(S0));
+}

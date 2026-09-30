@@ -266,6 +266,27 @@ impl Wm {
         }
     }
 
+    /// Makes the screen containing the point `(x, y)` current, like xmonad
+    /// switching screens when the pointer crosses onto another screen's
+    /// root window. Does nothing while the prompt is open, when the point
+    /// is on no screen, or when that screen is already current (so it never
+    /// undoes keyboard focus changes on the same screen).
+    pub fn focus_screen_at(&mut self, x: i32, y: i32) {
+        if self.is_prompt_open() {
+            return;
+        }
+        let target = self
+            .stack_set
+            .screens()
+            .iter()
+            .find(|s| s.rect.contains(x, y))
+            .map(|s| s.id);
+        let current = self.stack_set.current_screen().map(|s| s.id);
+        if let Some(id) = target.filter(|&id| Some(id) != current) {
+            self.stack_set.focus_screen(id);
+        }
+    }
+
     /// Floats a window with its content at `rect` (absolute coordinates),
     /// e.g. after a client-initiated move. If `rect`'s centre lies on a
     /// screen showing another workspace, the window moves to that
