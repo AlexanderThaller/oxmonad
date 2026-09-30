@@ -12,6 +12,16 @@ session in a display manager such as LightDM.
 
 ## Install
 
+The quick way — builds with the `deploy` profile and installs the binary, the
+session wrapper and the greeter entry (asks for sudo):
+
+```sh
+deploy/install.sh            # or: deploy/install.sh /opt/oxmonad
+```
+
+It is safe to run while oxmonad is running; press Mod+q afterwards to restart
+into the new binary. Or step by step:
+
 ```sh
 # river itself (Arch Linux).
 sudo pacman -S --needed river
