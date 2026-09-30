@@ -16,7 +16,8 @@ items are marked N/A with a rationale.
 * Workspaces `1`–`9`, view (`greedyView`) / shift, `toggleWS`, dynamic
   workspaces through the prompt (view/move/copy/rename), remove-and-merge.
 * Screens: focus / shift / shift-and-follow next/previous physical screen,
-  `swapNextScreen`, refresh.
+  `swapNextScreen`, refresh, virtual split screens (`layoutSplitScreen`) and
+  `rescreen`.
 * The full `myLayout` ring with per-layout state, layout messages (master
   ratio, `MirrorShrink`/`MirrorExpand`, `IncMasterN`), reset.
 * Window stack: focus/swap next/prev/master, close, sink.
@@ -66,9 +67,10 @@ items are marked N/A with a rationale.
 
 == Multi-monitor
 
-* [ ] Split a single screen into virtual screens (`Mod+Shift+s`,
-  `layoutSplitScreen 2 (TwoPane …)`) and `rescreen` (`Mod+Ctrl+Shift+s`).
-  Needs screens that map to output *regions* rather than outputs.
+* [x] Split a single screen into virtual screens (`Mod+Shift+s`,
+  `split-screen 2`, `layoutSplitScreen 2 (TwoPane 0.5 0.5)`) and `rescreen`
+  (`Mod+Ctrl+Shift+s`). Screens map to output regions; see
+  `architecture.adoc`, "Virtual screens".
 * [ ] Fractional scale for the WM-drawn surfaces (integer `wl_output` scale
   only today).
 

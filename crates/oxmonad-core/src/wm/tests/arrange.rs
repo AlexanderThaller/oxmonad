@@ -142,7 +142,7 @@ fn floats_are_relative_to_their_screen() {
         Some(Rect::new(2020, 100, 200, 100))
     );
     // A smaller screen scales the float.
-    wm.set_screen_rect(S1, Rect::new(1920, 0, 960, 540));
+    wm.set_output_rect(O1, Rect::new(1920, 0, 960, 540));
     let frame = rect_of(&wm.arrange(), 1).map(|r| r.outset(1));
     assert_eq!(frame, Some(Rect::new(1969, 49, 101, 51)));
 }
@@ -186,7 +186,7 @@ fn zero_border_width_means_no_borders() {
     let mut config = Config::defaults();
     config.border.width = 0;
     let mut wm = Wm::new(config);
-    wm.add_screen(S0, "DP-1", SCREEN);
+    wm.add_output(O0, "DP-1", SCREEN);
     manage_all(&mut wm, [1]);
     let a = wm.arrange();
     assert_eq!(a.windows[0].border, None);
@@ -198,11 +198,11 @@ fn usable_rect_and_bar_position() {
     let mut config = Config::defaults();
     config.bar.position = crate::config::BarPosition::Bottom;
     let mut wm = Wm::new(config);
-    wm.add_screen(S0, "DP-1", SCREEN);
-    wm.set_usable_rect(S0, Rect::new(0, 30, 1920, 1050));
+    wm.add_output(O0, "DP-1", SCREEN);
+    wm.set_usable_rect(O0, Rect::new(0, 30, 1920, 1050));
     manage_all(&mut wm, [1]);
     let a = wm.arrange();
-    assert_eq!(a.screens[0].bar, Some(Rect::new(0, 1056, 1920, 24)));
+    assert_eq!(a.bar, Some((O0, Rect::new(0, 1056, 1920, 24))));
     assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 30, 1920, 1026)));
     assert_eq!(rect_of(&a, 1), Some(Rect::new(1, 31, 1918, 1024)));
 }
@@ -212,19 +212,19 @@ fn bar_goes_to_configured_output() {
     let mut config = Config::defaults();
     config.bar.output = Some("DP-2".into());
     let mut wm = Wm::new(config);
-    wm.add_screen(S0, "DP-1", SCREEN);
-    wm.add_screen(S1, "DP-2", Rect::new(1920, 0, 1920, 1080));
-    assert_eq!(wm.bar_screen(), Some(S1));
+    wm.add_output(O0, "DP-1", SCREEN);
+    wm.add_output(O1, "DP-2", Rect::new(1920, 0, 1920, 1080));
+    assert_eq!(wm.bar_output(), Some(O1));
     let a = wm.arrange();
-    assert_eq!(a.screens[0].bar, None);
-    assert_eq!(a.screens[1].bar, Some(Rect::new(1920, 0, 1920, 24)));
+    assert_eq!(a.bar, Some((O1, Rect::new(1920, 0, 1920, 24))));
+    assert_eq!(wm.tiling_area(S0), Some(SCREEN));
     // An unknown output falls back to the first screen.
     let mut config = Config::defaults();
     config.bar.output = Some("HDMI-9".into());
     let mut wm = Wm::new(config);
-    wm.add_screen(S1, "DP-2", SCREEN);
-    wm.add_screen(S0, "DP-1", SCREEN);
-    assert_eq!(wm.bar_screen(), Some(S0));
+    wm.add_output(O1, "DP-2", SCREEN);
+    wm.add_output(O0, "DP-1", SCREEN);
+    assert_eq!(wm.bar_output(), Some(O0));
 }
 
 #[test]
@@ -241,7 +241,7 @@ fn copies_visible_on_two_screens_are_placed_once() {
     assert_eq!(a.windows.len(), 1);
     assert_eq!(a.windows[0].screen, S1);
     // Neither screen current: the first in screen order wins.
-    wm.add_screen(ScreenId(5), "DP-3", Rect::new(3840, 0, 1920, 1080));
+    wm.add_output(OutputId(5), "DP-3", Rect::new(3840, 0, 1920, 1080));
     wm.stack_set.focus_screen(ScreenId(5));
     let a = wm.arrange();
     assert_eq!(a.windows[0].screen, S0);

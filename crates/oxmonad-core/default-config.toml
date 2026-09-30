@@ -91,6 +91,7 @@ inactive_border_color = "#BBBBBB"
 # inc-master <n>, view <tag>, shift <tag>, copy <tag>, toggle-ws,
 # prompt view|move|copy|rename, remove-workspace, focus-screen next|prev,
 # shift-screen next|prev, shift-screen-follow next|prev, swap-next-screen,
+# split-screen <n>, rescreen,
 # toggle-bar, refresh, quit, reload, restart, toggle-fullscreen,
 # toggle-scratchpad <name>, float-move, float-resize.
 [keybindings]
@@ -153,6 +154,10 @@ inactive_border_color = "#BBBBBB"
 "Mod+Shift+Right" = "shift-screen next"
 "Mod+Shift+Left" = "shift-screen prev"
 "Mod+z" = "swap-next-screen"
+# Split the current screen into two virtual screens side by side
+# (layoutSplitScreen 2 (TwoPane 0.5 0.5)); rescreen undoes every split.
+"Mod+Shift+s" = "split-screen 2"
+"Mod+Ctrl+Shift+s" = "rescreen"
 
 # Bar and session
 "Mod+b" = "toggle-bar"

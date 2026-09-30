@@ -101,6 +101,13 @@ pub enum Action {
     /// Swap the current screen's workspace with the next screen's
     /// (`swap-next-screen`, `swapNextScreen`).
     SwapNextScreen,
+    /// Split the current screen into `n` (2 to [`MAX_SPLIT`]) virtual
+    /// screens side by side (`split-screen <n>`,
+    /// `layoutSplitScreen n (TwoPane 0.5 0.5)`).
+    SplitScreen(usize),
+    /// Undo every screen split: one screen per output again (`rescreen`,
+    /// `XMonad.Actions.PhysicalScreens.rescreen`).
+    Rescreen,
     /// Show or hide the bar (`toggle-bar`, `ToggleStruts`).
     ToggleBar,
     /// Re-arrange everything (`refresh`).
@@ -171,6 +178,9 @@ pub enum ParseActionError {
     },
 }
 
+/// The most screens `split-screen` splits a screen into.
+pub const MAX_SPLIT: usize = 16;
+
 /// Commands without an argument, with their action.
 const PLAIN: &[(&str, Action)] = &[
     ("spawn-terminal", Action::SpawnTerminal),
@@ -191,6 +201,7 @@ const PLAIN: &[(&str, Action)] = &[
     ("toggle-ws", Action::ToggleWs),
     ("remove-workspace", Action::RemoveWorkspace),
     ("swap-next-screen", Action::SwapNextScreen),
+    ("rescreen", Action::Rescreen),
     ("toggle-bar", Action::ToggleBar),
     ("refresh", Action::Refresh),
     ("quit", Action::Quit),
@@ -233,6 +244,12 @@ impl FromStr for Action {
                 .parse()
                 .map(Self::IncMaster)
                 .map_err(|_| invalid(static_name, arg)),
+            "split-screen" => arg
+                .parse()
+                .ok()
+                .filter(|n| (2..=MAX_SPLIT).contains(n))
+                .map(Self::SplitScreen)
+                .ok_or_else(|| invalid(static_name, arg)),
             "prompt" => PromptKind::from_command(arg)
                 .map(Self::Prompt)
                 .ok_or_else(|| invalid(static_name, arg)),
@@ -251,6 +268,7 @@ const WITH_ARGUMENT: &[&str] = &[
     "copy",
     "toggle-scratchpad",
     "inc-master",
+    "split-screen",
     "prompt",
     "focus-screen",
     "shift-screen",
@@ -284,6 +302,7 @@ impl fmt::Display for Action {
             Self::Copy(tag) => write!(f, "copy {tag}"),
             Self::ToggleScratchpad(name) => write!(f, "toggle-scratchpad {name}"),
             Self::IncMaster(n) => write!(f, "inc-master {n}"),
+            Self::SplitScreen(n) => write!(f, "split-screen {n}"),
             Self::Prompt(kind) => write!(f, "prompt {}", kind.command()),
             Self::FocusScreen(d) => write!(f, "focus-screen {}", d.as_str()),
             Self::ShiftScreen(d) => write!(f, "shift-screen {}", d.as_str()),
@@ -306,6 +325,7 @@ impl fmt::Display for Action {
             | Self::ToggleWs
             | Self::RemoveWorkspace
             | Self::SwapNextScreen
+            | Self::Rescreen
             | Self::ToggleBar
             | Self::Refresh
             | Self::Quit
@@ -336,6 +356,8 @@ mod tests {
         assert_eq!(parse("  shift   web "), Action::Shift("web".into()));
         assert_eq!(parse("copy 2"), Action::Copy("2".into()));
         assert_eq!(parse("inc-master -1"), Action::IncMaster(-1));
+        assert_eq!(parse("split-screen 2"), Action::SplitScreen(2));
+        assert_eq!(parse("rescreen"), Action::Rescreen);
         assert_eq!(
             parse("prompt move"),
             Action::Prompt(PromptKind::MoveToWorkspace)
@@ -369,6 +391,15 @@ mod tests {
             "inc-master many".parse::<Action>(),
             Err(ParseActionError::InvalidArgument { .. })
         ));
+        for bad in ["split-screen 1", "split-screen 17", "split-screen two"] {
+            assert!(
+                matches!(
+                    bad.parse::<Action>(),
+                    Err(ParseActionError::InvalidArgument { .. })
+                ),
+                "{bad}"
+            );
+        }
         assert!(matches!(
             "focus-screen up".parse::<Action>(),
             Err(ParseActionError::InvalidArgument { .. })
@@ -385,6 +416,7 @@ mod tests {
             Action::Copy("x".into()),
             Action::ToggleScratchpad("term".into()),
             Action::IncMaster(1),
+            Action::SplitScreen(3),
             Action::FocusScreen(Direction::Next),
             Action::ShiftScreen(Direction::Prev),
             Action::ShiftScreenFollow(Direction::Next),

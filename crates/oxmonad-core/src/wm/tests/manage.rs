@@ -76,7 +76,7 @@ fn workspace_rule_sends_window_elsewhere() {
         workspace: Some("web".into()),
     });
     let mut wm = Wm::new(config);
-    wm.add_screen(S0, "DP-1", SCREEN);
+    wm.add_output(O0, "DP-1", SCREEN);
     manage_all(&mut wm, [1]);
     wm.manage(w(2), info("firefox", "Mozilla Firefox"));
     assert_eq!(windows(&wm), [w(1)]);

@@ -32,8 +32,8 @@ use oxmonad_core::{
     Border,
     Effect,
     Focus,
+    OutputId,
     Rect,
-    ScreenId,
     Size,
     Snapshot,
     WindowId,
@@ -347,7 +347,7 @@ pub struct State {
     status: Status,
 
     windows: BTreeMap<WindowId, Window>,
-    outputs: BTreeMap<ScreenId, Output>,
+    outputs: BTreeMap<OutputId, Output>,
     wl_outputs: BTreeMap<u32, WlOutputInfo>,
     seats: BTreeMap<SeatId, Seat>,
     bindings: BTreeMap<SeatId, SeatBindings>,
@@ -633,7 +633,7 @@ impl State {
 
     /// Applies output changes to core.
     fn sync_outputs(&mut self) {
-        let removed: Vec<ScreenId> = self
+        let removed: Vec<OutputId> = self
             .outputs
             .iter()
             .filter(|(_, o)| o.removed)
@@ -641,7 +641,7 @@ impl State {
             .collect();
         for id in removed {
             if let Some(output) = self.outputs.remove(&id) {
-                self.wm.remove_screen(id);
+                self.wm.remove_output(id);
                 output.destroy();
             }
         }
@@ -656,7 +656,7 @@ impl State {
                 .global
                 .and_then(|name| self.wl_outputs.get(&name))
                 .map_or("", |info| info.name.as_str());
-            self.wm.add_screen(id, name, rect);
+            self.wm.add_output(id, name, rect);
             if let Some(usable) = output.usable {
                 self.wm.set_usable_rect(id, usable);
             }
@@ -988,7 +988,7 @@ impl State {
 
     /// New layer surfaces without an output go to the current screen.
     fn set_default_layer_output(&self) {
-        let current = self.wm.stack_set().current_screen().map(|s| s.id);
+        let current = self.wm.stack_set().current_screen().map(|s| s.output);
         if let Some(layer) = current
             .and_then(|id| self.outputs.get(&id))
             .and_then(|o| o.layer.as_ref())
@@ -1060,9 +1060,9 @@ impl State {
     // ----------------------------------------------------------------
     // Shell surfaces
 
-    fn scale_of(&self, screen: ScreenId) -> u32 {
+    fn scale_of(&self, output: OutputId) -> u32 {
         self.outputs
-            .get(&screen)
+            .get(&output)
             .and_then(|o| o.global)
             .and_then(|name| self.wl_outputs.get(&name))
             .map_or(1, |info| info.scale.max(1).unsigned_abs())
@@ -1070,20 +1070,20 @@ impl State {
 
     fn wanted_shells(&self, arrangement: &Arrangement) -> Vec<Wanted> {
         let mut wanted = Vec::new();
+        if let Some((output, rect)) = arrangement.bar {
+            wanted.push(Wanted {
+                node: Node::Bar,
+                rect,
+                scale: self.scale_of(output),
+                content: Content::Bar(shell::bar_view(
+                    &self.wm.bar_model(),
+                    &self.status,
+                    &self.styles,
+                )),
+            });
+        }
         for screen in &arrangement.screens {
-            let scale = self.scale_of(screen.screen);
-            if let Some(rect) = screen.bar {
-                wanted.push(Wanted {
-                    node: Node::Bar,
-                    rect,
-                    scale,
-                    content: Content::Bar(shell::bar_view(
-                        &self.wm.bar_model(),
-                        &self.status,
-                        &self.styles,
-                    )),
-                });
-            }
+            let scale = self.scale_of(screen.output);
             if let Some(strip) = &screen.tab_strip
                 && strip.rect.w > 0
                 && strip.rect.h > 0
@@ -1097,15 +1097,12 @@ impl State {
             }
         }
         if let (Some((screen, rect)), Some(model)) = (arrangement.prompt, self.wm.prompt_model()) {
-            let max_height = self
-                .wm
-                .stack_set()
-                .screen(screen)
-                .map_or(rect.h, |s| s.usable_rect.h);
+            let screen = self.wm.stack_set().screen(screen);
+            let max_height = screen.map_or(rect.h, |s| s.usable_rect.h);
             wanted.push(Wanted {
                 node: Node::Prompt,
                 rect,
-                scale: self.scale_of(screen),
+                scale: screen.map_or(1, |s| self.scale_of(s.output)),
                 content: Content::Prompt(shell::prompt_view(&model), max_height.unsigned_abs()),
             });
         }
@@ -1156,12 +1153,13 @@ impl State {
                     arrangement.and_then(|a| a.screens.iter().find(|sa| sa.screen == s.id));
                 json!({
                     "id": s.id.0,
+                    "output": s.output.0,
                     "name": s.name,
+                    "split": ss.is_split(s.output),
                     "rect": rect(s.rect),
                     "usable": rect(s.usable_rect),
                     "workspace": s.workspace.tag,
                     "layout": s.workspace.layout.description(),
-                    "bar": shells.and_then(|sa| sa.bar).map(rect),
                     "tabs": shells.and_then(|sa| sa.tab_strip.as_ref()).map(|t| json!({
                         "rect": rect(t.rect),
                         "titles": t.tabs.iter().map(|tab| tab.title.clone()).collect::<Vec<_>>(),
@@ -1184,6 +1182,7 @@ impl State {
                     "app_id": info.map(|i| i.app_id.clone()),
                     "title": info.map(|i| i.title.clone()),
                     "screen": p.screen.0,
+                    "output": p.output.0,
                     "layer": format!("{:?}", p.layer).to_lowercase(),
                     "rect": rect(p.rect),
                     "position": [x, y],
@@ -1200,6 +1199,11 @@ impl State {
         json!({
             "current_workspace": ss.current_tag(),
             "screens": screens,
+            "bar": arrangement.and_then(|a| a.bar).map(|(output, r)| json!({
+                "output": output.0,
+                "name": ss.output(output).map(|o| o.name.clone()),
+                "rect": rect(r),
+            })),
             "windows": windows,
             "hidden": arrangement.map(|a| a.hidden.iter().map(|w| w.0).collect::<Vec<_>>()),
             "focus": focus,
@@ -1297,7 +1301,7 @@ fn create_bindings(
 /// [`Requests`] sent to river.
 struct RiverRequests<'a> {
     windows: &'a BTreeMap<WindowId, Window>,
-    outputs: &'a BTreeMap<ScreenId, Output>,
+    outputs: &'a BTreeMap<OutputId, Output>,
     seats: &'a BTreeMap<SeatId, Seat>,
     shells: &'a Shells,
 }
@@ -1321,17 +1325,25 @@ impl Requests for RiverRequests<'_> {
         }
     }
 
-    fn fullscreen(&mut self, window: WindowId, screen: ScreenId) {
-        if let (Some(w), Some(output)) = (self.window(window), self.outputs.get(&screen)) {
+    fn fullscreen(&mut self, window: WindowId, output: OutputId) {
+        if let (Some(w), Some(output)) = (self.window(window), self.outputs.get(&output)) {
             w.fullscreen(&output.proxy);
-            w.inform_fullscreen();
         }
     }
 
     fn exit_fullscreen(&mut self, window: WindowId) {
         if let Some(w) = self.window(window) {
             w.exit_fullscreen();
-            w.inform_not_fullscreen();
+        }
+    }
+
+    fn inform_fullscreen(&mut self, window: WindowId, fullscreen: bool) {
+        if let Some(w) = self.window(window) {
+            if fullscreen {
+                w.inform_fullscreen();
+            } else {
+                w.inform_not_fullscreen();
+            }
         }
     }
 

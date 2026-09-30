@@ -7,8 +7,8 @@ use std::{
 };
 
 use oxmonad_core::{
+    OutputId,
     Rect,
-    ScreenId,
     Size,
     WindowId,
     WindowInfo,
@@ -156,14 +156,14 @@ impl Dispatch<RiverWindowManagerV1, ()> for State {
                 );
             }
             Event::Output { id } => {
-                let screen = *id.data::<ScreenId>().unwrap_or(&ScreenId(0));
+                let output = *id.data::<OutputId>().unwrap_or(&OutputId(0));
                 let layer = state
                     .globals
                     .layer_shell
                     .as_ref()
-                    .map(|ls| ls.get_output(&id, qh, screen));
+                    .map(|ls| ls.get_output(&id, qh, output));
                 state.outputs.insert(
-                    screen,
+                    output,
                     Output {
                         proxy: id,
                         layer,
@@ -204,7 +204,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for State {
 
     event_created_child!(State, RiverWindowManagerV1, [
         river_window_manager_v1::EVT_WINDOW_OPCODE => (RiverWindowV1, WindowId(next_id())),
-        river_window_manager_v1::EVT_OUTPUT_OPCODE => (RiverOutputV1, ScreenId(next_id())),
+        river_window_manager_v1::EVT_OUTPUT_OPCODE => (RiverOutputV1, OutputId(next_id())),
         river_window_manager_v1::EVT_SEAT_OPCODE => (RiverSeatV1, SeatId(next_id())),
     ]);
 }
@@ -280,12 +280,12 @@ impl Dispatch<RiverWindowV1, WindowId> for State {
     }
 }
 
-impl Dispatch<RiverOutputV1, ScreenId> for State {
+impl Dispatch<RiverOutputV1, OutputId> for State {
     fn event(
         state: &mut Self,
         _: &RiverOutputV1,
         event: river_output_v1::Event,
-        id: &ScreenId,
+        id: &OutputId,
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
@@ -312,12 +312,12 @@ impl Dispatch<RiverOutputV1, ScreenId> for State {
     }
 }
 
-impl Dispatch<RiverLayerShellOutputV1, ScreenId> for State {
+impl Dispatch<RiverLayerShellOutputV1, OutputId> for State {
     fn event(
         state: &mut Self,
         _: &RiverLayerShellOutputV1,
         event: river_layer_shell_output_v1::Event,
-        id: &ScreenId,
+        id: &OutputId,
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {

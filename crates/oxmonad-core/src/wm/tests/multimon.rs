@@ -16,7 +16,7 @@ fn second_screen_shows_next_workspace() {
     // Each screen tiles its own workspace.
     let a = wm.arrange();
     assert_eq!(a.screens.len(), 2);
-    assert!(a.screens[1].bar.is_none());
+    assert_eq!(a.bar.map(|(output, _)| output), Some(O0));
 }
 
 #[test]
@@ -120,11 +120,11 @@ fn unplugging_a_screen_keeps_its_windows() {
     let mut wm = wm2();
     apply(&mut wm, "focus-screen next");
     manage_all(&mut wm, [1]);
-    wm.remove_screen(S1);
+    wm.remove_output(O1);
     assert_eq!(current_screen(&wm), Some(S0));
     assert!(wm.arrange().hidden.contains(&w(1)));
     // Replugging brings the most recently hidden workspace back.
-    wm.add_screen(S1, "DP-2", Rect::new(1920, 0, 1920, 1080));
+    wm.add_output(O1, "DP-2", Rect::new(1920, 0, 1920, 1080));
     assert_eq!(screen_of(&wm, "2"), Some(S1));
     assert_eq!(wm.arrange().placement(w(1)).map(|p| p.screen), Some(S1));
 }
@@ -150,8 +150,8 @@ fn removing_workspace_with_nothing_hidden_is_refused() {
     let mut config = Config::defaults();
     config.workspaces = vec!["a".into(), "b".into()];
     let mut wm = Wm::new(config);
-    wm.add_screen(S0, "DP-1", SCREEN);
-    wm.add_screen(S1, "DP-2", Rect::new(1920, 0, 1920, 1080));
+    wm.add_output(O0, "DP-1", SCREEN);
+    wm.add_output(O1, "DP-2", Rect::new(1920, 0, 1920, 1080));
     manage_all(&mut wm, [1]);
     apply(&mut wm, "remove-workspace");
     assert_eq!(screen_of(&wm, "a"), Some(S0));
@@ -164,8 +164,8 @@ fn more_screens_than_workspaces_creates_workspaces() {
     let mut config = Config::defaults();
     config.workspaces = vec!["a".into()];
     let mut wm = Wm::new(config);
-    wm.add_screen(S0, "DP-1", SCREEN);
-    wm.add_screen(S1, "DP-2", Rect::new(1920, 0, 1920, 1080));
+    wm.add_output(O0, "DP-1", SCREEN);
+    wm.add_output(O1, "DP-2", Rect::new(1920, 0, 1920, 1080));
     assert_eq!(screen_of(&wm, "1"), Some(S1));
     let tags: Vec<String> = wm
         .bar_model()

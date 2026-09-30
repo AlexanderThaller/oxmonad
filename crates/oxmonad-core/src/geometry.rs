@@ -23,9 +23,18 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WindowId(pub u64);
 
-/// Opaque identifier of a screen (output), assigned by the binary.
+/// Opaque identifier of a screen: a region of an output showing one
+/// workspace. An output's first screen takes the output's number (so
+/// unsplit outputs have `ScreenId(n)` for `OutputId(n)`); the extra
+/// virtual screens of a split output are numbered by core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ScreenId(pub u64);
+
+/// Opaque identifier of an output (a river output), assigned by the
+/// binary. An output carries one screen, or several virtual screens once
+/// split.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct OutputId(pub u64);
 
 /// A width/height pair in logical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -98,6 +107,22 @@ impl Rect {
             y: self.y - by,
             w: self.w + 2 * by,
             h: self.h + 2 * by,
+        }
+    }
+
+    /// The overlap of two rectangles; an empty overlap has zero width or
+    /// height, positioned at the clamped corner.
+    #[must_use]
+    pub fn intersection(&self, other: Self) -> Self {
+        let x = self.x.max(other.x);
+        let y = self.y.max(other.y);
+        let right = (self.x + self.w).min(other.x + other.w);
+        let bottom = (self.y + self.h).min(other.y + other.h);
+        Self {
+            x,
+            y,
+            w: (right - x).max(0),
+            h: (bottom - y).max(0),
         }
     }
 
@@ -324,6 +349,9 @@ pub struct RationalRect {
 }
 
 impl RationalRect {
+    /// The whole screen (`RationalRect 0 0 1 1`).
+    pub const FULL: Self = Self::new(Ratio::ZERO, Ratio::ZERO, Ratio::ONE, Ratio::ONE);
+
     /// Creates a rational rectangle.
     #[must_use]
     pub const fn new(x: Ratio, y: Ratio, w: Ratio, h: Ratio) -> Self {
@@ -355,6 +383,19 @@ impl RationalRect {
             h: self.h.floor_mul(screen.h),
         }
     }
+}
+
+/// The part of `outer` that `region` (fractions of `outer`) covers, with
+/// each edge floored, so regions that tile `outer` exactly give rectangles
+/// that tile it without gaps or overlaps. For the left half of an output
+/// this is xmonad's `splitHorizontallyBy (1/2)`.
+#[must_use]
+pub fn region_rect(region: RationalRect, outer: Rect) -> Rect {
+    let x0 = (region.x).floor_mul(outer.w);
+    let x1 = (region.x + region.w).floor_mul(outer.w);
+    let y0 = (region.y).floor_mul(outer.h);
+    let y1 = (region.y + region.h).floor_mul(outer.h);
+    Rect::new(outer.x + x0, outer.y + y0, x1 - x0, y1 - y0)
 }
 
 /// Haskell's `round` for a non-negative float: round half to even

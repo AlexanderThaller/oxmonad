@@ -5,6 +5,8 @@
 //!
 //! * every [`Screen`] shows exactly one [`Workspace`]; one screen is the
 //!   *current* one, the others are *visible*;
+//! * a screen covers a region of an [`Output`]: all of it, or a part once the
+//!   output is split into virtual screens (`XMonad.Layout.LayoutScreens`);
 //! * the remaining workspaces are *hidden*, most recently hidden first (this
 //!   order drives `toggle-ws` and which workspace a new screen gets);
 //! * the floating map stores [`RationalRect`]s relative to the screen.
@@ -27,6 +29,7 @@ pub use stack::Stack;
 
 use crate::{
     geometry::{
+        OutputId,
         RationalRect,
         Rect,
         ScreenId,
@@ -105,30 +108,63 @@ impl Workspace {
     }
 }
 
-/// A physical screen (river output) and the workspace it shows.
+/// An output (a river output): the area its screens divide among them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Output {
+    /// The output's identifier.
+    pub id: OutputId,
+    /// The output name (e.g. `DP-1`), used to place the bar.
+    pub name: String,
+    /// The output rectangle.
+    pub rect: Rect,
+    /// The part of `rect` not covered by exclusive layer-shell surfaces.
+    pub usable: Rect,
+}
+
+/// A screen: a region of an output and the workspace it shows. An
+/// unsplit output has one screen covering all of it; a split output has
+/// several virtual screens.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Screen {
     /// The screen's identifier.
     pub id: ScreenId,
-    /// The output name (e.g. `DP-1`), used to place the bar.
+    /// The output the screen is part of.
+    pub output: OutputId,
+    /// The output name (e.g. `DP-1`).
     pub name: String,
     /// The workspace shown on this screen.
     pub workspace: Workspace,
-    /// The full output rectangle (fullscreen windows and floats use it).
+    /// The part of the output the screen covers, as fractions of it.
+    pub region: RationalRect,
+    /// The screen rectangle: its region of the output (fullscreen windows
+    /// and floats use it).
     pub rect: Rect,
-    /// The area left for tiling after layer-shell exclusive zones (the bar
-    /// is subtracted separately by `Wm`).
+    /// The part of `rect` left for tiling after layer-shell exclusive
+    /// zones (the bar is subtracted separately by `Wm`).
     pub usable_rect: Rect,
 }
 
 /// Identifier of the headless placeholder screen.
 const PLACEHOLDER: ScreenId = ScreenId(u64::MAX);
 
+/// Output of the headless placeholder screen.
+const PLACEHOLDER_OUTPUT: OutputId = OutputId(u64::MAX);
+
+/// First identifier given to the extra virtual screens of split outputs,
+/// far above the output numbers the binary hands out.
+const VIRTUAL_SCREEN_BASE: u64 = 1 << 32;
+
 /// Workspaces, screens and floating windows; see the [module docs](self).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StackSet {
-    /// Screens sorted by id (xmonad's screen numbering order).
+    /// Screens in xmonad's screen numbering order: by output, then by
+    /// region (top to bottom, left to right), so the virtual screens of a
+    /// split output follow each other.
     screens: Vec<Screen>,
+    /// The outputs, sorted by id; empty while headless.
+    outputs: Vec<Output>,
+    /// The next identifier for a virtual screen.
+    next_virtual: u64,
     /// Index into `screens` of the current screen.
     current: usize,
     /// Hidden workspaces, most recently hidden first.
@@ -157,11 +193,15 @@ impl StackSet {
         Self {
             screens: vec![Screen {
                 id: PLACEHOLDER,
+                output: PLACEHOLDER_OUTPUT,
                 name: String::new(),
                 workspace: first,
+                region: RationalRect::FULL,
                 rect: Rect::default(),
                 usable_rect: Rect::default(),
             }],
+            outputs: Vec::new(),
+            next_virtual: VIRTUAL_SCREEN_BASE,
             current: 0,
             hidden: workspaces,
             floating: BTreeMap::new(),
@@ -190,7 +230,7 @@ impl StackSet {
         self.headless
     }
 
-    /// The real screens, sorted by id.
+    /// The real screens in screen order (by output, then by region).
     #[must_use]
     pub fn screens(&self) -> &[Screen] {
         if self.headless { &[] } else { &self.screens }

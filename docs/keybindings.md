@@ -86,13 +86,16 @@ to end / start), `Ctrl`+`a` / `Ctrl`+`e`, `Ctrl`+`g` (cancel).
 
 ## Screens (multi-monitor)
 
-Physical screens are ordered top-to-bottom, then left-to-right.
+Physical screens are ordered top-to-bottom, then left-to-right. A split
+monitor counts as several screens (its virtual screens, left to right).
 
 | Shortcut                        | Action                                    |
 | ------------------------------- | ----------------------------------------- |
 | `Super` + `Right` / `Left`      | Focus the next / previous screen          |
 | `Super` + `Shift` + `Right`/`Left` | Send the focused window to the next / previous screen (focus stays) |
 | `Super` + `z`                   | Swap the visible workspaces of this screen and the next |
+| `Super` + `Shift` + `s`         | Split this screen into two virtual screens side by side (`layoutSplitScreen 2 (TwoPane 0.5 0.5)`): it keeps its workspace on the left half, the right half shows the most recently hidden workspace |
+| `Super` + `Ctrl` + `Shift` + `s` | Rescreen: undo every split, one screen per monitor again (the current workspace stays; the other halves' workspaces become hidden) |
 
 ## Bar & session
 

@@ -76,8 +76,8 @@ active. The default bindings are listed in
 oxmonad binary at the path it was started from, so a freshly built or
 installed version takes over, and the new process reads the configuration
 again. river and your windows keep running; workspaces, window order,
-focus, floating and fullscreen windows, layouts and the bar toggle are
-restored. If the binary is missing or `--check-config` fails, oxmonad logs
+focus, floating and fullscreen windows, layouts, split screens and the bar
+toggle are restored. If the binary is missing or `--check-config` fails, oxmonad logs
 the error and keeps running.
 
 From a shell, `oxmonad --restart` does the same for the oxmonad of the

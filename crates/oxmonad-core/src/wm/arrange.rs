@@ -9,6 +9,7 @@ use crate::{
         Color,
     },
     geometry::{
+        OutputId,
         Rect,
         ScreenId,
         WindowId,
@@ -26,8 +27,22 @@ pub enum Layer {
     Tiled,
     /// Floating above the tiled windows.
     Floating,
-    /// Fullscreen, covering the whole output above everything else.
+    /// Fullscreen, covering the whole output above everything else
+    /// (river's `fullscreen` on the placement's output).
     Fullscreen,
+    /// Fullscreen on a virtual screen of a split output: covers exactly
+    /// the screen's rectangle, stacked like [`Self::Fullscreen`]. river is
+    /// not asked to make the window fullscreen (that would cover the whole
+    /// output); the client is only told that it is.
+    VirtualFullscreen,
+}
+
+impl Layer {
+    /// Whether the window is fullscreen (on its output or its screen).
+    #[must_use]
+    pub const fn is_fullscreen(self) -> bool {
+        matches!(self, Self::Fullscreen | Self::VirtualFullscreen)
+    }
 }
 
 /// A window border drawn by the compositor outside the window content.
@@ -46,6 +61,8 @@ pub struct Placement {
     pub window: WindowId,
     /// The screen it is shown on.
     pub screen: ScreenId,
+    /// The output of that screen.
+    pub output: OutputId,
     /// The content rectangle (what to propose and position). The border,
     /// if any, is drawn outside it, so content plus border fill the slot
     /// the layout computed (like xmonad's `tileWindow`).
@@ -95,8 +112,8 @@ pub struct TabStrip {
 pub struct ScreenArrangement {
     /// The screen.
     pub screen: ScreenId,
-    /// Where the bar goes, if it is shown on this screen.
-    pub bar: Option<Rect>,
+    /// The output of that screen.
+    pub output: OutputId,
     /// The tab strip, if the screen's layout is tabbed and shows tabs.
     pub tab_strip: Option<TabStrip>,
 }
@@ -110,8 +127,11 @@ pub struct Arrangement {
     pub hidden: Vec<WindowId>,
     /// Keyboard focus.
     pub focus: Focus,
-    /// Per-screen bar and tab strip, in screen-id order.
+    /// Per-screen tab strips, in screen order.
     pub screens: Vec<ScreenArrangement>,
+    /// The bar's output and rectangle while it is shown. It spans the
+    /// whole usable width of the output, across all its virtual screens.
+    pub bar: Option<(OutputId, Rect)>,
     /// Where the prompt goes while it is open.
     pub prompt: Option<(ScreenId, Rect)>,
 }
@@ -133,67 +153,76 @@ struct Layers {
 }
 
 impl Wm {
-    /// The screen the bar is shown on, if it is visible: the screen named
-    /// by `bar.output`, else the first screen.
+    /// The output the bar is shown on, if it is visible: the output named
+    /// by `bar.output`, else the first output.
     #[must_use]
-    pub fn bar_screen(&self) -> Option<ScreenId> {
+    pub fn bar_output(&self) -> Option<OutputId> {
         if !self.bar_visible {
             return None;
         }
-        let screens = self.stack_set.screens();
+        let outputs = self.stack_set.outputs();
         self.config
             .bar
             .output
             .as_ref()
-            .and_then(|name| screens.iter().find(|s| &s.name == name))
-            .or_else(|| screens.first())
-            .map(|s| s.id)
+            .and_then(|name| outputs.iter().find(|o| &o.name == name))
+            .or_else(|| outputs.first())
+            .map(|o| o.id)
     }
 
-    /// The bar rectangle on `screen`, if the bar is shown there.
-    fn bar_rect(&self, screen: &Screen) -> Option<Rect> {
-        if self.bar_screen() != Some(screen.id) {
-            return None;
-        }
-        let area = screen.usable_rect;
+    /// The bar's output and rectangle, if it is shown: a strip along the
+    /// configured edge of the output's usable area (like xmobar's strut,
+    /// it spans every virtual screen of a split output).
+    #[must_use]
+    pub fn bar_rect(&self) -> Option<(OutputId, Rect)> {
+        let output = self.stack_set.output(self.bar_output()?)?;
+        let area = output.usable;
         let height = self.config.bar.height.clamp(0, area.h);
-        Some(match self.config.bar.position {
+        let rect = match self.config.bar.position {
             BarPosition::Top => Rect::new(area.x, area.y, area.w, height),
             BarPosition::Bottom => Rect::new(area.x, area.y + area.h - height, area.w, height),
-        })
+        };
+        Some((output.id, rect))
     }
 
     /// The area of `screen` the layout tiles into: the usable rectangle
-    /// minus the bar.
+    /// minus the bar, if the bar is on the screen's output.
     #[must_use]
     pub fn tiling_area(&self, screen: ScreenId) -> Option<Rect> {
         let screen = self.stack_set.screen(screen)?;
         let area = screen.usable_rect;
-        Some(match (self.bar_rect(screen), self.config.bar.position) {
-            (None, _) => area,
-            (Some(bar), BarPosition::Top) => {
-                Rect::new(area.x, area.y + bar.h, area.w, area.h - bar.h)
-            }
-            (Some(bar), BarPosition::Bottom) => Rect::new(area.x, area.y, area.w, area.h - bar.h),
-        })
+        let Some((_, bar)) = self
+            .bar_rect()
+            .filter(|&(output, _)| output == screen.output)
+        else {
+            return Some(area);
+        };
+        let (top, bottom) = (area.y, area.y + area.h);
+        let (top, bottom) = match self.config.bar.position {
+            BarPosition::Top => (top.max(bar.y + bar.h), bottom),
+            BarPosition::Bottom => (top, bottom.min(bar.y)),
+        };
+        Some(Rect::new(area.x, top, area.w, (bottom - top).max(0)))
     }
 
     /// Computes the complete desired state.
     ///
     /// A window that is on several visible workspaces (a copy) is shown
     /// only once: on the current screen if it is there, else on the first
-    /// such screen in screen-id order.
+    /// such screen in screen order.
     #[must_use]
     pub fn arrange(&self) -> Arrangement {
         // The current screen claims its windows first.
-        let mut order: Vec<&Screen> = self.stack_set.screens().iter().collect();
+        let all = self.stack_set.screens();
         let current = self.stack_set.current_screen().map(|s| s.id);
-        order.sort_by_key(|s| (Some(s.id) != current, s.id));
+        let mut order: Vec<usize> = (0..all.len()).collect();
+        order.sort_by_key(|&i| (Some(all[i].id) != current, i));
 
         let mut claimed = BTreeSet::new();
         let mut layers = Layers::default();
         let mut screens = Vec::new();
-        for screen in order {
+        for index in order {
+            let screen = &all[index];
             let stack = screen
                 .workspace
                 .stack
@@ -203,13 +232,17 @@ impl Wm {
                 claimed.extend(stack.iter().copied());
                 self.arrange_screen(screen, &stack, &mut layers)
             });
-            screens.push(ScreenArrangement {
-                screen: screen.id,
-                bar: self.bar_rect(screen),
-                tab_strip,
-            });
+            screens.push((
+                index,
+                ScreenArrangement {
+                    screen: screen.id,
+                    output: screen.output,
+                    tab_strip,
+                },
+            ));
         }
-        screens.sort_by_key(|s| s.screen);
+        screens.sort_by_key(|&(index, _)| index);
+        let screens = screens.into_iter().map(|(_, s)| s).collect();
 
         let mut windows = layers.tiled;
         windows.append(&mut layers.floating);
@@ -231,6 +264,7 @@ impl Wm {
             hidden,
             focus,
             screens,
+            bar: self.bar_rect(),
             prompt: self.prompt_rect(),
         }
     }
@@ -256,6 +290,7 @@ impl Wm {
                 layers.tiled.push(Placement {
                     window,
                     screen: screen.id,
+                    output: screen.output,
                     rect: border.map_or(slot, |b| slot.inset(b.width)),
                     layer: Layer::Tiled,
                     border,
@@ -297,18 +332,25 @@ impl Wm {
             layers.floating.push(Placement {
                 window,
                 screen: screen.id,
+                output: screen.output,
                 rect: border.map_or(frame, |b| frame.inset(b.width)),
                 layer: Layer::Floating,
                 border,
             });
         }
 
+        let layer = if self.stack_set.is_split(screen.output) {
+            Layer::VirtualFullscreen
+        } else {
+            Layer::Fullscreen
+        };
         for &window in stack.iter().filter(|w| self.fullscreen.contains(w)) {
             layers.fullscreen.push(Placement {
                 window,
                 screen: screen.id,
+                output: screen.output,
                 rect: screen.rect,
-                layer: Layer::Fullscreen,
+                layer,
                 border: None,
             });
         }

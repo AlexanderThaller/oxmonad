@@ -74,8 +74,9 @@ events; requests are only derived from core state.** Concretely:
 
 == Core model (`oxmonad-core`)
 
-Identifiers are opaque newtypes assigned by the binary:
-`WindowId(u64)`, `ScreenId(u64)`. Geometry is `Rect { x, y, w, h: i32 }` in
+Identifiers are opaque newtypes: `WindowId(u64)` and `OutputId(u64)` are
+assigned by the binary, `ScreenId(u64)` by core (an output's first screen is
+`ScreenId(output)`; see <<Virtual screens>>). Geometry is `Rect { x, y, w, h: i32 }` in
 river's logical coordinate space.
 
 === StackSet
@@ -84,9 +85,11 @@ A direct port of xmonad's `StackSet` semantics:
 
 * `Stack<W> { focus, up: Vec<W>, down: Vec<W> }` zipper.
 * `Workspace { tag: String, layout: LayoutRing, stack: Option<Stack> }`.
-* `Screen { id, workspace, rect, usable_rect }` — `current` plus `visible`;
-  remaining workspaces are `hidden`, ordered most-recently-hidden first (drives
-  `toggleWS`).
+* `Output { id, name, rect, usable }` — one per river output.
+* `Screen { id, output, workspace, region, rect, usable_rect }` — `current`
+  plus `visible`; `region` is the part of the output the screen covers;
+  remaining workspaces are `hidden`, ordered most-recently-hidden first
+  (drives `toggleWS`).
 * `floating: HashMap<WindowId, RationalRect>` — floats are stored relative to
   their screen (xmonad's `RationalRect`), so they follow the workspace across
   screens of different size.
@@ -117,8 +120,8 @@ match xmonad (ported from the Haskell sources in `resources/`).
 `has_parent`, fullscreen flag), rules, config-derived settings and the
 prompt. The binary talks to core only through `Wm`:
 
-* screens: `add_screen`, `remove_screen`, `set_screen_rect`,
-  `set_usable_rect`
+* outputs: `add_output`, `remove_output`, `set_output_rect`,
+  `set_usable_rect` (screens follow from outputs and splits)
 * windows: `manage(id, info)` (runs manage rules), `unmanage`,
   `update_info`, `request_fullscreen(id, bool)`, `focus_window(id)`
   (click / pointer focus), `float_at(id, rect)`, `set_float_rect(id, rect)`
@@ -136,13 +139,14 @@ prompt. The binary talks to core only through `Wm`:
 
 `Arrangement` describes the whole desired state:
 
-* `windows`: bottom-to-top list of `Placement { window, screen, rect,
-  layer: Tiled | Floating | Fullscreen, border: Option<Border> }` for every
-  visible window;
+* `windows`: bottom-to-top list of `Placement { window, screen, output,
+  rect, layer: Tiled | Floating | Fullscreen | VirtualFullscreen, border:
+  Option<Border> }` for every visible window;
 * `hidden`: managed windows to hide;
 * `focus`: `Focus::Window(id) | Focus::Prompt | Focus::None`;
-* `screens`: per screen its bar rect (if the bar is shown there) and its
-  tab strip (rect + tabs) when the layout is `tabbed`.
+* `screens`: per screen its output and its tab strip (rect + tabs) when the
+  layout is `tabbed`;
+* `bar`: the bar's output and rectangle while it is shown.
 
 == UI (`oxmonad-ui`)
 
@@ -187,8 +191,8 @@ Where `oxmonad-core` differs from or refines the contract above:
   Until the first output appears (and after the last one disappears) the
   `StackSet` keeps its current workspace on a placeholder screen that
   `screens()` never reports, so every operation behaves uniformly.
-  `Screen` also carries the output `name` (`add_screen(id, name, rect)`), used
-  to place the bar (`bar.output`).
+  Outputs carry their `name` (`add_output(id, name, rect)`), used to place
+  the bar (`bar.output`).
 * **View semantics.** `view <tag>` (`Mod+1..9`, the prompt) is xmonad's
   `greedyView`, as in xmonad's default keys and `selectWorkspace`;
   `focus-screen` / `toggle-ws` use plain `view`. `view` never creates
@@ -200,6 +204,8 @@ Where `oxmonad-core` differs from or refines the contract above:
   are listed in `Arrangement.hidden`. `Arrangement` additionally carries
   `prompt: Option<(ScreenId, Rect)>`.
 * **Bar model.** There is a single bar, so `bar_model()` takes no screen.
+  It spans the usable width of its output (like xmobar's strut), across the
+  virtual screens of a split output.
   Workspace order follows `getSortByIndex`: configured tags in config order,
   then the rest sorted by tag. The scratchpad workspace (`NSP`) is excluded
   from the bar, prompt completion, `toggle-ws`, screen assignment and
@@ -244,6 +250,60 @@ How `crates/oxmonad` realises the protocol loop above:
   process group and are reaped on `SIGCHLD` (any exited child, so children
   spawned before a restart are reaped too).
 
+== Virtual screens
+
+xmonad's `XMonad.Layout.LayoutScreens.layoutSplitScreen` (bound to
+`Mod+Shift+s` as `layoutSplitScreen 2 (TwoPane 0.5 0.5)`) and
+`XMonad.Actions.PhysicalScreens.rescreen` (`Mod+Ctrl+Shift+s`) as the core
+actions `split-screen <n>` and `rescreen`.
+
+* **Outputs vs screens.** Core keeps river outputs (`OutputId`, name,
+  rectangle, usable area) separately from screens. A screen covers a
+  `region` of its output as a `RationalRect`; its `rect` is the region
+  scaled onto the output with every edge floored (so regions that tile the
+  output give rectangles without gaps: the left half of an odd width is
+  `floor(w/2)`, as `TwoPane`'s `splitHorizontallyBy`), and its
+  `usable_rect` is `rect` intersected with the output's usable area
+  (layer-shell `non_exclusive_area` is per output). An output's first screen
+  is `ScreenId(output)`; the extra virtual screens get ids from 2^32^ up.
+  Screen order (xmonad's screen numbering, used by `swap-next-screen` and
+  copies) is by output, then region top-to-bottom, left-to-right, so a
+  split's screens follow each other like xmonad's renumbering in
+  `layoutSplitScreen`. Physical order sorts the virtual rectangles.
+* **`split-screen n`** (2 to 16) splits the current screen's region into `n`
+  equal columns — for `n = 2` exactly `TwoPane 0.5 0.5`'s halves; xmonad's
+  `TwoPane` would give only two screens for any `n`, so equal columns are
+  the generalisation. Like `layoutSplitScreen`, the current screen keeps
+  its workspace on the leftmost column and stays current; the new screens
+  take the first hidden workspaces in order (most recently hidden first,
+  never `NSP`). Where xmonad would leave part of the output without a
+  screen when too few workspaces are hidden, oxmonad creates fresh
+  workspaces (like a new output does). Splitting a virtual screen splits
+  its region again.
+* **`rescreen`** gives each output one screen covering it. On each output
+  the current screen, else its first screen, survives with its workspace
+  (and takes `ScreenId(output)` again); the workspaces of the other screens
+  become the most recently hidden ones in screen order — xmonad's
+  `map workspace visible ++ hidden`. Unsplit outputs keep their workspace
+  (PhysicalScreens' same-count case). Deviation: xmonad's core `rescreen`
+  would put the current workspace on the first physical screen; oxmonad
+  keeps it on its own output.
+* **Output changes.** A changed output rectangle rescales its screens'
+  regions (a split keeps its proportions); a removed output removes all its
+  screens, their workspaces becoming the most recently hidden in screen
+  order; a new output gets one screen.
+* **Bar.** `bar.output` names an output. The bar spans that output's usable
+  width; every screen on it tiles below (or above) the bar strip.
+* **Fullscreen.** river's `fullscreen(output)` covers the whole output, so a
+  window fullscreen on a virtual screen gets `Layer::VirtualFullscreen`:
+  the binary proposes the screen's rectangle, places it like a float
+  stacked with the fullscreen windows (above the bar) and only sends
+  `inform_fullscreen`. On unsplit outputs `Layer::Fullscreen` uses river's
+  fullscreen as before; `rescreen`/splitting switches between the two.
+* **Restart.** The snapshot stores each screen's region; `finish_restore`
+  splits an output (matched by name) the same way before assigning
+  workspaces. A split output that does not come back is dropped.
+
 == Restart in place
 
 `restart` (`Mod+q`) replaces the running oxmonad with the binary now at the
@@ -275,8 +335,11 @@ The sequence:
 . It takes `Wm::snapshot` — a serde `Snapshot` (with a `version`) of the
   workspaces in xmonad order with their layout rings (each layout's state),
   window order and focus, which workspace each screen (by output name)
-  shows, the current workspace, floating rectangles, fullscreen windows and
-  the bar toggle, naming windows by river identifier — and sends `stop`.
+  shows and the region of its output it covers (so splits survive), the
+  current workspace, floating rectangles, fullscreen windows and the bar
+  toggle, naming windows by river identifier — and sends `stop`. Snapshots
+  without regions (written before splits existed) load as unsplit, so the
+  format version stayed 1.
 . On `finished` it answers pending control commands, destroys every
   window-management object, writes the snapshot to
   `$XDG_RUNTIME_DIR/oxmonad-restart-<pid>.json` and `exec`s the binary path
@@ -293,8 +356,9 @@ The sequence:
   goes back to its workspaces, floating or fullscreen, without manage
   rules; others are managed normally. At the end of the first manage
   sequence `Wm::finish_restore` restores each workspace's window order and
-  focus and the screens' workspaces (matched by output name, then by
-  order), and forgets windows that did not come back.
+  focus, splits each output (by name) the way it was split and the
+  screens' workspaces (matched by output name, then by order), and forgets
+  windows that did not come back.
 . If `exec` itself fails after the check passed, the old process restores
   the snapshot into a fresh `Wm` with the configuration reloaded and binds
   the window manager again on its existing connection.

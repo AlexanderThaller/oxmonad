@@ -22,6 +22,7 @@ pub use action::{
     Effect,
 };
 pub use geometry::{
+    OutputId,
     Ratio,
     RationalRect,
     Rect,

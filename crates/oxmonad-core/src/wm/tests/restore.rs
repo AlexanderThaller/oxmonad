@@ -63,7 +63,7 @@ fn restore_with(snapshot: Snapshot, screens: &[(u64, &str, Rect)], order: &[u64]
     wm.restore(snapshot).expect("snapshot restores");
     assert!(wm.is_restoring());
     for &(id, name, rect) in screens {
-        wm.add_screen(ScreenId(id), name, rect);
+        wm.add_output(OutputId(id), name, rect);
     }
     for &n in order {
         wm.manage_as(w(n + NEW), Some(&ident(n)), window_info(n));
@@ -73,12 +73,8 @@ fn restore_with(snapshot: Snapshot, screens: &[(u64, &str, Rect)], order: &[u64]
     wm
 }
 
-/// A screen's name, bar and tab strip (tabs as `(window, focused, rect)`).
-type NormalizedScreen = (
-    String,
-    Option<Rect>,
-    Option<(Rect, Vec<(String, bool, Rect)>)>,
-);
+/// A screen's name and tab strip (tabs as `(window, focused, rect)`).
+type NormalizedScreen = (String, Option<(Rect, Vec<(String, bool, Rect)>)>);
 
 /// Everything visible in an arrangement with window and screen ids
 /// replaced by stable names, so arrangements of the original and the
@@ -89,6 +85,7 @@ struct Normalized {
     hidden: Vec<String>,
     focus: Option<String>,
     screens: Vec<NormalizedScreen>,
+    bar: Option<Rect>,
 }
 
 fn normalized(wm: &Wm) -> Normalized {
@@ -123,7 +120,6 @@ fn normalized(wm: &Wm) -> Normalized {
         .map(|s| {
             (
                 screen_name(s.screen),
-                s.bar,
                 s.tab_strip.as_ref().map(|t| {
                     (
                         t.rect,
@@ -146,6 +142,7 @@ fn normalized(wm: &Wm) -> Normalized {
             Focus::None => None,
         },
         screens,
+        bar: a.bar.map(|(_, rect)| rect),
     }
 }
 
@@ -350,6 +347,86 @@ fn screen_tags(wm: &Wm) -> Vec<(String, String)> {
     out
 }
 
+/// Two outputs; DP-2 is split in two (4 | 3), its right half current with
+/// a fullscreen window, and DP-1 shows 2.
+fn busy_split() -> Wm {
+    let mut wm = busy_dual();
+    apply(&mut wm, "split-screen 2");
+    apply(&mut wm, "focus-screen next");
+    wm.manage(w(7), window_info(7));
+    apply(&mut wm, "toggle-fullscreen");
+    wm
+}
+
+#[test]
+fn split_screens_round_trip() {
+    let original = busy_split();
+    let s = snap(&original);
+    let half = Ratio::new(1, 2);
+    let regions: Vec<(&str, RationalRect)> = s
+        .screens
+        .iter()
+        .map(|s| (s.name.as_str(), s.region))
+        .collect();
+    assert_eq!(
+        regions,
+        [
+            ("DP-1", RationalRect::FULL),
+            (
+                "DP-2",
+                RationalRect::new(Ratio::ZERO, Ratio::ZERO, half, Ratio::ONE)
+            ),
+            (
+                "DP-2",
+                RationalRect::new(half, Ratio::ZERO, half, Ratio::ONE)
+            ),
+        ]
+    );
+    let json = serde_json::to_string(&s).expect("serializes");
+    let read: Snapshot = serde_json::from_str(&json).expect("deserializes");
+    let restored = restore_with(read, &[DP2, DP1], &[7, 6, 5, 4, 3, 2, 1]);
+    assert_same(&original, &restored);
+    assert!(restored.stack_set().is_split(OutputId(DP2.0)));
+    let p = restored
+        .arrange()
+        .placement(w(7 + NEW))
+        .cloned()
+        .expect("visible");
+    assert_eq!(p.layer, Layer::VirtualFullscreen);
+    assert_eq!(p.rect, Rect::new(2880, 0, 960, 1080));
+}
+
+#[test]
+fn a_split_is_not_restored_onto_another_output() {
+    let original = busy_split();
+    // Only DP-1 comes back: no split, nothing lost.
+    let restored = restore_with(snap(&original), &[DP1], &[1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(restored.stack_set().screens().len(), 1);
+    assert_eq!(restored.stack_set().all_windows().len(), 7);
+}
+
+#[test]
+fn snapshots_without_regions_load_unsplit() {
+    let original = busy_dual();
+    let mut json: serde_json::Value = serde_json::to_value(snap(&original)).expect("serializes");
+    for screen in json["screens"].as_array_mut().expect("screens") {
+        screen.as_object_mut().expect("object").remove("region");
+    }
+    let read: Snapshot = serde_json::from_value(json).expect("old format loads");
+    assert!(read.screens.iter().all(|s| s.region == RationalRect::FULL));
+    let restored = restore_with(read, &[DP1, DP2], &[6, 5, 4, 3, 2, 1]);
+    assert_same(&original, &restored);
+}
+
+#[test]
+fn invalid_regions_are_ignored() {
+    let mut s = snap(&busy_split());
+    s.screens[2].region.w = Ratio::new(3, 2);
+    let restored = restore_with(s, &[DP1, DP2], &[1, 2, 3, 4, 5, 6, 7]);
+    assert!(!restored.stack_set().is_split(OutputId(DP2.0)));
+    assert_eq!(restored.stack_set().all_windows().len(), 7);
+}
+
 #[test]
 fn two_screens_round_trip() {
     let original = busy_dual();
@@ -526,7 +603,7 @@ fn unknown_windows_are_managed_with_the_rules() {
     // [1] on "1", [2] on "2".
     let mut wm = Wm::new(Config::defaults());
     wm.restore(snap(&original)).expect("restores");
-    wm.add_screen(S0, "DP-1", SCREEN);
+    wm.add_output(O0, "DP-1", SCREEN);
     wm.manage_as(w(101), Some(&ident(1)), window_info(1));
     // Unknown identifier, no identifier, a rule-matched window.
     wm.manage_as(w(150), Some("fresh"), window_info(50));
@@ -555,7 +632,7 @@ fn a_duplicate_identifier_is_managed_normally() {
     apply(&mut original, "shift 2");
     let mut wm = Wm::new(Config::defaults());
     wm.restore(snap(&original)).expect("restores");
-    wm.add_screen(S0, "DP-1", SCREEN);
+    wm.add_output(O0, "DP-1", SCREEN);
     wm.manage_as(w(101), Some(&ident(1)), window_info(1));
     wm.manage_as(w(201), Some(&ident(1)), window_info(1));
     wm.finish_restore();
@@ -572,7 +649,7 @@ fn managing_a_known_window_again_updates_its_info() {
     original.manage(w(1), window_info(1));
     let mut wm = Wm::new(Config::defaults());
     wm.restore(snap(&original)).expect("restores");
-    wm.add_screen(S0, "DP-1", SCREEN);
+    wm.add_output(O0, "DP-1", SCREEN);
     wm.manage_as(w(101), Some(&ident(1)), window_info(1));
     wm.manage_as(w(101), Some(&ident(1)), info("app", "renamed"));
     wm.finish_restore();
@@ -622,11 +699,13 @@ fn snapshot_describes_the_state() {
         [
             ScreenSnapshot {
                 name: "DP-1".into(),
-                workspace: "2".into()
+                workspace: "2".into(),
+                region: RationalRect::FULL,
             },
             ScreenSnapshot {
                 name: "DP-2".into(),
-                workspace: "4".into()
+                workspace: "4".into(),
+                region: RationalRect::FULL,
             },
         ]
     );

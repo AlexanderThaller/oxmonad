@@ -45,10 +45,10 @@ use crate::{
     action::Effect,
     config::Config,
     geometry::{
+        OutputId,
         Ratio,
         RationalRect,
         Rect,
-        ScreenId,
         Size,
         WindowId,
     },
@@ -140,24 +140,26 @@ impl Wm {
     // ----------------------------------------------------------------
     // Screens
 
-    /// A new output appeared (or an existing one changed name/geometry).
-    pub fn add_screen(&mut self, id: ScreenId, name: &str, rect: Rect) {
-        self.stack_set.add_screen(id, name, rect);
+    /// A new output appeared (or an existing one changed name/geometry);
+    /// see [`StackSet::add_output`].
+    pub fn add_output(&mut self, id: OutputId, name: &str, rect: Rect) {
+        self.stack_set.add_output(id, name, rect);
     }
 
-    /// An output disappeared.
-    pub fn remove_screen(&mut self, id: ScreenId) {
-        self.stack_set.remove_screen(id);
+    /// An output disappeared, with all its screens.
+    pub fn remove_output(&mut self, id: OutputId) {
+        self.stack_set.remove_output(id);
     }
 
-    /// An output's geometry changed.
-    pub fn set_screen_rect(&mut self, id: ScreenId, rect: Rect) {
-        self.stack_set.set_screen_rect(id, rect);
+    /// An output's geometry changed (a split output keeps its
+    /// proportions).
+    pub fn set_output_rect(&mut self, id: OutputId, rect: Rect) {
+        self.stack_set.set_output_rect(id, rect);
     }
 
     /// The area of an output not covered by exclusive layer-shell surfaces
     /// changed.
-    pub fn set_usable_rect(&mut self, id: ScreenId, rect: Rect) {
+    pub fn set_usable_rect(&mut self, id: OutputId, rect: Rect) {
         self.stack_set.set_usable_rect(id, rect);
     }
 

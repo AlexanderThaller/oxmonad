@@ -11,10 +11,13 @@
 //!    back on its workspace(s), floating or fullscreen as before, instead of
 //!    running the manage rules;
 //! 3. [`Wm::finish_restore`], once the windows that existed at startup are
-//!    managed, restores the window order and focus of each workspace and which
-//!    workspace each screen shows (screens are matched by output name, then by
-//!    order), and drops the snapshot: windows that did not come back are
-//!    forgotten.
+//!    managed, splits the outputs that were split (by output name) again,
+//!    restores the window order and focus of each workspace and which workspace
+//!    each screen shows (screens are matched by output name, then by order),
+//!    and drops the snapshot: windows that did not come back are forgotten.
+//!
+//! Snapshots written before screens could be split have no screen regions;
+//! they load as unsplit outputs.
 
 use std::collections::{
     BTreeMap,
@@ -32,6 +35,8 @@ use super::{
 };
 use crate::{
     geometry::{
+        OutputId,
+        Ratio,
         RationalRect,
         ScreenId,
         WindowId,
@@ -53,7 +58,8 @@ pub struct Snapshot {
     /// Every workspace: current, then the other screens', then the hidden
     /// ones, most recently hidden first.
     pub workspaces: Vec<WorkspaceSnapshot>,
-    /// The screens in screen order and the workspace each shows.
+    /// The screens in screen order, their region of their output and the
+    /// workspace each shows.
     pub screens: Vec<ScreenSnapshot>,
     /// Floating windows and their screen-relative geometry.
     pub floating: BTreeMap<String, RationalRect>,
@@ -88,6 +94,14 @@ pub struct ScreenSnapshot {
     pub name: String,
     /// The tag of the workspace it shows.
     pub workspace: String,
+    /// The part of the output the screen covers (all of it unless the
+    /// output was split; absent in older snapshots).
+    #[serde(default = "full_region")]
+    pub region: RationalRect,
+}
+
+fn full_region() -> RationalRect {
+    RationalRect::FULL
 }
 
 /// Why [`Wm::restore`] refused a snapshot.
@@ -133,6 +147,7 @@ impl Wm {
                 .map(|s| ScreenSnapshot {
                     name: s.name.clone(),
                     workspace: s.workspace.tag.clone(),
+                    region: s.region,
                 })
                 .collect(),
             floating: ss
@@ -257,6 +272,7 @@ impl Wm {
             return;
         };
         let ss = &mut self.stack_set;
+        restore_splits(ss, &snapshot.screens);
         for saved in &snapshot.workspaces {
             let Some(workspace) = ss.workspace_mut(&saved.tag) else {
                 continue;
@@ -300,6 +316,44 @@ impl Wm {
         let order: Vec<String> = snapshot.workspaces.iter().map(|w| w.tag.clone()).collect();
         ss.order_hidden(&order);
     }
+}
+
+/// Splits each unsplit output the way the snapshot had it split, matching
+/// outputs by name. Splits whose regions do not lie within the output are
+/// ignored.
+fn restore_splits(ss: &mut StackSet, saved: &[ScreenSnapshot]) {
+    let outputs: Vec<(OutputId, String)> = ss
+        .outputs()
+        .iter()
+        .map(|o| (o.id, o.name.clone()))
+        .filter(|(_, name)| !name.is_empty())
+        .collect();
+    for (output, name) in outputs {
+        let regions: Vec<RationalRect> = saved
+            .iter()
+            .filter(|s| s.name == name)
+            .map(|s| s.region)
+            .collect();
+        if regions.len() < 2 || !regions.iter().all(|&r| within_unit(r)) {
+            continue;
+        }
+        let on_output: Vec<usize> = ss
+            .screens()
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.output == output)
+            .map(|(i, _)| i)
+            .collect();
+        if let [index] = on_output[..] {
+            ss.divide_screen(index, &regions);
+        }
+    }
+}
+
+/// Whether `r` is a non-empty region inside the unit square.
+fn within_unit(r: RationalRect) -> bool {
+    let (zero, one) = (Ratio::ZERO, Ratio::ONE);
+    r.x >= zero && r.y >= zero && r.w > zero && r.h > zero && r.x + r.w <= one && r.y + r.h <= one
 }
 
 /// Pairs today's screens with the snapshot's: by output name first, the

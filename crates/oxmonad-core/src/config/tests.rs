@@ -100,6 +100,8 @@ fn default_keybindings_cover_the_documented_set() {
         ),
         ("Mod+Shift+Left", Some(Action::ShiftScreen(Direction::Prev))),
         ("Mod+z", Some(Action::SwapNextScreen)),
+        ("Mod+Shift+s", Some(Action::SplitScreen(2))),
+        ("Mod+Ctrl+Shift+s", Some(Action::Rescreen)),
         ("Mod+b", Some(Action::ToggleBar)),
         ("Mod+n", Some(Action::Refresh)),
         ("Mod+Shift+q", Some(Action::Quit)),
@@ -121,7 +123,7 @@ fn default_keybindings_cover_the_documented_set() {
             Some(Action::Shift(n.to_string()))
         );
     }
-    // 42 listed + 18 workspace bindings.
+    // 44 listed + 18 workspace bindings.
     assert_eq!(c.keybindings.len(), listed + 18);
 }
 

@@ -9,6 +9,9 @@ use crate::{
 const S0: ScreenId = ScreenId(0);
 const S1: ScreenId = ScreenId(1);
 const S2: ScreenId = ScreenId(2);
+const O0: OutputId = OutputId(0);
+const O1: OutputId = OutputId(1);
+const O2: OutputId = OutputId(2);
 
 fn w(n: u64) -> WindowId {
     WindowId(n)
@@ -25,16 +28,16 @@ fn new_set(n: usize) -> StackSet {
 /// A stack set with 9 workspaces and one 1920x1080 screen.
 fn one_screen() -> StackSet {
     let mut s = new_set(9);
-    s.add_screen(S0, "DP-1", Rect::new(0, 0, 1920, 1080));
+    s.add_output(O0, "DP-1", Rect::new(0, 0, 1920, 1080));
     s
 }
 
 /// Three screens: S0 left, S1 right, S2 below S0.
 fn three_screens() -> StackSet {
     let mut s = new_set(9);
-    s.add_screen(S0, "DP-1", Rect::new(0, 0, 1920, 1080));
-    s.add_screen(S1, "DP-2", Rect::new(1920, 0, 1920, 1080));
-    s.add_screen(S2, "HDMI-1", Rect::new(0, 1080, 1920, 1080));
+    s.add_output(O0, "DP-1", Rect::new(0, 0, 1920, 1080));
+    s.add_output(O1, "DP-2", Rect::new(1920, 0, 1920, 1080));
+    s.add_output(O2, "HDMI-1", Rect::new(0, 1080, 1920, 1080));
     s
 }
 
@@ -99,7 +102,7 @@ fn new_is_headless_with_first_tag_current() {
 fn first_screen_adopts_current_workspace() {
     let mut s = new_set(3);
     s.insert_up(w(1));
-    s.add_screen(S0, "DP-1", Rect::new(0, 0, 100, 100));
+    s.add_output(O0, "DP-1", Rect::new(0, 0, 100, 100));
     assert!(!s.is_headless());
     assert_eq!(screen_tags(&s), [(0, "1".into())]);
     assert_eq!(s.peek(), Some(w(1)));
@@ -108,22 +111,22 @@ fn first_screen_adopts_current_workspace() {
 #[test]
 fn new_screens_take_most_recently_hidden_then_fresh_tags() {
     let mut s = new_set(2);
-    s.add_screen(S0, "a", Rect::new(0, 0, 100, 100));
-    s.add_screen(S1, "b", Rect::new(100, 0, 100, 100));
-    s.add_screen(S2, "c", Rect::new(200, 0, 100, 100));
+    s.add_output(O0, "a", Rect::new(0, 0, 100, 100));
+    s.add_output(O1, "b", Rect::new(100, 0, 100, 100));
+    s.add_output(O2, "c", Rect::new(200, 0, 100, 100));
     assert_eq!(
         screen_tags(&s),
         [(0, "1".into()), (1, "2".into()), (2, "3".into())]
     );
     // The scratchpad workspace is never put on a screen.
-    s.remove_screen(S2);
+    s.remove_output(O2);
     s.add_workspace(SCRATCHPAD_TAG);
-    s.add_screen(ScreenId(7), "d", Rect::new(300, 0, 100, 100));
+    s.add_output(OutputId(7), "d", Rect::new(300, 0, 100, 100));
     assert_eq!(
         s.screen(ScreenId(7)).map(|x| x.workspace.tag.as_str()),
         Some("3")
     );
-    s.add_screen(ScreenId(8), "e", Rect::new(400, 0, 100, 100));
+    s.add_output(OutputId(8), "e", Rect::new(400, 0, 100, 100));
     assert_eq!(
         s.screen(ScreenId(8)).map(|x| x.workspace.tag.as_str()),
         Some("4")
@@ -136,18 +139,18 @@ fn removing_screens_hides_their_workspaces() {
     let mut s = three_screens();
     s.focus_screen(S1);
     s.insert_up(w(1));
-    s.remove_screen(S1);
+    s.remove_output(O1);
     // S1's workspace "2" is now the most recently hidden.
     assert_eq!(hidden_tags(&s)[0], "2");
     assert!(s.member(w(1)));
     // The first screen in physical order (S0, top-left) becomes current.
     assert_eq!(s.current_screen().map(|x| x.id), Some(S0));
-    s.remove_screen(S0);
+    s.remove_output(O0);
     assert_eq!(s.current_screen().map(|x| x.id), Some(S2));
-    s.remove_screen(S2);
+    s.remove_output(O2);
     assert!(s.is_headless());
     assert_eq!(s.current_tag(), "3");
-    s.remove_screen(S2);
+    s.remove_output(O2);
     assert!(s.is_headless());
     check_invariants(&s);
 }
@@ -156,19 +159,19 @@ fn removing_screens_hides_their_workspaces() {
 fn removing_a_non_current_screen_keeps_focus() {
     let mut s = three_screens();
     s.focus_screen(S2);
-    s.remove_screen(S0);
+    s.remove_output(O0);
     assert_eq!(s.current_screen().map(|x| x.id), Some(S2));
 }
 
 #[test]
 fn add_screen_twice_updates_geometry() {
     let mut s = one_screen();
-    s.add_screen(S0, "DP-1", Rect::new(0, 0, 800, 600));
+    s.add_output(O0, "DP-1", Rect::new(0, 0, 800, 600));
     assert_eq!(s.screens().len(), 1);
     assert_eq!(s.screens()[0].rect, Rect::new(0, 0, 800, 600));
-    s.set_usable_rect(S0, Rect::new(0, 30, 800, 570));
+    s.set_usable_rect(O0, Rect::new(0, 30, 800, 570));
     assert_eq!(s.screens()[0].usable_rect, Rect::new(0, 30, 800, 570));
-    s.set_screen_rect(S0, Rect::new(0, 0, 1024, 768));
+    s.set_output_rect(O0, Rect::new(0, 0, 1024, 768));
     assert_eq!(s.screens()[0].usable_rect, Rect::new(0, 0, 1024, 768));
 }
 
@@ -211,9 +214,9 @@ fn physical_order_is_top_to_bottom_then_left_to_right() {
     let s = three_screens();
     assert_eq!(s.physical_order(), [S0, S1, S2]);
     let mut s = new_set(9);
-    s.add_screen(S0, "a", Rect::new(1920, 0, 1920, 1080));
-    s.add_screen(S1, "b", Rect::new(0, 0, 1920, 1080));
-    s.add_screen(S2, "c", Rect::new(0, -1080, 1920, 1080));
+    s.add_output(O0, "a", Rect::new(1920, 0, 1920, 1080));
+    s.add_output(O1, "b", Rect::new(0, 0, 1920, 1080));
+    s.add_output(O2, "c", Rect::new(0, -1080, 1920, 1080));
     assert_eq!(s.physical_order(), [S2, S1, S0]);
     s.focus_screen(S1);
     assert_eq!(s.neighbour(Direction::Next), Some(S0));
@@ -397,8 +400,8 @@ fn remove_workspace_merges_into_most_recently_hidden() {
 #[test]
 fn remove_workspace_needs_a_hidden_non_scratchpad_workspace() {
     let mut s = new_set(2);
-    s.add_screen(S0, "a", Rect::new(0, 0, 100, 100));
-    s.add_screen(S1, "b", Rect::new(100, 0, 100, 100));
+    s.add_output(O0, "a", Rect::new(0, 0, 100, 100));
+    s.add_output(O1, "b", Rect::new(100, 0, 100, 100));
     s.add_workspace(SCRATCHPAD_TAG);
     assert!(!s.remove_current_workspace());
     assert_eq!(screen_tags(&s), [(0, "1".into()), (1, "2".into())]);
@@ -426,8 +429,8 @@ fn remove_workspace_on_second_monitor_leaves_other_screens_alone() {
 fn remove_workspace_never_steals_a_visible_workspace() {
     // Only visible workspaces besides the current one and a single hidden.
     let mut s = new_set(3);
-    s.add_screen(S0, "a", Rect::new(0, 0, 100, 100));
-    s.add_screen(S1, "b", Rect::new(100, 0, 100, 100));
+    s.add_output(O0, "a", Rect::new(0, 0, 100, 100));
+    s.add_output(O1, "b", Rect::new(100, 0, 100, 100));
     s.focus_screen(S1);
     s.insert_up(w(5));
     assert!(s.remove_current_workspace());
@@ -537,9 +540,9 @@ fn invariants_hold_under_random_operations() {
                 9 => s.swap_master(),
                 10 => {
                     let x = i32::try_from(rng.below(3)).unwrap_or(0) * 1000;
-                    s.add_screen(screen, "out", Rect::new(x, 0, 1000, 800));
+                    s.add_output(OutputId(screen.0), "out", Rect::new(x, 0, 1000, 800));
                 }
-                11 => s.remove_screen(screen),
+                11 => s.remove_output(OutputId(screen.0)),
                 12 => {
                     s.add_workspace(&tag);
                 }

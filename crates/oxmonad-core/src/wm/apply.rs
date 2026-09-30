@@ -58,6 +58,8 @@ impl Wm {
             Action::ShiftScreen(direction) => self.shift_to_screen(direction, false),
             Action::ShiftScreenFollow(direction) => self.shift_to_screen(direction, true),
             Action::SwapNextScreen => ss.swap_next_screen(),
+            Action::SplitScreen(n) => ss.split_screen(n),
+            Action::Rescreen => ss.rescreen(),
             Action::ToggleBar => self.bar_visible = !self.bar_visible,
             Action::Refresh => {}
             Action::Quit => return vec![Effect::Quit],

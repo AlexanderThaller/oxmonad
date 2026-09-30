@@ -12,6 +12,7 @@ use oxmonad_core::{
     Border,
     Focus,
     Layer,
+    OutputId,
     Placement,
     Rect,
     ScreenId,
@@ -41,11 +42,13 @@ pub trait Requests {
     fn propose_dimensions(&mut self, window: WindowId, size: Size);
     /// `river_window_v1.set_tiled` with all edges (`true`) or none.
     fn set_tiled(&mut self, window: WindowId, tiled: bool);
-    /// `river_window_v1.fullscreen` on the screen's output plus
-    /// `inform_fullscreen`.
-    fn fullscreen(&mut self, window: WindowId, screen: ScreenId);
-    /// `river_window_v1.exit_fullscreen` plus `inform_not_fullscreen`.
+    /// `river_window_v1.fullscreen` on `output`.
+    fn fullscreen(&mut self, window: WindowId, output: OutputId);
+    /// `river_window_v1.exit_fullscreen`.
     fn exit_fullscreen(&mut self, window: WindowId);
+    /// `river_window_v1.inform_fullscreen` (`true`) or
+    /// `inform_not_fullscreen`.
+    fn inform_fullscreen(&mut self, window: WindowId, fullscreen: bool);
     /// Keyboard focus for every seat.
     fn focus(&mut self, focus: Focus);
     /// `river_window_v1.show`.
@@ -69,7 +72,10 @@ struct AppliedWindow {
     /// river draws no borders until told otherwise.
     border: Option<Border>,
     tiled: Option<bool>,
-    fullscreen: Option<ScreenId>,
+    /// The output river made the window fullscreen on.
+    fullscreen: Option<OutputId>,
+    /// Whether the client was told it is fullscreen.
+    informed_fullscreen: bool,
 }
 
 impl Default for AppliedWindow {
@@ -80,6 +86,7 @@ impl Default for AppliedWindow {
             border: None,
             tiled: None,
             fullscreen: None,
+            informed_fullscreen: false,
         }
     }
 }
@@ -109,17 +116,26 @@ impl Applied {
         for placement in &arrangement.windows {
             let window = placement.window;
             let applied = self.windows.entry(window).or_default();
-            if placement.layer == Layer::Fullscreen {
-                if applied.fullscreen != Some(placement.screen) {
-                    out.fullscreen(window, placement.screen);
-                    applied.fullscreen = Some(placement.screen);
-                }
-            } else {
-                if applied.fullscreen.take().is_some() {
+            // A virtual screen's fullscreen window is placed like a float
+            // covering the screen; only unsplit outputs use river's
+            // fullscreen, which covers the whole output.
+            let on_output = (placement.layer == Layer::Fullscreen).then_some(placement.output);
+            if applied.fullscreen != on_output {
+                if let Some(output) = on_output {
+                    out.fullscreen(window, output);
+                } else {
                     out.exit_fullscreen(window);
                     // river forgets the dimensions while fullscreen.
                     applied.proposed = None;
                 }
+                applied.fullscreen = on_output;
+            }
+            let informed = placement.layer.is_fullscreen();
+            if applied.informed_fullscreen != informed {
+                out.inform_fullscreen(window, informed);
+                applied.informed_fullscreen = informed;
+            }
+            if on_output.is_none() {
                 let size = Size::new(placement.rect.w.max(1), placement.rect.h.max(1));
                 if applied.proposed != Some(size) {
                     out.propose_dimensions(window, size);
@@ -165,8 +181,8 @@ pub struct ShellPlacement {
 
 /// Emits the positions and stacking of a render sequence: windows bottom
 /// to top, then the bar and tab strips, then fullscreen windows (which
-/// cover the bar) and the prompt on top of everything. `dimensions` are
-/// the window sizes river reported.
+/// cover the bar, also those fullscreen on a virtual screen) and the prompt on
+/// top of everything. `dimensions` are the window sizes river reported.
 pub fn render(
     arrangement: &Arrangement,
     dimensions: impl Fn(WindowId) -> Option<Size>,
@@ -176,7 +192,7 @@ pub fn render(
     let (fullscreen, normal): (Vec<&Placement>, Vec<&Placement>) = arrangement
         .windows
         .iter()
-        .partition(|p| p.layer == Layer::Fullscreen);
+        .partition(|p| p.layer.is_fullscreen());
     for placement in normal {
         let (x, y) = window_position(placement, dimensions(placement.window));
         let node = Node::Window(placement.window);
@@ -190,7 +206,12 @@ pub fn render(
         out.place_top(shell.node);
     }
     for placement in fullscreen {
-        out.place_top(Node::Window(placement.window));
+        let node = Node::Window(placement.window);
+        // river positions windows it made fullscreen itself.
+        if placement.layer == Layer::VirtualFullscreen {
+            out.set_position(node, placement.rect.x, placement.rect.y);
+        }
+        out.place_top(node);
     }
     for shell in prompt {
         out.set_position(shell.node, shell.rect.x, shell.rect.y);
@@ -242,11 +263,15 @@ mod tests {
         fn set_tiled(&mut self, window: WindowId, tiled: bool) {
             self.0.push(format!("tiled {} {tiled}", window.0));
         }
-        fn fullscreen(&mut self, window: WindowId, screen: ScreenId) {
-            self.0.push(format!("fullscreen {} {}", window.0, screen.0));
+        fn fullscreen(&mut self, window: WindowId, output: OutputId) {
+            self.0.push(format!("fullscreen {} {}", window.0, output.0));
         }
         fn exit_fullscreen(&mut self, window: WindowId) {
             self.0.push(format!("exit-fullscreen {}", window.0));
+        }
+        fn inform_fullscreen(&mut self, window: WindowId, fullscreen: bool) {
+            self.0
+                .push(format!("inform-fullscreen {} {fullscreen}", window.0));
         }
         fn focus(&mut self, focus: Focus) {
             self.0.push(format!("focus {focus:?}"));
@@ -278,9 +303,10 @@ mod tests {
         Placement {
             window: WindowId(id),
             screen: ScreenId(1),
+            output: OutputId(1),
             rect,
             layer,
-            border: (layer != Layer::Fullscreen).then_some(Border {
+            border: (!layer.is_fullscreen()).then_some(Border {
                 width: 1,
                 color: RED,
             }),
@@ -294,9 +320,10 @@ mod tests {
             focus,
             screens: vec![ScreenArrangement {
                 screen: ScreenId(1),
-                bar: None,
+                output: OutputId(1),
                 tab_strip: None,
             }],
+            bar: None,
             prompt: None,
         }
     }
@@ -388,13 +415,74 @@ mod tests {
         );
         let mut out = Recorder::default();
         applied.manage(&full, &mut out);
-        assert_eq!(out.0, ["fullscreen 1 1", "borders 1 0"]);
+        assert_eq!(
+            out.0,
+            ["fullscreen 1 1", "inform-fullscreen 1 true", "borders 1 0"]
+        );
 
         let mut out = Recorder::default();
         applied.manage(&tiled, &mut out);
         assert_eq!(
             out.0,
-            ["exit-fullscreen 1", "propose 1 100x100", "borders 1 1"]
+            [
+                "exit-fullscreen 1",
+                "inform-fullscreen 1 false",
+                "propose 1 100x100",
+                "borders 1 1"
+            ]
+        );
+    }
+
+    #[test]
+    fn virtual_fullscreen_is_a_float_the_client_is_told_about() {
+        let mut applied = Applied::default();
+        let tiled = arrangement(
+            vec![placement(1, Rect::new(960, 24, 960, 1056), Layer::Tiled)],
+            vec![],
+            Focus::Window(WindowId(1)),
+        );
+        applied.manage(&tiled, &mut Recorder::default());
+        let full = arrangement(
+            vec![placement(
+                1,
+                Rect::new(960, 0, 960, 1080),
+                Layer::VirtualFullscreen,
+            )],
+            vec![],
+            Focus::Window(WindowId(1)),
+        );
+        let mut out = Recorder::default();
+        applied.manage(&full, &mut out);
+        assert_eq!(
+            out.0,
+            [
+                "inform-fullscreen 1 true",
+                "propose 1 960x1080",
+                "tiled 1 false",
+                "borders 1 0"
+            ]
+        );
+        // Unsplitting turns it into a river fullscreen window.
+        let whole = arrangement(
+            vec![placement(1, Rect::new(0, 0, 1920, 1080), Layer::Fullscreen)],
+            vec![],
+            Focus::Window(WindowId(1)),
+        );
+        let mut out = Recorder::default();
+        applied.manage(&whole, &mut out);
+        assert_eq!(out.0, ["fullscreen 1 1"]);
+        let mut out = Recorder::default();
+        applied.manage(&full, &mut out);
+        assert_eq!(out.0, ["exit-fullscreen 1", "propose 1 960x1080"]);
+
+        let mut out = Recorder::default();
+        render(&full, |_| Some(Size::new(960, 1080)), &[], &mut out);
+        assert_eq!(
+            out.0,
+            [
+                "position Window(WindowId(1)) 960,0",
+                "top Window(WindowId(1))"
+            ]
         );
     }
 
