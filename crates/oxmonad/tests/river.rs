@@ -1190,6 +1190,12 @@ fn picks_layouts() {
         .and_then(|names| names.iter().position(|n| n == "Grid"))
         .expect("Grid is offered");
     let card = rect(&picker["cards"][grid]);
+    // Hovering highlights the card under the pointer without applying it.
+    input.move_to(card[0] + card[2] / 2, card[1] + card[3] / 2);
+    wait_for("the hovered card to be selected", || {
+        session.state()["layout_picker"]["selected"] == grid
+    });
+    assert_eq!(layout(&session), "Tall");
     input.click_at(card[0] + card[2] / 2, card[1] + card[3] / 2);
     wait_for("the click to apply Grid", || {
         let state = session.state();

@@ -442,6 +442,14 @@ impl Wm {
         self.picker = Some(picker);
     }
 
+    /// Highlights the layout at ring index `index` in the open picker
+    /// without applying it (the entry under the pointer).
+    pub fn hover_layout(&mut self, index: usize) {
+        if let Some(picker) = self.picker.as_mut() {
+            picker.select(index);
+        }
+    }
+
     /// Switches the picker's workspace to the layout at ring index `index`
     /// (e.g. a clicked entry), keeping every layout's state, and closes the
     /// picker. Does nothing while the picker is closed.

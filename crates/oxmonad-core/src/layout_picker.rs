@@ -48,6 +48,14 @@ impl LayoutPicker {
         self.selected
     }
 
+    /// Selects the layout at ring index `index` without applying it (e.g.
+    /// under the pointer); out-of-range indices are ignored.
+    pub fn select(&mut self, index: usize) {
+        if index < self.count {
+            self.selected = index;
+        }
+    }
+
     /// Feeds one key into the picker: `j`, `Down`, `Right` and `Tab` select
     /// the next layout, `k`, `Up`, `Left` and `Shift+Tab` the previous one
     /// (both wrapping), `Return` or `space` apply the selection, `1`–`9` and
@@ -94,6 +102,17 @@ mod tests {
 
     fn picker(active: usize) -> LayoutPicker {
         LayoutPicker::new("1".into(), 4, active)
+    }
+
+    #[test]
+    fn select_moves_the_highlight_only_within_range() {
+        let mut p = picker(0);
+        p.select(2);
+        assert_eq!(p.selected(), 2);
+        p.select(7);
+        assert_eq!(p.selected(), 2);
+        // Selecting doesn't apply: Escape still cancels.
+        assert_eq!(p.handle_key(PromptKey::Escape), PickerOutcome::Cancel);
     }
 
     #[test]

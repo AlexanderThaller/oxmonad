@@ -519,6 +519,20 @@ impl Shells {
             .collect()
     }
 
+    /// What a click at surface-local `(x, y)` on the shell surface `surface`
+    /// would mean (for pointer hover over WM-drawn surfaces).
+    #[must_use]
+    pub fn at_local(&self, surface: &WlSurface, x: f64, y: f64, styles: &Styles) -> Option<Click> {
+        let (&node, found) = self.surfaces.iter().find(|(_, s)| &s.base == surface)?;
+        let rect = surface_rect(found.drawn.as_ref()?, styles);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "surface coordinates are small"
+        )]
+        let (x, y) = (x.floor() as i32, y.floor() as i32);
+        self.click(node, rect.x + x, rect.y + y, styles)
+    }
+
     /// What a click at global `(x, y)` on shell surface `node` means.
     #[must_use]
     pub fn click(&self, node: Node, x: i32, y: i32, styles: &Styles) -> Option<Click> {

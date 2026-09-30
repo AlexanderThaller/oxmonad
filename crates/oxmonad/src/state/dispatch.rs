@@ -82,6 +82,10 @@ use wayland_client::{
             self,
             WlOutput,
         },
+        wl_pointer::{
+            self,
+            WlPointer,
+        },
         wl_registry::{
             self,
             WlRegistry,
@@ -97,6 +101,7 @@ use wayland_client::{
 };
 
 use super::{
+    Click,
     Input,
     KeyBindingData,
     Output,
@@ -191,6 +196,9 @@ impl Dispatch<RiverWindowManagerV1, ()> for State {
                         layer,
                         wl: None,
                         keyboard: None,
+                        wl_pointer: None,
+                        pointer_surface: None,
+                        hovered_layout: None,
                         pointer: None,
                         pointer_before: None,
                         hovered: None,
@@ -493,6 +501,81 @@ impl Dispatch<WlSeat, SeatId> for State {
                 }
                 _ => {}
             }
+            let has_pointer = caps.contains(wl_seat::Capability::Pointer);
+            match (&seat.wl_pointer, has_pointer) {
+                (None, true) => seat.wl_pointer = Some(wl_seat.get_pointer(qh, *id)),
+                (Some(_), false) => {
+                    if let Some(pointer) = seat.wl_pointer.take()
+                        && pointer.version() >= 3
+                    {
+                        pointer.release();
+                    }
+                    seat.pointer_surface = None;
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+impl Dispatch<WlPointer, SeatId> for State {
+    fn event(
+        state: &mut Self,
+        _: &WlPointer,
+        event: wl_pointer::Event,
+        id: &SeatId,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let Some(seat) = state.seats.get_mut(id) else {
+            return;
+        };
+        let (x, y) = match event {
+            wl_pointer::Event::Enter {
+                surface,
+                surface_x,
+                surface_y,
+                ..
+            } => {
+                seat.pointer_surface = Some(surface);
+                (surface_x, surface_y)
+            }
+            wl_pointer::Event::Motion {
+                surface_x,
+                surface_y,
+                ..
+            } => (surface_x, surface_y),
+            wl_pointer::Event::Leave { .. } => {
+                seat.pointer_surface = None;
+                seat.hovered_layout = None;
+                return;
+            }
+            wl_pointer::Event::Button { .. }
+            | wl_pointer::Event::Axis { .. }
+            | wl_pointer::Event::Frame
+            | wl_pointer::Event::AxisSource { .. }
+            | wl_pointer::Event::AxisStop { .. }
+            | wl_pointer::Event::AxisDiscrete { .. }
+            | wl_pointer::Event::AxisValue120 { .. }
+            | wl_pointer::Event::AxisRelativeDirection { .. }
+            | _ => return,
+        };
+        // Only the layout picker reacts to hovering: the entry under the
+        // pointer becomes the selection, like j/k.
+        let Some(surface) = seat.pointer_surface.clone() else {
+            return;
+        };
+        let Some(Click::Layout(index)) = state.shells.at_local(&surface, x, y, &state.styles)
+        else {
+            return;
+        };
+        let Some(seat) = state.seats.get_mut(id) else {
+            return;
+        };
+        if seat.hovered_layout != Some(index) {
+            seat.hovered_layout = Some(index);
+            state.inputs.push_back(Input::PickerHover(index));
+            state.dirty();
         }
     }
 }

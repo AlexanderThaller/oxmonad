@@ -79,8 +79,10 @@ use wayland_client::{
     protocol::{
         wl_compositor::WlCompositor,
         wl_output::WlOutput,
+        wl_pointer::WlPointer,
         wl_seat::WlSeat,
         wl_shm::WlShm,
+        wl_surface::WlSurface,
     },
 };
 
@@ -232,6 +234,12 @@ struct Seat {
     layer: Option<RiverLayerShellSeatV1>,
     wl: Option<WlSeat>,
     keyboard: Option<Keyboard>,
+    /// The WM's own pointer, for hovering over its shell surfaces.
+    wl_pointer: Option<WlPointer>,
+    /// The shell surface under that pointer.
+    pointer_surface: Option<WlSurface>,
+    /// The layout picker entry last reported as hovered.
+    hovered_layout: Option<usize>,
     pointer: Option<(i32, i32)>,
     /// The pointer position in the previous manage sequence.
     pointer_before: Option<(i32, i32)>,
@@ -246,6 +254,11 @@ impl Seat {
         }
         if let Some(keyboard) = self.keyboard {
             keyboard.release();
+        }
+        if let Some(pointer) = self.wl_pointer
+            && pointer.version() >= 3
+        {
+            pointer.release();
         }
         if let Some(wl) = self.wl
             && wl.version() >= 5
@@ -299,6 +312,8 @@ enum Input {
     ResizeRequested(SeatId, WindowId),
     Fullscreen(WindowId, bool),
     Control(Command, Reply),
+    /// The pointer moved onto a layout picker entry.
+    PickerHover(usize),
     /// An action from outside, e.g. `restart` on `SIGUSR2`.
     Action(Action),
 }
@@ -787,6 +802,7 @@ impl State {
                 self.apply(Action::FloatResize, Some(seat));
             }
             Input::Fullscreen(window, on) => self.wm.request_fullscreen(window, on),
+            Input::PickerHover(index) => self.wm.hover_layout(index),
             Input::Control(command, reply) => {
                 if let Command::Action(action) = &command {
                     self.apply(action.clone(), None);
