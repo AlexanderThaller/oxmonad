@@ -26,6 +26,7 @@ use std::collections::{
 
 use serde::{
     Deserialize,
+    Deserializer,
     Serialize,
 };
 
@@ -79,12 +80,25 @@ impl Snapshot {
 pub struct WorkspaceSnapshot {
     /// The tag.
     pub tag: String,
-    /// The layout ring with each layout's state.
-    pub layout: LayoutRing,
+    /// The layout ring with each layout's state; `None` when it could not
+    /// be read (e.g. saved by a version with different layouts), in which
+    /// case the workspace gets the configured ring.
+    #[serde(default, deserialize_with = "lenient_ring")]
+    pub layout: Option<LayoutRing>,
     /// The windows in stack order (master first).
     pub windows: Vec<String>,
     /// The focused window.
     pub focus: Option<String>,
+}
+
+/// Reads a saved layout ring, or `None` if it doesn't parse, so a layout
+/// change between versions only resets layouts instead of rejecting the
+/// whole snapshot.
+fn lenient_ring<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<LayoutRing>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).ok())
 }
 
 /// One screen in a [`Snapshot`].
@@ -132,7 +146,7 @@ impl Wm {
             .workspaces()
             .map(|w| WorkspaceSnapshot {
                 tag: w.tag.clone(),
-                layout: w.layout.clone(),
+                layout: Some(w.layout.clone()),
                 windows: w.windows().into_iter().filter_map(&id_of).collect(),
                 focus: w.focus().and_then(&id_of),
             })
@@ -189,8 +203,10 @@ impl Wm {
         let template = self.stack_set.layout_template().clone();
         let mut stack_set = StackSet::new(&order, template.clone());
         for saved in &snapshot.workspaces {
-            if let Some(workspace) = stack_set.workspace_mut(&saved.tag) {
-                workspace.layout = template.restore(&saved.layout);
+            if let Some(workspace) = stack_set.workspace_mut(&saved.tag)
+                && let Some(layout) = &saved.layout
+            {
+                workspace.layout = template.restore(layout);
             }
         }
         for tag in &self.config.workspaces {

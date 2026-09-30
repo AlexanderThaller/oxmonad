@@ -305,12 +305,8 @@ fn tabbed_and_full_round_trip() {
     let restored = restore_with(snap(&original), &[DP1], &[3, 1, 2]);
     assert_same(&original, &restored);
     assert_eq!(
-        restored
-            .stack_set()
-            .current_workspace()
-            .layout
-            .description(),
-        "Tabbed Simplest"
+        restored.stack_set().current_workspace().layout.name(),
+        "Tabs"
     );
 }
 
@@ -792,11 +788,36 @@ fn incompatible_layout_rings_fall_back_to_the_configuration() {
     let mut s = snap(&original);
     let mut old = LayoutRing::new(vec![Layout::Full, Layout::Grid]);
     old.next();
-    s.workspaces[0].layout = old;
+    s.workspaces[0].layout = Some(old);
     let restored = restore_with(s, &[DP1], &[1]);
     let ring = &restored.stack_set().current_workspace().layout;
-    let template = LayoutRing::xmonad_default(Config::defaults().tabs.height);
+    let template = LayoutRing::standard(Config::defaults().tabs.height);
     assert_eq!(ring.len(), template.len());
-    assert_eq!(ring.description(), "Grid");
+    assert_eq!(ring.name(), "Grid");
     assert_eq!(ring.index(), 6);
+}
+
+#[test]
+fn unreadable_layouts_only_reset_the_layout() {
+    let mut original = wm();
+    original.manage(w(1), window_info(1));
+    original.manage(w(2), window_info(2));
+    let mut json = serde_json::to_value(snap(&original)).expect("serialize");
+    // A layout variant this version doesn't know (e.g. an old name).
+    json["workspaces"][0]["layout"] =
+        serde_json::json!({ "layouts": [{ "ReflectX": "Grid" }], "current": 0 });
+    let s: Snapshot = serde_json::from_value(json).expect("the snapshot still loads");
+    assert_eq!(s.workspaces[0].layout, None);
+    let restored = restore_with(s, &[DP1], &[1, 2]);
+    let ring = &restored.stack_set().current_workspace().layout;
+    assert_eq!(*ring, LayoutRing::standard(Config::defaults().tabs.height));
+    assert_eq!(
+        restored
+            .stack_set()
+            .current_workspace()
+            .stack
+            .as_ref()
+            .map(crate::stack_set::Stack::len),
+        Some(2)
+    );
 }

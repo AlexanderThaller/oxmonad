@@ -17,7 +17,7 @@ use serde::{
 
 /// xmonad-contrib's `ResizableTall`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ResizableTall {
+pub struct Tall {
     /// Number of windows in the master column.
     pub nmaster: usize,
     /// Step for `Shrink`/`Expand`/`MirrorShrink`/`MirrorExpand`.
@@ -29,7 +29,7 @@ pub struct ResizableTall {
     pub slaves: Vec<Ratio>,
 }
 
-impl ResizableTall {
+impl Tall {
     /// `ResizableTall nmaster delta frac []`.
     #[must_use]
     pub fn new(nmaster: usize, delta: Ratio, frac: Ratio) -> Self {

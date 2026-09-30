@@ -416,5 +416,5 @@ impl Wm {
 
 /// The layout ring the configuration asks for.
 fn layout_ring(config: &Config) -> LayoutRing {
-    LayoutRing::xmonad_default(config.tabs.height)
+    LayoutRing::standard(config.tabs.height)
 }

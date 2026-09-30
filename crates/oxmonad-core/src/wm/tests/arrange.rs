@@ -36,7 +36,7 @@ fn default_layout_reflects_tall_with_borders() {
     let mut wm = wm();
     manage_all(&mut wm, [1, 2]);
     let a = wm.arrange();
-    // ReflectX ResizableTall: master (2) on the right 3/5, stack on the left.
+    // Tall Right: master (2) on the right 3/5, stack on the left.
     let master = a.placement(w(2)).expect("placed");
     assert_eq!(master.rect, Rect::new(769, 25, 1150, 1054));
     assert_eq!(master.layer, Layer::Tiled);

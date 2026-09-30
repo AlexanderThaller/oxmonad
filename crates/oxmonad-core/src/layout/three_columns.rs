@@ -20,7 +20,7 @@ use serde::{
 
 /// xmonad-contrib's `ThreeCol` (not `ThreeColMid`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ThreeCol {
+pub struct ThreeColumns {
     /// Number of windows in the master column.
     pub nmaster: usize,
     /// Step for `Shrink`/`Expand`.
@@ -30,7 +30,7 @@ pub struct ThreeCol {
     pub frac: Ratio,
 }
 
-impl ThreeCol {
+impl ThreeColumns {
     /// `ThreeCol nmaster delta frac`.
     #[must_use]
     pub const fn new(nmaster: usize, delta: Ratio, frac: Ratio) -> Self {

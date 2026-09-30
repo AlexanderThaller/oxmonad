@@ -10,13 +10,13 @@
 mod grid;
 mod split;
 mod tall;
-mod three_col;
+mod three_columns;
 
 #[cfg(test)]
 mod tests;
 
-pub use tall::ResizableTall;
-pub use three_col::ThreeCol;
+pub use tall::Tall;
+pub use three_columns::ThreeColumns;
 
 use crate::geometry::{
     Ratio,
@@ -96,9 +96,9 @@ impl LayoutOutput {
 #[serde(rename_all = "kebab-case")]
 pub enum Layout {
     /// `ResizableTall`.
-    Tall(ResizableTall),
+    Tall(Tall),
     /// `ThreeCol`.
-    ThreeCol(ThreeCol),
+    ThreeColumns(ThreeColumns),
     /// `Grid` (aspect ratio 16/9).
     Grid,
     /// `Full`: only the focused window, covering the area.
@@ -112,7 +112,7 @@ pub enum Layout {
     /// `Mirror`: the inner layout rotated by 90 degrees.
     Mirror(Box<Layout>),
     /// `reflectHoriz`: the inner layout flipped left to right.
-    ReflectX(Box<Layout>),
+    Reflect(Box<Layout>),
     /// `noBorders`: the inner layout without window borders.
     NoBorders(Box<Layout>),
 }
@@ -128,7 +128,7 @@ impl Layout {
         let focus = focus.min(n - 1);
         match self {
             Self::Tall(tall) => LayoutOutput::all(tall.arrange(area, n)),
-            Self::ThreeCol(cols) => LayoutOutput::all(cols.arrange(area, n)),
+            Self::ThreeColumns(cols) => LayoutOutput::all(cols.arrange(area, n)),
             Self::Grid => LayoutOutput::all(grid::arrange(area, n)),
             Self::Full => LayoutOutput {
                 rects: vec![(focus, area)],
@@ -138,7 +138,7 @@ impl Layout {
             Self::Mirror(inner) => inner
                 .arrange(area.transposed(), n, focus)
                 .map(|r| r.transposed()),
-            Self::ReflectX(inner) => inner
+            Self::Reflect(inner) => inner
                 .arrange(area, n, focus)
                 .map(|r| Rect::new(2 * area.x + area.w - r.x - r.w, r.y, r.w, r.h)),
             Self::NoBorders(inner) => inner.arrange(area, n, focus),
@@ -149,53 +149,37 @@ impl Layout {
     pub fn handle(&mut self, msg: LayoutMessage, ctx: LayoutContext) -> bool {
         match self {
             Self::Tall(tall) => tall.handle(msg, ctx),
-            Self::ThreeCol(cols) => cols.handle(msg),
+            Self::ThreeColumns(cols) => cols.handle(msg),
             Self::Grid | Self::Full | Self::Tabbed { .. } => false,
-            Self::Mirror(inner) | Self::ReflectX(inner) | Self::NoBorders(inner) => {
+            Self::Mirror(inner) | Self::Reflect(inner) | Self::NoBorders(inner) => {
                 inner.handle(msg, ctx)
             }
         }
     }
 
-    /// The name shown in the bar: plain words for where the master
-    /// window goes, instead of xmonad's modifier chains (see
-    /// [`Self::description`]).
+    /// The layout's name, shown in the bar: plain words for where the
+    /// master window goes. Unique within the standard ring, so it also
+    /// identifies a layout when restoring a saved ring.
     #[must_use]
     pub fn name(&self) -> String {
         match self {
             Self::Tall(_) => "Tall".to_owned(),
-            Self::ThreeCol(_) => "Three Columns".to_owned(),
+            Self::ThreeColumns(_) => "Three Columns".to_owned(),
             Self::Grid => "Grid".to_owned(),
             Self::Full => "Full".to_owned(),
             Self::Tabbed { .. } => "Tabs".to_owned(),
             Self::Mirror(inner) => match **inner {
                 Self::Tall(_) => "Wide".to_owned(),
                 Self::Grid => "Grid Rows".to_owned(),
-                Self::ThreeCol(_)
+                Self::ThreeColumns(_)
                 | Self::Full
                 | Self::Tabbed { .. }
                 | Self::Mirror(_)
-                | Self::ReflectX(_)
+                | Self::Reflect(_)
                 | Self::NoBorders(_) => format!("{} Mirrored", inner.name()),
             },
-            Self::ReflectX(inner) => format!("{} Right", inner.name()),
+            Self::Reflect(inner) => format!("{} Right", inner.name()),
             Self::NoBorders(inner) => inner.name(),
-        }
-    }
-
-    /// xmonad's `description`. Not shown to users; it identifies a layout
-    /// in restart snapshots, so it must stay stable.
-    #[must_use]
-    pub fn description(&self) -> String {
-        match self {
-            Self::Tall(_) => "ResizableTall".to_owned(),
-            Self::ThreeCol(_) => "ThreeCol".to_owned(),
-            Self::Grid => "Grid".to_owned(),
-            Self::Full => "Full".to_owned(),
-            Self::Tabbed { .. } => "Tabbed Simplest".to_owned(),
-            Self::Mirror(inner) => format!("Mirror {}", inner.description()),
-            Self::ReflectX(inner) => modified("ReflectX", &inner.description()),
-            Self::NoBorders(inner) => modified("", &inner.description()),
         }
     }
 
@@ -204,21 +188,13 @@ impl Layout {
     pub fn has_borders(&self) -> bool {
         match self {
             Self::NoBorders(_) => false,
-            Self::Mirror(inner) | Self::ReflectX(inner) => inner.has_borders(),
-            Self::Tall(_) | Self::ThreeCol(_) | Self::Grid | Self::Full | Self::Tabbed { .. } => {
-                true
-            }
+            Self::Mirror(inner) | Self::Reflect(inner) => inner.has_borders(),
+            Self::Tall(_)
+            | Self::ThreeColumns(_)
+            | Self::Grid
+            | Self::Full
+            | Self::Tabbed { .. } => true,
         }
-    }
-}
-
-/// `LayoutModifier`'s description join: a space only between two
-/// non-empty parts.
-fn modified(modifier: &str, inner: &str) -> String {
-    match (modifier.is_empty(), inner.is_empty()) {
-        (true, _) => inner.to_owned(),
-        (false, true) => modifier.to_owned(),
-        (false, false) => format!("{modifier} {inner}"),
     }
 }
 
@@ -277,11 +253,12 @@ impl LayoutRing {
     /// `tiled = ResizableTall 1 (3/100) (3/5) []` and
     /// `ThreeCol 1 (3/100) (1/2)`.
     #[must_use]
-    pub fn xmonad_default(tab_height: i32) -> Self {
-        let tiled = || Layout::Tall(ResizableTall::new(1, Ratio::new(3, 100), Ratio::new(3, 5)));
-        let three = || Layout::ThreeCol(ThreeCol::new(1, Ratio::new(3, 100), Ratio::new(1, 2)));
+    pub fn standard(tab_height: i32) -> Self {
+        let tiled = || Layout::Tall(Tall::new(1, Ratio::new(3, 100), Ratio::new(3, 5)));
+        let three =
+            || Layout::ThreeColumns(ThreeColumns::new(1, Ratio::new(3, 100), Ratio::new(1, 2)));
         Self::new(vec![
-            Layout::ReflectX(Box::new(tiled())),
+            Layout::Reflect(Box::new(tiled())),
             tiled(),
             Layout::Mirror(Box::new(tiled())),
             Layout::NoBorders(Box::new(Layout::Full)),
@@ -289,18 +266,18 @@ impl LayoutRing {
             Layout::Mirror(Box::new(Layout::Grid)),
             Layout::Grid,
             three(),
-            Layout::ReflectX(Box::new(three())),
+            Layout::Reflect(Box::new(three())),
         ])
     }
 
     /// The ring to use for a workspace whose ring was `saved` (e.g. before
     /// a restart), with `self` being the configured ring.
     ///
-    /// If `saved` has the same layouts as `self` (by description), it is
+    /// If `saved` has the same layouts as `self` (by name), it is
     /// kept with every entry's state; only the `tabbed` entries take the
     /// configured tab height. Otherwise `self` is used, switched to the
     /// layout `saved` had active if the configured ring has one with that
-    /// description.
+    /// name.
     #[must_use]
     pub fn restore(&self, saved: &Self) -> Self {
         let compatible = saved.current < saved.layouts.len()
@@ -309,7 +286,7 @@ impl LayoutRing {
                 .layouts
                 .iter()
                 .zip(&self.layouts)
-                .all(|(a, b)| a.description() == b.description());
+                .all(|(a, b)| a.name() == b.name());
         if compatible {
             let layouts = saved
                 .layouts
@@ -329,8 +306,8 @@ impl LayoutRing {
             };
         }
         let mut ring = self.clone();
-        if let Some(active) = saved.layouts.get(saved.current).map(Layout::description)
-            && let Some(index) = ring.layouts.iter().position(|l| l.description() == active)
+        if let Some(active) = saved.layouts.get(saved.current).map(Layout::name)
+            && let Some(index) = ring.layouts.iter().position(|l| l.name() == active)
         {
             ring.current = index;
         }
@@ -381,12 +358,6 @@ impl LayoutRing {
     /// Sends a message to the active layout (see [`Layout::handle`]).
     pub fn handle(&mut self, msg: LayoutMessage, ctx: LayoutContext) -> bool {
         self.current_mut().handle(msg, ctx)
-    }
-
-    /// Description of the active layout (see [`Layout::description`]).
-    #[must_use]
-    pub fn description(&self) -> String {
-        self.current().description()
     }
 
     /// Display name of the active layout (see [`Layout::name`]).

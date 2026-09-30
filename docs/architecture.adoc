@@ -109,6 +109,15 @@ Layouts are pure functions `arrange(&self, area: Rect, n: usize, focus: usize)
 tabbed ||| Mirror Grid ||| Grid ||| ThreeCol ||| reflectHoriz ThreeCol` with
 `tiled = ResizableTall 1 (3/100) (3/5) []` and `ThreeCol 1 (3/100) (1/2)`.
 
+In code the ring is `LayoutRing::standard`: `Tall Right`, `Tall`, `Wide`,
+`Full`, `Tabs`, `Grid Rows`, `Grid`, `Three Columns`, `Three Columns Right`,
+built from the `Layout` variants `Tall`, `ThreeColumns`, `Grid`, `Full`,
+`Tabbed` and the modifiers `Mirror`, `Reflect` and `NoBorders`.
+`Layout::name` is both the bar text and the identity used when restoring a
+saved ring; a saved ring that no longer parses (layouts renamed or removed)
+only resets that workspace's layouts, the rest of a restart snapshot still
+applies.
+
 Each ring entry keeps its own state; `NextLayout` rotates, `ResetLayout`
 rebuilds the ring from config. Messages: `Shrink`, `Expand`,
 `IncMasterN(i32)`, `MirrorShrink`, `MirrorExpand`. Integer rounding must

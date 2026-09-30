@@ -16,7 +16,7 @@ pub(super) const fn r(x: i32, y: i32, w: i32, h: i32) -> Rect {
 }
 
 fn ring_at(index: usize) -> LayoutRing {
-    let mut ring = LayoutRing::xmonad_default(20);
+    let mut ring = LayoutRing::standard(20);
     for _ in 0..index {
         ring.next();
     }
@@ -39,14 +39,14 @@ pub(super) fn assert_ring_entry(index: usize, area: Rect, cases: &[(usize, Vec<R
                     tabs: None,
                 },
                 "{} with {n} windows, focus {focus}",
-                ring.description()
+                ring.name()
             );
         }
     }
 }
 
-fn tall() -> ResizableTall {
-    ResizableTall::new(1, Ratio::new(3, 100), Ratio::new(3, 5))
+fn tall() -> Tall {
+    Tall::new(1, Ratio::new(3, 100), Ratio::new(3, 5))
 }
 
 fn ctx(focus: usize, count: usize) -> LayoutContext {
@@ -57,33 +57,8 @@ fn ctx(focus: usize, count: usize) -> LayoutContext {
 }
 
 #[test]
-fn descriptions_match_xmonad() {
-    let mut ring = LayoutRing::xmonad_default(20);
-    let mut names = Vec::new();
-    for _ in 0..ring.len() {
-        names.push(ring.description());
-        ring.next();
-    }
-    assert_eq!(
-        names,
-        [
-            "ReflectX ResizableTall",
-            "ResizableTall",
-            "Mirror ResizableTall",
-            "Full",
-            "Tabbed Simplest",
-            "Mirror Grid",
-            "Grid",
-            "ThreeCol",
-            "ReflectX ThreeCol",
-        ]
-    );
-    assert_eq!(ring.index(), 0, "next wraps around");
-}
-
-#[test]
 fn names_describe_where_the_master_goes() {
-    let mut ring = LayoutRing::xmonad_default(20);
+    let mut ring = LayoutRing::standard(20);
     let mut names = Vec::new();
     for _ in 0..ring.len() {
         names.push(ring.name());
@@ -107,7 +82,7 @@ fn names_describe_where_the_master_goes() {
 
 #[test]
 fn only_no_borders_full_drops_borders() {
-    let mut ring = LayoutRing::xmonad_default(20);
+    let mut ring = LayoutRing::standard(20);
     let mut borders = Vec::new();
     for _ in 0..ring.len() {
         borders.push(ring.has_borders());
@@ -117,7 +92,7 @@ fn only_no_borders_full_drops_borders() {
         borders,
         [true, true, true, false, true, true, true, true, true]
     );
-    assert!(!Layout::ReflectX(Box::new(Layout::NoBorders(Box::new(Layout::Grid)))).has_borders());
+    assert!(!Layout::Reflect(Box::new(Layout::NoBorders(Box::new(Layout::Grid)))).has_borders());
 }
 
 #[test]
@@ -130,7 +105,7 @@ fn empty_ring_falls_back_to_full() {
 
 #[test]
 fn zero_windows_arrange_to_nothing() {
-    let mut ring = LayoutRing::xmonad_default(20);
+    let mut ring = LayoutRing::standard(20);
     for _ in 0..ring.len() {
         assert_eq!(ring.arrange(FHD, 0, 0), LayoutOutput::default());
         ring.next();
@@ -220,7 +195,7 @@ fn tabbed_geometry() {
 
 #[test]
 fn reflected_tabbed_mirrors_the_tabs() {
-    let layout = Layout::ReflectX(Box::new(Layout::Tabbed { tab_height: 20 }));
+    let layout = Layout::Reflect(Box::new(Layout::Tabbed { tab_height: 20 }));
     let tabs = layout.arrange(FHD, 2, 0).tabs.expect("tabs shown");
     assert_eq!(tabs.tabs, vec![r(960, 0, 960, 20), r(0, 0, 960, 20)]);
     assert_eq!(tabs.strip, r(0, 0, 1920, 20));
@@ -274,9 +249,9 @@ fn tall_ignores_messages_without_tiled_focus() {
         assert!(!t.handle(msg, none));
     }
     assert_eq!(t, tall());
-    let mut ring = LayoutRing::xmonad_default(20);
+    let mut ring = LayoutRing::standard(20);
     assert!(!ring.handle(LayoutMessage::Expand, none));
-    assert_eq!(ring, LayoutRing::xmonad_default(20));
+    assert_eq!(ring, LayoutRing::standard(20));
 }
 
 #[test]
@@ -398,7 +373,7 @@ fn tall_inc_master() {
 
 #[test]
 fn three_col_messages() {
-    let mut cols = ThreeCol::new(1, Ratio::new(3, 100), Ratio::new(1, 2));
+    let mut cols = ThreeColumns::new(1, Ratio::new(3, 100), Ratio::new(1, 2));
     assert!(cols.handle(LayoutMessage::Expand));
     assert_eq!(cols.frac, Ratio::new(53, 100));
     assert!(!cols.handle(LayoutMessage::MirrorExpand));
@@ -444,7 +419,7 @@ fn three_col_handles_messages_without_tiled_focus() {
 #[test]
 fn three_col_odd_width_uses_ceiling() {
     // r1w = ceiling (1001 / 2) = 501, r2w = ceiling (500 / 2) = 250.
-    let cols = ThreeCol::new(1, Ratio::new(3, 100), Ratio::new(1, 2));
+    let cols = ThreeColumns::new(1, Ratio::new(3, 100), Ratio::new(1, 2));
     assert_eq!(
         cols.arrange(r(0, 0, 1001, 100), 3),
         [r(0, 0, 501, 100), r(501, 0, 250, 100), r(751, 0, 250, 100)]
@@ -497,7 +472,7 @@ fn grid_ignores_messages() {
 
 #[test]
 fn ring_keeps_per_entry_state() {
-    let mut ring = LayoutRing::xmonad_default(20);
+    let mut ring = LayoutRing::standard(20);
     // Shrink the reflected tall layout, then cycle all the way round.
     assert!(ring.handle(LayoutMessage::Shrink, ctx(0, 2)));
     ring.next();
@@ -528,13 +503,13 @@ fn mirror_tall_messages_pass_through() {
     );
 }
 
-fn tall_of(ring: &LayoutRing, index: usize) -> ResizableTall {
+fn tall_of(ring: &LayoutRing, index: usize) -> Tall {
     let mut ring = ring.clone();
     while ring.index() != index {
         ring.next();
     }
     let mut layout = ring.current();
-    if let Layout::ReflectX(inner) | Layout::Mirror(inner) = layout {
+    if let Layout::Reflect(inner) | Layout::Mirror(inner) = layout {
         layout = inner.as_ref();
     }
     let Layout::Tall(tall) = layout else {
@@ -545,8 +520,8 @@ fn tall_of(ring: &LayoutRing, index: usize) -> ResizableTall {
 
 #[test]
 fn restore_keeps_a_compatible_ring() {
-    let template = LayoutRing::xmonad_default(20);
-    let mut saved = LayoutRing::xmonad_default(30);
+    let template = LayoutRing::standard(20);
+    let mut saved = LayoutRing::standard(30);
     let ctx = LayoutContext {
         focus: Some(1),
         count: 3,
@@ -564,7 +539,7 @@ fn restore_keeps_a_compatible_ring() {
     assert_ne!(tall_of(&restored, 0), tall_of(&template, 0));
     // Tabbed takes the configured tab height.
     let mut tabbed = restored.clone();
-    while tabbed.description() != "Tabbed Simplest" {
+    while tabbed.name() != "Tabs" {
         tabbed.next();
     }
     assert_eq!(tabbed.current(), &Layout::Tabbed { tab_height: 20 });
@@ -572,15 +547,15 @@ fn restore_keeps_a_compatible_ring() {
 
 #[test]
 fn restore_falls_back_to_the_template() {
-    let template = LayoutRing::xmonad_default(20);
+    let template = LayoutRing::standard(20);
     // A different ring: the template, on the layout with the same name.
     let mut saved = LayoutRing::new(vec![Layout::Full, Layout::Grid]);
     saved.next();
     let restored = template.restore(&saved);
-    assert_eq!(restored.description(), "Grid");
+    assert_eq!(restored.name(), "Grid");
     assert_eq!(restored.index(), 6);
     assert_eq!(restored.len(), template.len());
-    // `Full` matches `noBorders Full` (same description).
+    // `Full` matches `noBorders Full` (same name).
     let saved = LayoutRing::new(vec![Layout::Full]);
     assert_eq!(template.restore(&saved).index(), 3);
     // No layout with that name: the first one.
@@ -595,7 +570,7 @@ fn restore_falls_back_to_the_template() {
 
 #[test]
 fn restore_rejects_an_out_of_range_index() {
-    let template = LayoutRing::xmonad_default(20);
+    let template = LayoutRing::standard(20);
     let mut json = serde_json::to_value(&template).expect("serializes");
     json["current"] = serde_json::json!(99);
     let saved: LayoutRing = serde_json::from_value(json).expect("deserializes");
@@ -604,7 +579,7 @@ fn restore_rejects_an_out_of_range_index() {
 
 #[test]
 fn ring_round_trips_through_json() {
-    let mut ring = LayoutRing::xmonad_default(20);
+    let mut ring = LayoutRing::standard(20);
     ring.handle(
         LayoutMessage::Shrink,
         LayoutContext {

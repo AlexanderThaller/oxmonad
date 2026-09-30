@@ -22,7 +22,7 @@ fn tags(n: usize) -> Vec<String> {
 }
 
 fn new_set(n: usize) -> StackSet {
-    StackSet::new(&tags(n), LayoutRing::xmonad_default(20))
+    StackSet::new(&tags(n), LayoutRing::standard(20))
 }
 
 /// A stack set with 9 workspaces and one 1920x1080 screen.
@@ -94,7 +94,7 @@ fn new_is_headless_with_first_tag_current() {
     assert_eq!(s.screens().len(), 0);
     assert_eq!(s.current_tag(), "1");
     assert_eq!(hidden_tags(&s), ["2", "3"]);
-    let empty = StackSet::new(&[], LayoutRing::xmonad_default(20));
+    let empty = StackSet::new(&[], LayoutRing::standard(20));
     assert_eq!(empty.current_tag(), "1");
 }
 

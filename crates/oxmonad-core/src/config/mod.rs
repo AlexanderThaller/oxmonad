@@ -159,7 +159,7 @@ pub struct BarColors {
     pub hidden_empty: Color,
     /// The focused window title (`ppTitle`).
     pub title: Color,
-    /// The layout description (`ppLayout`).
+    /// The layout name (`ppLayout`).
     pub layout: Color,
 }
 
