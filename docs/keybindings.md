@@ -65,6 +65,7 @@ pictures are generated from the layout code itself (regenerate with
 | Grid | <img src="layouts/grid.svg" width="160" alt="Grid"> | grid filled column by column | `Grid` |
 | Three Columns | <img src="layouts/three-columns.svg" width="160" alt="Three Columns"> | wide master column on the left, stack split over two columns | `ThreeCol` |
 | Three Columns Right | <img src="layouts/three-columns-right.svg" width="160" alt="Three Columns Right"> | mirror image of Three Columns | `reflectHoriz ThreeCol` |
+| Corner | <img src="layouts/corner.svg" width="160" alt="Corner"> | master in the top-left corner (⅔ × ⅔), the others in an L around it: a column down the right edge and a row below the master (split 3 : 2; five windows make a 3 × 3 grid). `Mod+h`/`Mod+l` change the master's width, `Mod+Up`/`Mod+Down` its height | none (oxmonad only) |
 
 Each workspace cycles independently and each layout keeps its own state.
 

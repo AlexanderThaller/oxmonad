@@ -7,6 +7,7 @@
 //! `l1 ||| l2 ||| …` choice: every entry keeps its own state and
 //! [`LayoutRing::next`] rotates between them.
 
+mod corner;
 mod grid;
 mod split;
 mod tall;
@@ -15,6 +16,7 @@ mod three_columns;
 #[cfg(test)]
 mod tests;
 
+pub use corner::Corner;
 pub use tall::Tall;
 pub use three_columns::ThreeColumns;
 
@@ -99,6 +101,8 @@ pub enum Layout {
     Tall(Tall),
     /// `ThreeCol`.
     ThreeColumns(ThreeColumns),
+    /// The master in the top-left corner, the others in an L around it.
+    Corner(Corner),
     /// `Grid` (aspect ratio 16/9).
     Grid,
     /// `Full`: only the focused window, covering the area.
@@ -129,6 +133,7 @@ impl Layout {
         match self {
             Self::Tall(tall) => LayoutOutput::all(tall.arrange(area, n)),
             Self::ThreeColumns(cols) => LayoutOutput::all(cols.arrange(area, n)),
+            Self::Corner(corner) => LayoutOutput::all(corner.arrange(area, n)),
             Self::Grid => LayoutOutput::all(grid::arrange(area, n)),
             Self::Full => LayoutOutput {
                 rects: vec![(focus, area)],
@@ -150,6 +155,7 @@ impl Layout {
         match self {
             Self::Tall(tall) => tall.handle(msg, ctx),
             Self::ThreeColumns(cols) => cols.handle(msg),
+            Self::Corner(corner) => ctx.focus.is_some() && corner.handle(msg),
             Self::Grid | Self::Full | Self::Tabbed { .. } => false,
             Self::Mirror(inner) | Self::Reflect(inner) | Self::NoBorders(inner) => {
                 inner.handle(msg, ctx)
@@ -165,6 +171,7 @@ impl Layout {
         match self {
             Self::Tall(_) => "Tall".to_owned(),
             Self::ThreeColumns(_) => "Three Columns".to_owned(),
+            Self::Corner(_) => "Corner".to_owned(),
             Self::Grid => "Grid".to_owned(),
             Self::Full => "Full".to_owned(),
             Self::Tabbed { .. } => "Tabs".to_owned(),
@@ -172,6 +179,7 @@ impl Layout {
                 Self::Tall(_) => "Wide".to_owned(),
                 Self::Grid => "Grid Rows".to_owned(),
                 Self::ThreeColumns(_)
+                | Self::Corner(_)
                 | Self::Full
                 | Self::Tabbed { .. }
                 | Self::Mirror(_)
@@ -191,6 +199,7 @@ impl Layout {
             Self::Mirror(inner) | Self::Reflect(inner) => inner.has_borders(),
             Self::Tall(_)
             | Self::ThreeColumns(_)
+            | Self::Corner(_)
             | Self::Grid
             | Self::Full
             | Self::Tabbed { .. } => true,
@@ -247,9 +256,10 @@ impl LayoutRing {
         }
     }
 
-    /// The reference config's `myLayout`: `reflectHoriz tiled ||| tiled |||
-    /// Mirror tiled ||| noBorders Full ||| tabbed ||| Mirror Grid ||| Grid
-    /// ||| ThreeCol ||| reflectHoriz ThreeCol` with
+    /// The reference config's `myLayout` followed by `Corner`:
+    /// `reflectHoriz tiled ||| tiled ||| Mirror tiled ||| noBorders Full |||
+    /// tabbed ||| Mirror Grid ||| Grid ||| ThreeCol ||| reflectHoriz ThreeCol
+    /// ||| Corner` with
     /// `tiled = ResizableTall 1 (3/100) (3/5) []` and
     /// `ThreeCol 1 (3/100) (1/2)`.
     #[must_use]
@@ -267,6 +277,11 @@ impl LayoutRing {
             Layout::Grid,
             three(),
             Layout::Reflect(Box::new(three())),
+            Layout::Corner(Corner::new(
+                Ratio::new(3, 100),
+                Ratio::new(2, 3),
+                Ratio::new(2, 3),
+            )),
         ])
     }
 

@@ -76,6 +76,7 @@ fn names_describe_where_the_master_goes() {
             "Grid",
             "Three Columns",
             "Three Columns Right",
+            "Corner",
         ]
     );
 }
@@ -90,7 +91,7 @@ fn only_no_borders_full_drops_borders() {
     }
     assert_eq!(
         borders,
-        [true, true, true, false, true, true, true, true, true]
+        [true, true, true, false, true, true, true, true, true, true]
     );
     assert!(!Layout::Reflect(Box::new(Layout::NoBorders(Box::new(Layout::Grid)))).has_borders());
 }
@@ -591,4 +592,89 @@ fn ring_round_trips_through_json() {
     let json = serde_json::to_string(&ring).expect("serializes");
     let read: LayoutRing = serde_json::from_str(&json).expect("deserializes");
     assert_eq!(read, ring);
+}
+
+fn corner() -> Corner {
+    Corner::new(Ratio::new(3, 100), Ratio::new(2, 3), Ratio::new(2, 3))
+}
+
+const QHD: Rect = Rect {
+    x: 0,
+    y: 0,
+    w: 2560,
+    h: 1440,
+};
+
+#[test]
+fn corner_with_few_windows_is_a_master_column() {
+    assert_eq!(corner().arrange(QHD, 1), [QHD]);
+    // Up to two others: all in the right column, the master full height.
+    assert_eq!(
+        corner().arrange(QHD, 3),
+        [
+            Rect::new(0, 0, 1706, 1440),
+            Rect::new(1706, 0, 854, 720),
+            Rect::new(1706, 720, 854, 720),
+        ]
+    );
+}
+
+#[test]
+fn corner_puts_the_others_in_an_l_around_the_master() {
+    // Four others: three down the right edge, one below the master.
+    assert_eq!(
+        corner().arrange(QHD, 5),
+        [
+            Rect::new(0, 0, 1706, 960),
+            Rect::new(1706, 0, 854, 480),
+            Rect::new(1706, 480, 854, 480),
+            Rect::new(1706, 960, 854, 480),
+            Rect::new(0, 960, 1706, 480),
+        ]
+    );
+    // Five others: the 3 x 3 grid with a 2 x 2 master.
+    let six = corner().arrange(QHD, 6);
+    assert_eq!(six[0], Rect::new(0, 0, 1706, 960));
+    assert_eq!(
+        &six[4..],
+        [Rect::new(0, 960, 853, 480), Rect::new(853, 960, 853, 480)]
+    );
+}
+
+#[test]
+fn corner_tiles_the_whole_area() {
+    for n in 1..=12 {
+        let rects = corner().arrange(QHD, n);
+        assert_eq!(rects.len(), n);
+        let area: i64 = rects.iter().map(|r| i64::from(r.w) * i64::from(r.h)).sum();
+        assert_eq!(area, i64::from(QHD.w) * i64::from(QHD.h), "{n} windows");
+        for (i, a) in rects.iter().enumerate() {
+            for b in &rects[i + 1..] {
+                let overlap =
+                    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+                assert!(!overlap, "{n} windows: {a:?} overlaps {b:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn corner_resizes_the_master() {
+    let mut layout = Layout::Corner(corner());
+    let ctx = LayoutContext {
+        focus: Some(0),
+        count: 5,
+    };
+    assert!(layout.handle(LayoutMessage::Expand, ctx));
+    assert!(layout.handle(LayoutMessage::MirrorExpand, ctx));
+    let master = layout.arrange(QHD, 5, 0).rects[0].1;
+    // (2/3 + 3/100) of 2560 x 1440.
+    assert_eq!(master, Rect::new(0, 0, 1783, 1003));
+    assert!(!layout.handle(LayoutMessage::IncMasterN(1), ctx));
+    // Nothing to resize without a tiled focus.
+    let none = LayoutContext {
+        focus: None,
+        count: 0,
+    };
+    assert!(!layout.handle(LayoutMessage::Shrink, none));
 }
