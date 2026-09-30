@@ -15,9 +15,12 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 calloop = "0.14"
 calloop-wayland-source = "0.4"
-kbvm = "0.1"
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-signal-hook = "0.3"
+kbvm = "0.2"
+chrono = { version = "0.4", default-features = false, features = [
+  "clock",
+  "std",
+] }
+signal-hook = "0.4"
 rustix = { version = "1", features = ["fs", "process"] }
 serde_json = "1"
 

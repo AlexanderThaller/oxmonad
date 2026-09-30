@@ -6,9 +6,12 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-fontdb = "0.23"
+fontdb = "0.24"
 skrifa = "0.47"
-tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+tiny-skia = { version = "0.12", default-features = false, features = [
+  "std",
+  "simd",
+] }
 zeno = { version = "0.3", default-features = false, features = ["eval", "std"] }
 
 [dev-dependencies]
