@@ -1,0 +1,35 @@
+#!/bin/sh
+# Lock the screen like slock: black, blue while typing, red after a wrong
+# password. Uses waylock (made after slock) if installed, otherwise
+# swaylock styled so its unlock indicator covers the whole screen: its
+# radius must reach the screen corners (half the diagonal; 2300 covers a
+# 3840x2160 screen), but a much larger one fails to draw.
+#
+# Installed by deploy/install.sh; oxmonad's default Mod+Shift+l runs it.
+set -eu
+
+init=000000  # slock INIT
+input=005577 # slock INPUT
+fail=CC3333  # slock FAILED
+
+if command -v waylock >/dev/null 2>&1; then
+    exec waylock -init-color "0x$init" -input-color "0x$input" \
+        -input-alt-color "0x$input" -fail-color "0x$fail"
+fi
+
+none=00000000
+exec swaylock --color "$init" --ignore-empty-password \
+    --indicator-radius 2300 --indicator-thickness 0 \
+    --inside-color "$input" --inside-ver-color "$input" \
+    --inside-caps-lock-color "$input" --inside-clear-color "$init" \
+    --inside-wrong-color "$fail" \
+    --ring-color "$none" --ring-ver-color "$none" --ring-clear-color "$none" \
+    --ring-caps-lock-color "$none" --ring-wrong-color "$none" \
+    --line-color "$none" --line-ver-color "$none" --line-clear-color "$none" \
+    --line-caps-lock-color "$none" --line-wrong-color "$none" \
+    --text-color "$none" --text-ver-color "$none" --text-clear-color "$none" \
+    --text-caps-lock-color "$none" --text-wrong-color "$none" \
+    --key-hl-color "$none" --bs-hl-color "$none" \
+    --caps-lock-key-hl-color "$none" --caps-lock-bs-hl-color "$none" \
+    --separator-color "$none" \
+    --hide-keyboard-layout --disable-caps-lock-text

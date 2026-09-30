@@ -69,7 +69,7 @@ fn default_keybindings_cover_the_documented_set() {
                  --no-run-if-empty setsid --fork",
             ),
         ),
-        ("Mod+Shift+l", spawn("swaylock")),
+        ("Mod+Shift+l", spawn("oxmonad-lock")),
         ("Mod+j", Some(Action::FocusNext)),
         ("Mod+k", Some(Action::FocusPrev)),
         ("Mod+Shift+j", Some(Action::SwapNext)),

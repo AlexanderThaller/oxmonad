@@ -29,6 +29,7 @@ sed "s|/usr/local/bin/oxmonad-session|$prefix/bin/oxmonad-session|" contrib/ligh
 
 sudo install -Dm755 target/deploy/oxmonad "$prefix/bin/oxmonad"
 sudo install -Dm755 "$tmp/oxmonad-session" "$prefix/bin/oxmonad-session"
+sudo install -Dm755 contrib/oxmonad-lock "$prefix/bin/oxmonad-lock"
 sudo install -Dm644 "$tmp/oxmonad.desktop" /usr/share/wayland-sessions/oxmonad.desktop
 
 echo "installed oxmonad to $prefix/bin"

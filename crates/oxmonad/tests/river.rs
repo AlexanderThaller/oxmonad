@@ -1355,3 +1355,85 @@ fn shows_key_help() {
     assert!(!log.contains("protocol error"), "{log}");
     assert!(!log.contains("panicked"), "{log}");
 }
+
+/// The screen's single color if every pixel has it (read via `grim -t ppm`).
+fn uniform_color(session: &Session) -> Option<[u8; 3]> {
+    let output = Command::new("grim")
+        .args(["-t", "ppm", "-"])
+        .env("XDG_RUNTIME_DIR", &session.dir)
+        .env("WAYLAND_DISPLAY", session.wayland_display())
+        .output()
+        .ok()?;
+    // P6 header: magic, width, height, maxval, then RGB triples.
+    let data = output.stdout;
+    let mut fields = 0;
+    let mut start = 0;
+    let mut in_token = false;
+    for (i, &b) in data.iter().enumerate() {
+        if b.is_ascii_whitespace() {
+            if in_token {
+                fields += 1;
+                in_token = false;
+                if fields == 4 {
+                    start = i + 1;
+                    break;
+                }
+            }
+        } else {
+            in_token = true;
+        }
+    }
+    let (pixels, _) = data.get(start..)?.as_chunks::<3>();
+    let first = *pixels.first()?;
+    pixels.iter().all(|&p| p == first).then_some(first)
+}
+
+/// `contrib/oxmonad-lock` locks like slock: black while idle, slock's
+/// blue while typing, black again once the input is cleared. (A wrong
+/// password is not tried: it would be a real failed login for the user
+/// running the tests.)
+#[test]
+#[ignore = "needs river, grim and swaylock or waylock; run with --ignored"]
+fn locks_like_slock() {
+    if !have("river") || !have("grim") || !(have("swaylock") || have("waylock")) {
+        eprintln!("skipping: river, grim or a screen locker is not installed");
+        return;
+    }
+    let session = Session::start_in(
+        Session::dir("lock"),
+        Path::new(env!("CARGO_BIN_EXE_oxmonad")),
+    );
+    let area = rect(&session.state()["screens"][0]["rect"]);
+    let extent = (
+        u32::try_from(area[2]).expect("width"),
+        u32::try_from(area[3]).expect("height"),
+    );
+    let mut input = Input::connect(&session, extent);
+    // Unlocked, the bar is visible.
+    assert_eq!(uniform_color(&session), None);
+    let mut lock = Command::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contrib/oxmonad-lock"
+    ))
+    .env("XDG_RUNTIME_DIR", &session.dir)
+    .env("WAYLAND_DISPLAY", session.wayland_display())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .spawn()
+    .expect("the locker starts");
+    wait_for("a black locked screen", || {
+        uniform_color(&session) == Some([0, 0, 0])
+    });
+    screenshot(&session, "lock-idle");
+    input.tap(key::J);
+    wait_for("slock's input blue", || {
+        uniform_color(&session) == Some([0x00, 0x55, 0x77])
+    });
+    screenshot(&session, "lock-typing");
+    input.tap(key::BACKSPACE);
+    wait_for("black again after clearing", || {
+        uniform_color(&session) == Some([0, 0, 0])
+    });
+    let _ = lock.kill();
+    let _ = lock.wait();
+}

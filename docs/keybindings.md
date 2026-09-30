@@ -17,7 +17,7 @@ xmonad's classic `mod1Mask`. The tables below assume Super.
 | ---------------------------- | ------------------------------------------ |
 | `Super` + `Shift` + `Return` | Spawn the terminal (`alacritty`)           |
 | `Super` + `p`                | Open the application launcher (`tofi-run`, styled like the old `dmenu_run`) |
-| `Super` + `Shift` + `l`      | Lock the screen (`swaylock`)               |
+| `Super` + `Shift` + `l`      | Lock the screen like slock (`oxmonad-lock`: black, blue while typing, red on a wrong password; waylock if installed, else swaylock) |
 
 ## Focus & window movement
 
