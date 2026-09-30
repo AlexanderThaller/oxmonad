@@ -1,28 +1,13 @@
 Config
   { bgColor = "#161616"
   , fgColor = "#F2F2F2"
-  , position = TopW L 90
+  , position = Top
   , lowerOnStart = False
   , commands = [ Run Date "%Y.%m.%d-%u %H:%M""date" 10
-               , Run Battery        [ "--template" , "Batt: <acstatus>"
-                                    , "--Low"      , "10"        -- units: %
-                                    , "--High"     , "80"        -- units: %
-                                    , "--low"      , "#F15250"
-                                    , "--normal"   , "#F8E63A"
-                                    , "--high"     , "#86BD47"
-
-                                    , "--" -- battery specific options
-                                              -- discharging status
-                                              , "-o"	, "<left>% (<timeleft>)"
-                                              -- AC "on" status
-                                              , "-O"	, "<fc=#77B2F6>Charging</fc>"
-                                              -- charged status
-                                              , "-i"	, "<fc=#86BD47>Charged</fc>"
-                                    ] 50
                , Run StdinReader
                ]
   , sepChar = "%"
   , alignSep = "}{"
-  , template = "%StdinReader% }{ %battery% | %date%"
+  , template = "%StdinReader% }{ %date%"
   , font = "xft:Fira Mono:size=12:antialias=true"
   }
