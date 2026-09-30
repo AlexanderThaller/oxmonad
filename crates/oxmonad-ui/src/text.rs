@@ -489,7 +489,8 @@ mod tests {
         for antialias in [Antialias::Rgb, Antialias::Bgr] {
             let lcd = fonts.glyph('m', 16.0, antialias);
             assert_eq!(lcd.coverage.len(), lcd.width * lcd.height * 3);
-            assert_eq!(lcd.advance, gray.advance);
+            // Exact: advances are rounded to whole pixels.
+            assert_eq!(lcd.advance.to_bits(), gray.advance.to_bits());
             assert_eq!(lcd.top, gray.top);
         }
     }
