@@ -91,13 +91,7 @@ inactive_border_color = "#BBBBBB"
 # Launching programs
 "Mod+Shift+Return" = "spawn-terminal"
 "Mod+p" = "spawn tofi-run | xargs --no-run-if-empty setsid --fork"
-"Mod+x" = "spawn emacs"
 "Mod+Shift+l" = "spawn swaylock"
-"XF86AudioPlay" = "spawn playerctl play-pause"
-"XF86AudioPause" = "spawn playerctl play-pause"
-"XF86AudioMute" = "spawn playerctl play-pause"
-"XF86AudioNext" = "spawn playerctl next"
-"XF86AudioPrev" = "spawn playerctl previous"
 
 # Focus and window movement
 "Mod+j" = "focus-next"

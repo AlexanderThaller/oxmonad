@@ -57,13 +57,7 @@ fn default_keybindings_cover_the_documented_set() {
             "Mod+p",
             spawn("tofi-run | xargs --no-run-if-empty setsid --fork"),
         ),
-        ("Mod+x", spawn("emacs")),
         ("Mod+Shift+l", spawn("swaylock")),
-        ("XF86AudioPlay", spawn("playerctl play-pause")),
-        ("XF86AudioPause", spawn("playerctl play-pause")),
-        ("XF86AudioMute", spawn("playerctl play-pause")),
-        ("XF86AudioNext", spawn("playerctl next")),
-        ("XF86AudioPrev", spawn("playerctl previous")),
         ("Mod+j", Some(Action::FocusNext)),
         ("Mod+k", Some(Action::FocusPrev)),
         ("Mod+Shift+j", Some(Action::SwapNext)),
@@ -165,7 +159,13 @@ fn default_scratchpad() {
 
 #[test]
 fn modifier_applies_to_default_bindings() {
-    let c = load(r#"modifier = "Alt""#);
+    let c = load(
+        r#"
+modifier = "Alt"
+[keybindings]
+"XF86AudioPlay" = "spawn playerctl play-pause"
+"#,
+    );
     assert_eq!(c.modifier, Modifiers::ALT);
     let alt_j = KeyCombo {
         mods: Modifiers::ALT,
@@ -182,7 +182,7 @@ fn modifier_applies_to_default_bindings() {
             .iter()
             .all(|b| b.combo.mods == Modifiers::ALT)
     );
-    // Unmodified media keys are unaffected.
+    // Unmodified bindings stay unmodified.
     assert!(action(&c, "XF86AudioPlay").is_some());
 }
 

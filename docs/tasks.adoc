@@ -42,7 +42,7 @@ items are marked N/A with a rationale.
 * In-place restart (`Mod+q`, xmonad's `restart`): the state is saved keyed
   by river window identifiers, the binary re-executed and the state
   restored; falls back to resuming in-process if the exec fails.
-* Spawns: terminal, launcher (tofi), editor, locker (swaylock), media keys.
+* Spawns: terminal, launcher (tofi), locker (swaylock).
 * Quit (`Mod+Shift+q`) ends the river session.
 * Control socket (`OXMONAD_CONTROL`) for scripting and tests.
 * Session integration: `contrib/lightdm` wrapper running `river -c oxmonad`.

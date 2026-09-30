@@ -17,10 +17,7 @@ xmonad's classic `mod1Mask`. The tables below assume Super.
 | ---------------------------- | ------------------------------------------ |
 | `Super` + `Shift` + `Return` | Spawn the terminal (`alacritty`)           |
 | `Super` + `p`                | Open the application launcher (`tofi-run`) |
-| `Super` + `x`                | Launch the editor (`emacs`)                |
 | `Super` + `Shift` + `l`      | Lock the screen (`swaylock`)               |
-| `XF86AudioPlay`/`Pause`/`Mute` | `playerctl play-pause`                   |
-| `XF86AudioNext` / `XF86AudioPrev` | `playerctl next` / `playerctl previous` |
 
 ## Focus & window movement
 
@@ -115,4 +112,5 @@ Physical screens are ordered top-to-bottom, then left-to-right.
 - Zoom windows are managed automatically: the main/meeting windows tile (and
   are pushed out of the master slot), every other Zoom window floats
   (`manageZoomHook`).
-- While the screen is locked only unmodified bindings (the media keys) work.
+- While the screen is locked only bindings without modifiers work (there are
+  none by default; e.g. media keys you add yourself).
