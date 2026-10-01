@@ -26,6 +26,26 @@ focus_follows_mouse = true
 # Initial workspaces (myWorkspaces). More can be created from the prompt.
 workspaces = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
+# The layout ring of every workspace (myLayout), in the order `next-layout`
+# cycles through it and the layout picker shows it (`1`–`9`, `0` pick the
+# first to tenth). The first entry is each workspace's default layout and
+# what `reset-layout` returns to; leave a layout out to remove it from the
+# ring. Names are matched ignoring case; each may appear once. Valid names:
+# "Tall Right", "Tall", "Wide", "Full", "Tabs", "Grid Rows", "Grid",
+# "Three Columns", "Three Columns Right", "Corner".
+layouts = [
+  "Tall Right",
+  "Tall",
+  "Wide",
+  "Full",
+  "Tabs",
+  "Grid Rows",
+  "Grid",
+  "Three Columns",
+  "Three Columns Right",
+  "Corner",
+]
+
 [border]
 width = 1            # myBorderWidth
 focused = "#C62828"  # myFocusedBorderColor (colorRed)

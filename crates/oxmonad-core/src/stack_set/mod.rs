@@ -216,8 +216,15 @@ impl StackSet {
         &self.layout_template
     }
 
-    /// Replaces the layout ring new workspaces (and `reset-layout`) use.
+    /// Replaces the layout ring new workspaces (and `reset-layout`) use,
+    /// and reconciles every existing workspace's ring with it
+    /// ([`LayoutRing::restore`]): a ring with the same layouts keeps their
+    /// state, any other becomes `layout` with the previously active layout
+    /// still active if `layout` has it.
     pub fn set_layout_template(&mut self, layout: LayoutRing) {
+        for workspace in self.workspaces_mut() {
+            workspace.layout = layout.restore(&workspace.layout);
+        }
         self.layout_template = layout;
     }
 

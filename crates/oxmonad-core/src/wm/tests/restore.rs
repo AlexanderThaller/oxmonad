@@ -799,6 +799,63 @@ fn incompatible_layout_rings_fall_back_to_the_configuration() {
     assert_eq!(ring.index(), 6);
 }
 
+/// Restores `snapshot` into a fresh `Wm` with `config` on screen `DP1`,
+/// bringing back windows `order`.
+fn restore_into(config: Config, snapshot: Snapshot, order: &[u64]) -> Wm {
+    let mut wm = Wm::new(config);
+    wm.restore(snapshot).expect("snapshot restores");
+    let (id, name, rect) = DP1;
+    wm.add_output(OutputId(id), name, rect);
+    for &n in order {
+        wm.manage_as(w(n + NEW), Some(&ident(n)), window_info(n));
+    }
+    wm.finish_restore();
+    wm
+}
+
+fn layouts_config(list: &str) -> Config {
+    Config::from_toml(&format!("layouts = {list}")).expect("config loads")
+}
+
+#[test]
+fn a_reordered_layout_config_keeps_the_active_layout_on_restart() {
+    let mut original = wm();
+    original.manage(w(1), window_info(1));
+    for _ in 0..6 {
+        original.apply(Action::NextLayout);
+    }
+    assert_eq!(
+        original.stack_set().current_workspace().layout.name(),
+        "Grid"
+    );
+    let s = snap(&original);
+    // The new binary reads a config that reorders and shortens the ring.
+    let restored = restore_into(layouts_config(r#"["Full", "Grid", "Tall"]"#), s, &[1]);
+    let current = &restored.stack_set().current_workspace().layout;
+    let names: Vec<String> = current.layouts().iter().map(Layout::name).collect();
+    assert_eq!(names, ["Full", "Grid", "Tall"]);
+    assert_eq!((current.name(), current.index()), ("Grid".to_owned(), 1));
+    // "Tall Right", active on the other workspaces, is gone: they start at
+    // the first configured layout.
+    let other = &restored.stack_set().workspace("2").expect("exists").layout;
+    assert_eq!((other.name(), other.index()), ("Full".to_owned(), 0));
+}
+
+#[test]
+fn a_configured_layout_ring_round_trips_with_its_state() {
+    let list = r#"["Wide", "Tall"]"#;
+    let mut original = Wm::new(layouts_config(list));
+    let (id, name, rect) = DP1;
+    original.add_output(OutputId(id), name, rect);
+    original.manage(w(1), window_info(1));
+    original.manage(w(2), window_info(2));
+    original.apply(Action::NextLayout);
+    original.apply(Action::Expand);
+    let before = original.stack_set().current_workspace().layout.clone();
+    let restored = restore_into(layouts_config(list), snap(&original), &[1, 2]);
+    assert_eq!(restored.stack_set().current_workspace().layout, before);
+}
+
 #[test]
 fn unreadable_layouts_only_reset_the_layout() {
     let mut original = wm();
