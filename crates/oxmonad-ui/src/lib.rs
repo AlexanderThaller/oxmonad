@@ -25,6 +25,7 @@ pub use bar::{
     BatteryState,
     BatteryStatus,
     BatteryStyle,
+    LayoutGlyph,
     PpStyle,
     Segment,
     SegmentId,

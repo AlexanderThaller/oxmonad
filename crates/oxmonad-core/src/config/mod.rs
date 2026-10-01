@@ -197,6 +197,8 @@ pub struct BarConfig {
     pub tray: bool,
     /// Tray icon size in logical pixels.
     pub tray_icon_size: u32,
+    /// Whether to draw a miniature of the current layout next to its name.
+    pub layout_icon: bool,
     /// Colors.
     pub colors: BarColors,
 }

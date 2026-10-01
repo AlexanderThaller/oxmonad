@@ -9,6 +9,8 @@ use crate::{
     Color,
     Fonts,
     Icon,
+    PreviewRect,
+    PreviewWindow,
     canvas::{
         Painter,
         round_i32,
@@ -17,11 +19,12 @@ use crate::{
     },
 };
 
-/// A run of text in one color, or an icon, optionally on its own
-/// background.
+/// A run of text in one color, an icon or a layout miniature, optionally on
+/// its own background.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Segment {
-    /// The text drawn; ignored when [`Segment::icon`] is set.
+    /// The text drawn; ignored when [`Segment::icon`] or [`Segment::layout`]
+    /// is set.
     pub text: String,
     /// Text color; `None` uses [`BarStyle::fg`].
     pub fg: Option<Color>,
@@ -34,6 +37,11 @@ pub struct Segment {
     /// with [`BarStyle::icon_spacing`] on either side, the icon scaled to
     /// fit it and vertically centered in the bar.
     pub icon: Option<Icon>,
+    /// A layout miniature drawn instead of the text:
+    /// [`BarStyle::layout_icon_size`] high, as wide as its area's aspect ratio,
+    /// with [`BarStyle::icon_spacing`] on either side, in the segment's
+    /// color.
+    pub layout: Option<LayoutGlyph>,
 }
 
 impl Segment {
@@ -46,7 +54,22 @@ impl Segment {
             bg: None,
             action: None,
             icon: None,
+            layout: None,
         }
+    }
+
+    /// A layout miniature segment (see [`Segment::layout`]).
+    #[must_use]
+    pub fn with_layout(glyph: LayoutGlyph) -> Self {
+        Self {
+            layout: Some(glyph),
+            ..Self::new("")
+        }
+    }
+
+    /// Whether the segment draws a picture instead of its text.
+    fn is_graphic(&self) -> bool {
+        self.icon.is_some() || self.layout.is_some()
     }
 
     /// An icon segment (see [`Segment::icon`]) in the bar's default colors.
@@ -81,6 +104,30 @@ impl Segment {
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
+    }
+}
+
+/// A miniature of a layout: what it does with a few windows, like the
+/// layout picker's cards, in `area` preview coordinates.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LayoutGlyph {
+    /// Width and height of the previewed screen.
+    pub area: (u32, u32),
+    /// The windows the layout shows; window 0 (the master) is highlighted.
+    pub windows: Vec<PreviewWindow>,
+    /// The tab strip's tabs (empty without a strip).
+    pub tabs: Vec<PreviewRect>,
+}
+
+impl LayoutGlyph {
+    /// The logical width of the miniature at `height` logical pixels.
+    fn width(&self, height: u32) -> u32 {
+        let (width, area_height) = (u64::from(self.area.0), u64::from(self.area.1));
+        if area_height == 0 {
+            return height;
+        }
+        let scaled = (u64::from(height) * width + area_height / 2) / area_height;
+        u32::try_from(scaled).unwrap_or(height).max(1)
     }
 }
 
@@ -124,6 +171,8 @@ pub struct BarStyle {
     pub icon_size: u32,
     /// Space on either side of an icon segment's icon.
     pub icon_spacing: u32,
+    /// Height of a layout miniature ([`Segment::layout`]).
+    pub layout_icon_size: u32,
 }
 
 impl Default for BarStyle {
@@ -138,6 +187,7 @@ impl Default for BarStyle {
             antialias: Antialias::Grayscale,
             icon_size: 16,
             icon_spacing: 4,
+            layout_icon_size: 14,
         }
     }
 }
@@ -223,7 +273,11 @@ impl BarLayout {
 
 /// The device-pixel width of a segment at device font size `size`.
 fn segment_width(segment: &Segment, style: &BarStyle, fonts: &Fonts, size: f32, scale: u32) -> f32 {
-    if segment.icon.is_some() {
+    if let Some(glyph) = &segment.layout {
+        to_f32(to_i32(
+            (glyph.width(style.layout_icon_size) + 2 * style.icon_spacing) * scale,
+        ))
+    } else if segment.icon.is_some() {
         to_f32(to_i32((style.icon_size + 2 * style.icon_spacing) * scale))
     } else {
         fonts.text_width(&segment.text, size)
@@ -254,7 +308,7 @@ pub fn layout_bar(
     let mut pen = right_start;
     for (index, segment) in view.segments_right.iter().enumerate() {
         let segment_width = segment_width(segment, style, fonts, size, scale);
-        let text = if segment.icon.is_some() {
+        let text = if segment.is_graphic() {
             String::new()
         } else {
             segment.text.clone()
@@ -282,7 +336,7 @@ pub fn layout_bar(
             side: Side::Left,
             index,
         };
-        if segment.icon.is_some() {
+        if segment.is_graphic() {
             let segment_width = segment_width(segment, style, fonts, size, scale);
             if pen + segment_width > left_limit {
                 break;
@@ -348,6 +402,17 @@ pub fn render_bar(
             painter.draw_icon(icon, x, y, icon_width, icon_height);
             continue;
         }
+        if let Some(glyph) = &segment.layout {
+            let fg = segment.fg.unwrap_or(style.fg);
+            draw_layout_glyph(
+                &mut painter,
+                glyph,
+                (start, end),
+                style.layout_icon_size,
+                fg,
+            );
+            continue;
+        }
         painter.draw_text(
             fonts,
             &placed.text,
@@ -360,6 +425,54 @@ pub fn render_bar(
         );
     }
     painter.finish()
+}
+
+/// Draws `glyph` `size` logical pixels high, centered in the device
+/// span `(start, end)`: the master window in `fg`, the others and the tabs
+/// fainter, each separated from its neighbours by a device-pixel gap per
+/// scale step.
+fn draw_layout_glyph(
+    painter: &mut Painter,
+    glyph: &LayoutGlyph,
+    (start, end): (i32, i32),
+    size: u32,
+    fg: Color,
+) {
+    let scale = painter.scale();
+    let gap = to_i32(scale);
+    let (width, height) = (to_i32(glyph.width(size) * scale), to_i32(size * scale));
+    let (left, top) = (
+        start + (end - start - width) / 2,
+        (painter.height() - height) / 2,
+    );
+    let (area_width, area_height) = (
+        i64::from(glyph.area.0.max(1)),
+        i64::from(glyph.area.1.max(1)),
+    );
+    // Rectangles are mapped into a box one gap larger and lose the gap on
+    // their right and bottom edges, so neighbours are separated and the
+    // outer edges stay inside `width` × `height`.
+    let map = |value: i32, area: i64, extent: i32| -> i32 {
+        let mapped = i64::from(value) * i64::from(extent + gap) / area;
+        i32::try_from(mapped).unwrap_or(0)
+    };
+    let mut fill = |rect: &PreviewRect, color: Color| {
+        let x0 = map(rect.x, area_width, width);
+        let x1 = map(rect.x + rect.w, area_width, width);
+        let y0 = map(rect.y, area_height, height);
+        let y1 = map(rect.y + rect.h, area_height, height);
+        let (w, h) = (x1 - x0 - gap, y1 - y0 - gap);
+        if w > 0 && h > 0 {
+            painter.fill_rect(left + x0, top + y0, w, h, color);
+        }
+    };
+    let faint = fg.with_alpha(0x70);
+    for tab in &glyph.tabs {
+        fill(tab, faint);
+    }
+    for window in &glyph.windows {
+        fill(&window.rect, if window.index == 0 { fg } else { faint });
+    }
 }
 
 /// How a workspace relates to the screens, as xmonad's pretty-printer sees it.
@@ -422,9 +535,16 @@ impl Default for PpStyle {
 /// title, joined by `ppSep`, with empty sections dropped. Hidden workspaces
 /// without windows are omitted (`ppHiddenNoWindows = const ""`); urgency
 /// takes precedence over every other state. Each tag segment's
-/// [`Segment::action`] is the workspace name.
+/// [`Segment::action`] is the workspace name. A `layout_glyph` is drawn
+/// right before the layout name.
 #[must_use]
-pub fn pp_segments(tags: &[WorkspaceTag], layout: &str, title: &str, pp: &PpStyle) -> Vec<Segment> {
+pub fn pp_segments(
+    tags: &[WorkspaceTag],
+    layout: &str,
+    layout_glyph: Option<LayoutGlyph>,
+    title: &str,
+    pp: &PpStyle,
+) -> Vec<Segment> {
     let mut workspaces = Vec::new();
     for tag in tags {
         let segment = if tag.urgent {
@@ -452,7 +572,11 @@ pub fn pp_segments(tags: &[WorkspaceTag], layout: &str, title: &str, pp: &PpStyl
     let title = shorten(title, pp.title_max_chars);
     let sections = [
         workspaces,
-        vec![Segment::new(layout)],
+        layout_glyph
+            .into_iter()
+            .flat_map(|glyph| [Segment::with_layout(glyph), Segment::new(" ")])
+            .chain([Segment::new(layout)])
+            .collect(),
         vec![Segment::new(title).fg(pp.title_fg)],
     ];
     let non_empty = sections
@@ -598,7 +722,7 @@ mod tests {
             tag("3", WorkspaceState::Hidden, false),
             tag("4", WorkspaceState::Visible, false),
         ];
-        let segments = pp_segments(&tags, "Tall", "vim", &PpStyle::default());
+        let segments = pp_segments(&tags, "Tall", None, "vim", &PpStyle::default());
         assert_eq!(texts(&segments), "1 <2> (4) : Tall : vim");
         let current = segments
             .iter()
@@ -611,10 +735,50 @@ mod tests {
     }
 
     #[test]
+    fn pp_puts_the_layout_glyph_before_the_name() {
+        let tags = [tag("1", WorkspaceState::Current, false)];
+        let glyph = LayoutGlyph {
+            area: (320, 180),
+            ..LayoutGlyph::default()
+        };
+        let segments = pp_segments(&tags, "Tall", Some(glyph.clone()), "", &PpStyle::default());
+        assert_eq!(texts(&segments), "<1> :  Tall");
+        assert_eq!(segments[2].layout.as_ref(), Some(&glyph));
+        assert_eq!(segments[3].text, " ");
+    }
+
+    #[test]
+    fn layout_glyph_width_follows_the_aspect_ratio() {
+        let glyph = |area| LayoutGlyph {
+            area,
+            ..LayoutGlyph::default()
+        };
+        assert_eq!(glyph((320, 180)).width(14), 25);
+        assert_eq!(glyph((100, 100)).width(14), 14);
+        assert_eq!(glyph((0, 0)).width(14), 14);
+        let fonts = Fonts::embedded();
+        let style = BarStyle::default();
+        let view = BarView {
+            segments_left: vec![Segment::with_layout(glyph((320, 180))).action("layout")],
+            segments_right: Vec::new(),
+        };
+        let layout = layout_bar(&view, &style, &fonts, 400, 2);
+        let start = f64::from(style.padding);
+        let width = f64::from(25 + 2 * style.icon_spacing);
+        assert_eq!(
+            layout.segment_span(SegmentId {
+                side: Side::Left,
+                index: 0
+            }),
+            Some((start, start + width))
+        );
+    }
+
+    #[test]
     fn pp_drops_empty_title_section() {
         let tags = [tag("1", WorkspaceState::Current, false)];
         assert_eq!(
-            texts(&pp_segments(&tags, "Full", "", &PpStyle::default())),
+            texts(&pp_segments(&tags, "Full", None, "", &PpStyle::default())),
             "<1> : Full"
         );
     }
@@ -623,7 +787,7 @@ mod tests {
     fn urgent_overrides_hidden_empty() {
         let mut urgent = tag("9", WorkspaceState::Hidden, false);
         urgent.urgent = true;
-        let segments = pp_segments(&[urgent], "Full", "", &PpStyle::default());
+        let segments = pp_segments(&[urgent], "Full", None, "", &PpStyle::default());
         assert_eq!(segments[0].bg, Some(PpStyle::default().urgent_bg));
     }
 

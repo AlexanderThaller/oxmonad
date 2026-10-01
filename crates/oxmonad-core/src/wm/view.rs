@@ -35,6 +35,9 @@ pub struct BarModel {
     pub workspaces: Vec<(String, WorkspaceState)>,
     /// Description of the current workspace's layout.
     pub layout: String,
+    /// What the current layout does with a few windows (see
+    /// [`crate::layout::Layout::preview`]), for the bar's layout icon.
+    pub layout_preview: LayoutOutput,
     /// Title of the focused window, shortened like xmonad's `shorten`.
     pub title: String,
 }
@@ -116,6 +119,7 @@ impl Wm {
         BarModel {
             workspaces,
             layout: ss.current_workspace().layout.name(),
+            layout_preview: ss.current_workspace().layout.current().preview(),
             title: match self.config.bar.title_max_len {
                 Some(max) => shorten(&title, max),
                 None => title,
