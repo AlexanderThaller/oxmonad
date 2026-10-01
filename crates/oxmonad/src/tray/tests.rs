@@ -374,3 +374,32 @@ fn host_follows_another_watcher_and_takes_over() {
     }
     assert_eq!(listener.latest.map(|items| items.len()), Some(1));
 }
+
+#[test]
+fn starts_at_once_without_a_bus() {
+    let started = Instant::now();
+    let (tray, channel) =
+        Tray::start_on(11, Some("unix:path=/nonexistent/oxmonad-bus".to_owned())).expect("tray");
+    assert!(started.elapsed() < Duration::from_secs(1));
+    // The thread gives up: no items, the channel closes.
+    let mut event_loop: EventLoop<'static, Option<bool>> = EventLoop::try_new().expect("loop");
+    event_loop
+        .handle()
+        .insert_source(channel, |event, (), closed: &mut Option<bool>| {
+            *closed = Some(matches!(event, Event::Closed));
+        })
+        .expect("insert");
+    let mut closed = None;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while closed.is_none() {
+        assert!(
+            Instant::now() < deadline,
+            "the tray thread does not give up"
+        );
+        event_loop
+            .dispatch(Some(Duration::from_millis(50)), &mut closed)
+            .expect("dispatch");
+    }
+    assert_eq!(closed, Some(true), "no items without a bus");
+    drop(tray);
+}
