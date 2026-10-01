@@ -200,14 +200,27 @@ area.
 
 Draws premultiplied ARGB8888 (`wl_shm` `argb8888`, little-endian) buffers at
 an integer scale. Inputs are plain view structs (`BarView`, `PromptView`,
-`LayoutPickerView`, `TabsView`, `Theme`). The layout picker is a grid of
+`LayoutPickerView`, `MenuView`, `TabsView`, `Theme`). The layout picker is a grid of
 cards (up to five per row, shrunk to fit the screen), each a preview drawn
 in the docs pictures' colors above the layout's name; `picker_entry_at`
 hit-tests clicks against the same geometry. The help overlay lays out a
 key and an action column per binding under section headings and flows the
 sections into the fewest columns that fit the screen height (as many as
 the width allows, then scrolling, with a scroll bar); `help_viewport`
-reports the visible rows and the scroll limit from the same layout. Glyph outlines come from `skrifa`, hinted by its
+reports the visible rows and the scroll limit from the same layout. A bar
+`Segment` can be an `Icon` (premultiplied BGRA pixels in a shared `Arc`, so
+views stay cheap to clone and compare) instead of text, e.g. a tray item: it
+takes a `BarStyle::icon_size` square plus `icon_spacing` on either side, the
+icon fitted into it keeping its aspect ratio (area-averaged when shrinking,
+bicubic when enlarging) and vertically centered. `BarLayout::segment_at`
+hit-tests icon segments like text ones and `BarLayout::segment_span` reports
+where a segment landed, to anchor a popup under it. The popup menu
+(`MenuView`, `render_menu`) is a bordered column of rows: plain, disabled
+(dimmed), separator, check box or radio entries, with an arrow on entries
+that open a submenu; it is as wide as its widest label up to
+`MenuStyle::max_width` (labels are ellipsized beyond that) and
+`menu_entry_at` hit-tests the same geometry, skipping separators and
+disabled entries. Glyph outlines come from `skrifa`, hinted by its
 automatic hinter in normal (full) mode so stems snap to whole pixels, with
 advances and the pen position rounded to whole pixels; `zeno` rasterizes
 them. `[font] antialias` selects grayscale or subpixel (`rgb`/`bgr`,
