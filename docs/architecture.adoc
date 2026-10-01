@@ -8,7 +8,7 @@ https://codeberg.org/river/river[river] 0.4+, speaking the stable
 rendering, xdg-shell, layer-shell, screencopy, session lock and Xwayland;
 oxmonad owns every policy decision: which windows are visible, where they go,
 which one has focus, keybindings, borders, and the bar/prompt/layout
-picker/tab-strip UI.
+picker/tab-strip UI, including a system tray.
 
 Everything oxmonad ships is Rust. river (Zig) is an external runtime
 dependency, packaged on Arch as `river`.
@@ -40,12 +40,14 @@ dependency, packaged on Arch as `river`.
   seats) into core IDs, translates protocol events into core calls and core's
   `Arrangement` into protocol requests, owns the wl_shm shell surfaces the UI
   crate draws into, spawns processes, reads the config file, drives the
-  clock/battery bar modules.
+  clock/battery bar modules and hosts the system tray on D-Bus.
 |===
 
 Dependency direction: `oxmonad` → `oxmonad-core`, `oxmonad-ui`,
 `river-protocols`. `oxmonad-core` and `oxmonad-ui` do not depend on each
-other; the binary converts core models into UI view structs.
+other; the binary converts core models into UI view structs. The tray is
+binary-only: tray items are not a window-management concept, so core never
+sees them.
 
 == The river protocol loop
 
@@ -253,7 +255,12 @@ default keybindings, colors, commands and rules). `SIGUSR1` (or the
   (`WLR_BACKENDS=headless WLR_RENDERER=pixman river -c <oxmonad>`) when
   `river` is installed; another one restarts a copy of the binary in place
   (after replacing it, with it missing, and with `exec` failing) and checks
-  the arrangement, pids and open descriptors are unchanged.
+  the arrangement, pids and open descriptors are unchanged. Every session
+  gets a private `dbus-daemon` (when installed), and a tray test registers
+  a fake `StatusNotifierItem` with a dbusmenu there and drives its icon and
+  menu with the virtual pointer and keyboard. The tray backend has its own
+  ignored tests against a private bus (`cargo test -p oxmonad tray::tests
+  -- --ignored`).
 
 == Core implementation notes (deviations)
 
@@ -297,11 +304,13 @@ How `crates/oxmonad` realises the protocol loop above:
   sequences; `state/dispatch.rs` records events), `plan` (pure
   `Arrangement` → request translation behind the `Requests` trait, diffed
   against what river was last told), `shell` + `shm` (bar, tab strips,
-  prompt, layout picker and help as `river_shell_surface_v1`s in memfd-backed `wl_shm` buffers),
+  prompt, layout picker, help and tray menu as `river_shell_surface_v1`s in memfd-backed `wl_shm` buffers),
   `keys` / `keyboard` (keysym resolution and the prompt's keyboard via the
-  pure-Rust `kbvm`), `status` (clock and battery), `control` (the
-  `OXMONAD_CONTROL` socket), `spawn`, `restart` (saving the snapshot and
-  re-executing).
+  pure-Rust `kbvm`), `status` (clock and battery), `tray` (the
+  `StatusNotifierItem` host on its own thread), `tray_ui` (pure: tray items
+  as bar icons, click mapping, the open menu's state, layout and placement),
+  `control` (the `OXMONAD_CONTROL` socket), `remote` (`oxmonad --restart`),
+  `spawn`, `restart` (saving the snapshot and re-executing).
 * **Shell surfaces are redrawn in the manage sequence**, not the render
   sequence: their content only depends on core state, and committing them
   (with `sync_next_commit`) during the manage sequence maps the prompt before
@@ -309,9 +318,15 @@ How `crates/oxmonad` realises the protocol loop above:
   restacks them with the windows.
 * **Stacking.** Tiled and floating windows bottom to top, then tab strips and
   the bar, then fullscreen windows (which therefore cover the bar), then the
-  prompt, layout picker or help.
+  prompt, layout picker or help, then the tray menu and its submenus.
 * **Input ordering.** Key/pointer binding presses, clicks, pointer enters and
   control commands are queued and applied in order at `manage_start`.
+  Clicks on shell surfaces come from oxmonad's own `wl_pointer` (one per
+  seat), which knows the button and the exact surface position, not from
+  `river_seat_v1.shell_surface_interaction` (ignored, so nothing is
+  handled twice); a press queues the click and asks for a manage sequence.
+  Only the left button acts on workspace tags, tabs and picker cards; any
+  button closes the help.
   Focus-follows-mouse only acts when the pointer actually moved since the
   previous manage sequence, so re-tiling under a still pointer does not steal
   focus. Pointer bindings act on the window under the pointer.
@@ -321,6 +336,73 @@ How `crates/oxmonad` realises the protocol loop above:
   spawned children inherit untouched; children run via `sh -c` in their own
   process group and are reaped on `SIGCHLD` (any exited child, so children
   spawned before a restart are reaped too).
+
+== System tray
+
+`[bar] tray = true` (the default) shows `StatusNotifierItem` icons between
+the battery and the clock: `Batt: 80% | ▣ ▣ | 2026.10.01-4 13:05`.
+`tray_icon_size` (16) is their logical size (`BarStyle::icon_size`).
+
+* **Threading.** `tray::Tray::start` spawns the `oxmonad-tray` thread and
+  returns at once: the thread connects to the session bus itself (a missing
+  bus only logs a warning; the bar then shows no tray). All D-Bus work runs
+  there on a local `async-executor` with `zbus`; calls to items are bounded
+  by a timeout, so a hung client never stalls the others, and the main loop
+  never waits on D-Bus. The thread reports the full item list over a calloop
+  channel (`TrayEvent::Items`, only when it changed); commands go back over
+  a non-blocking channel.
+* **Watcher and host.** When nobody owns `org.kde.StatusNotifierWatcher`,
+  the tray is the watcher too; otherwise (waybar, a desktop shell…) it
+  registers as a host with the existing watcher and follows its signals,
+  taking the name over if that watcher goes away. Items are followed for
+  property, status, icon and dbusmenu layout changes; icons come from
+  pixmaps or the icon theme, prepared for twice the logical size (HiDPI).
+* **Bar.** `State` keeps the items in `Status::tray` as `tray_ui::BarItem`s,
+  each icon converted once to an `oxmonad_ui::Icon` when the list arrives;
+  a changed list asks for a manage sequence like the clock does. Passive
+  items and items without an icon are not shown (the latter logged at
+  debug). Each icon segment's action is the item id, so a click on the
+  right side of the bar maps to `Click::TrayItem(id)`, and `dump-state`
+  lists the icons in `bar_clicks` (`{"tray": id, "x": [start, end]}`) and the
+  items, connection and open menu under `tray`.
+* **Input mapping.** Left click: `Activate(x, y)`, or the menu for
+  `ItemIsMenu` items (`ContextMenu(x, y)` if they export no dbusmenu);
+  middle: `SecondaryActivate(x, y)`; right: our menu popup, or
+  `ContextMenu(x, y)` without a dbusmenu; `x`, `y` are the click's global
+  logical coordinates. Wheel clicks (`axis_discrete`) or every 15 units of
+  continuous scrolling become `Scroll(delta, "vertical" | "horizontal")`,
+  sent straight from the `wl_pointer` frame (they change nothing oxmonad
+  manages).
+* **Menu surface.** An open menu is `tray_ui::OpenMenu` in `State` (binary
+  state: the item, the anchor and one level per open (sub)menu with its
+  selection). Each manage sequence rebuilds every level from the item's
+  current layout (`OpenMenu::refresh`: invisible entries dropped,
+  separators collapsed, toggles mapped to check/radio rows, submenus whose
+  entry vanished closed, menus taller than the output's usable area
+  truncated), places it and shows it as shell surface `Node::TrayMenu(level)`
+  with `Content::TrayMenu`. The root hangs below the icon (above it for a
+  bottom bar), clamped into the bar output's usable area; a submenu
+  cascades to the right of its entry, or to the left when it does not fit.
+  Opening sends `AboutToShow(0)`, opening a submenu `AboutToShow(id)`; a
+  changed layout arrives as a new item list and refreshes the menu in
+  place. Choosing a leaf sends `Event(id, "clicked")` and closes the menu.
+* **Focus and closing.** While the menu is open, the seats' keyboard focus
+  goes to its root surface instead of core's focus (the `focus` request is
+  redirected and resent when the menu opens or closes), so `Escape` and the
+  navigation keys reach it. The menu closes on `Escape`, a click outside it
+  (a window interaction, any other shell surface; clicking its own icon
+  only closes it), any key or pointer binding, when an overlay takes the
+  keyboard, when the bar is hidden and when its item or menu disappears.
+  A click on the empty desktop reaches no client and leaves it open.
+* **Reload and restart.** `SIGUSR1` starts or stops the tray thread to match
+  `[bar] tray` and restarts it when `tray_icon_size` changed. A restart in
+  place simply loses the thread and its connection with `exec` (every
+  descriptor zbus, `async-io` and calloop open is close-on-exec; the
+  end-to-end restart test checks the descriptors with the tray connected to
+  a private bus). The new process becomes the watcher again; items show up
+  again if they re-register when the watcher's owner changes
+  (`NameOwnerChanged`), which libappindicator, KDE and Electron items do.
+  An open menu is not preserved.
 
 == Virtual screens
 
@@ -435,7 +517,7 @@ The sequence:
   the snapshot into a fresh `Wm` with the configuration reloaded and binds
   the window manager again on its existing connection.
 
-Not preserved: an open prompt, layout picker or help, a pointer move/resize in progress, and
+Not preserved: an open prompt, layout picker, help or tray menu, a pointer move/resize in progress, and
 xmonad's workspace history beyond the hidden-workspace order. A layout ring
 whose layouts changed between the two binaries falls back to the
 configured ring (keeping the active layout if it still exists). river keeps

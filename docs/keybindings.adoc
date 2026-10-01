@@ -52,7 +52,20 @@ xmonad's classic `mod1Mask`. The tables below assume Super.
 |Click a tab |Focus that window
 |Click a layout in the layout picker |Switch to that layout
 |Click the key binding help |Close it
+|Left click a tray icon |Activate the application (open its menu if the
+item is only a menu)
+|Middle click a tray icon |The application's secondary action
+|Right click a tray icon |Open its menu (or ask the application to show its
+own)
+|Scroll over a tray icon |Pass the scrolling to the application
 |===
+
+"Click" means the left button. In an open tray menu, hovering highlights an
+entry and a click chooses it or opens its submenu (to the side); `j`/`k`,
+`Up`/`Down` and `Tab` move, `Return`/`space` choose, `Right`/`l` open a
+submenu, `Left`/`h` close it and `Escape` closes a submenu or the menu.
+Clicking anywhere else (a window, the bar, the icon again) or a key binding
+closes the menu.
 
 Focus follows the mouse (`focus_follows_mouse = true`, xmonad's default):
 moving the pointer onto a window focuses it. Windows that ask to be moved or
