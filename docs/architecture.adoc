@@ -267,6 +267,8 @@ scans again when that file is gone, keeping startup and restarts fast.
 from `crates/oxmonad-core/default-config.toml` (the single source of truth for
 default keybindings, colors, commands and rules). `SIGUSR1` (or the
 `reload` action) reloads it; `Mod+q` restarts oxmonad, which reads it anew.
+The user-facing reference for every setting, the merge rules and the actions
+is link:config.adoc[`config.adoc`].
 
 == Testing
 

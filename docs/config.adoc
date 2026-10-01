@@ -1,0 +1,722 @@
+= Configuration reference
+:toc: left
+:toclevels: 2
+
+oxmonad is configured with one TOML file. This page describes every setting,
+its type and default, how your file is combined with the built-in defaults,
+and every action a binding can run. The defaults themselves, with comments,
+are in
+link:../crates/oxmonad-core/default-config.toml[`crates/oxmonad-core/default-config.toml`];
+the default key bindings are explained in
+link:keybindings.adoc[`keybindings.adoc`].
+
+== The configuration file
+
+=== Location
+
+oxmonad reads `$XDG_CONFIG_HOME/oxmonad/config.toml`. When `XDG_CONFIG_HOME`
+is unset or empty, that is `~/.config/oxmonad/config.toml`. `--config PATH`
+(or `-c PATH`) on oxmonad's command line reads another file instead.
+
+The file is optional: without it oxmonad runs with the defaults.
+
+=== Merging over the defaults
+
+The defaults are embedded in the binary. Your file is merged over them, so it
+only needs the settings you change:
+
+* *Tables merge key by key*, at every level. `[bar]` with only
+  `height = 30` keeps every other bar setting, and `[bar.colors]` with only
+  `title = "#FFFFFF"` keeps the other bar colors.
+* *Every other value replaces the default wholesale*, arrays included:
+  `workspaces`, `layouts`, `+[[rules]]+` and `+[[scratchpads]]+`. If you write a
+  single `+[[rules]]+` entry, the default Zoom rules are gone; if you write a
+  single `+[[scratchpads]]+` entry, the default `term` scratchpad is gone (and
+  `toggle-scratchpad term`, bound to `Mod+grave`, does nothing unless you
+  define it again).
+* *`[keybindings]` and `[pointer_bindings]` merge by combination.* An entry
+  replaces the default binding of the same combination, after resolving
+  `Mod` and modifier aliases: with `modifier = "Super"`, `"Super+j"` in your
+  file replaces the default `"Mod+j"`. New combinations are added. The value
+  `"none"` removes a binding:
++
+[source,toml]
+----
+[keybindings]
+"Mod+p" = "spawn fuzzel"     # replace the launcher
+"Mod+Shift+l" = "none"       # remove the lock binding
+"XF86AudioMute" = "spawn wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+----
+
+`Mod` is resolved with the final `modifier`, so changing `modifier` moves
+every default binding to the new modifier.
+
+NOTE: In TOML, keys written after a `[table]` header belong to that table.
+Put top-level settings (`modifier`, `terminal`, `focus_follows_mouse`,
+`workspaces`, `layouts`) at the top of the file, before the first
+`[table]` or `+[[array]]+`.
+
+Unknown keys are errors, at the top level and in every table (a misspelled
+`[bar] colour = …` is rejected rather than ignored).
+
+=== Checking the file
+
+[source,sh]
+----
+oxmonad --check-config                     # the default file
+oxmonad --config ./config.toml --check-config
+----
+
+`--check-config` loads the file merged over the defaults, prints
+`configuration ok` and exits 0, or prints the error and exits 1. Besides
+everything listed under <<validation>>, it checks that every key name in
+`[keybindings]` is a known xkb keysym and lists the unknown ones
+(`oxmonad: unknown key names: …`). A missing file is not an error (the
+defaults are valid).
+
+[[validation]]
+=== What is an error
+
+A configuration is rejected when:
+
+* it is not valid TOML, a value has the wrong type, or a key is unknown;
+* a color is not `#RRGGBB` or `#RRGGBBAA`;
+* `modifier` is empty, names an unknown modifier, or contains `Mod`;
+* a binding's combination has an unknown modifier, no key, or (for pointer
+  bindings) an unknown button;
+* a binding's value is not a string, or not a valid action (unknown name,
+  missing, superfluous or invalid argument);
+* `keybindings` or `pointer_bindings` is not a table;
+* `workspaces` is empty, or a tag is empty (or only whitespace) or repeated;
+* `layouts` is empty, or names an unknown layout or one layout twice (the
+  message lists the valid names);
+* `border.width`, `bar.height`, `prompt.height` or `tabs.height` is negative;
+* a scratchpad has an empty or repeated `name`, a `rect` value outside
+  `0`–`1`, or a zero width or height;
+* a `[font] antialias`, `position` or rule `action` value is not one of the
+  listed choices.
+
+Unknown xkb key names are not an error when loading: the binding is ignored
+and a warning is logged (`unknown key name, binding ignored`). Only
+`--check-config` reports them as a failure.
+
+=== Applying changes
+
+[cols="1,3",options="header"]
+|===
+|How |What happens
+|Start
+|The file is loaded. If it is invalid, the error is logged and oxmonad runs
+with the defaults.
+
+|Reload: `kill -USR1 <pid>` or the `reload` action
+|The file is read again. If it is invalid, the error is logged and the
+previous configuration stays active. Otherwise the new configuration
+replaces the old one in place; windows, workspaces and focus are untouched.
+
+|Restart: `Mod+q`, the `restart` action, `oxmonad --restart`
+|oxmonad first runs `<binary> --check-config` with its original arguments;
+if that fails it logs the error and keeps running unchanged. Otherwise it
+re-executes its binary, which loads the configuration anew and restores
+windows, workspaces, layouts, split screens and the bar toggles. See
+link:../README.adoc[`README.adoc`] and
+link:architecture.adoc#_restart_in_place[Restart in place].
+|===
+
+`reload` is not bound by default. A reload applies:
+
+* key and pointer bindings, including a changed `modifier` (the bindings are
+  recreated);
+* colors, fonts and sizes of the bar, prompt, tab strip, layout picker, help
+  overlay and tray menus, and `border`;
+* `terminal`, `focus_follows_mouse`, `rules` and `scratchpads` (rules only
+  affect windows that appear afterwards);
+* `layouts`: every existing workspace is reconciled with the new list. If
+  the list of layouts is unchanged, every layout keeps its state (only
+  `Tabs` takes a new `tabs.height`); otherwise the workspace gets the new
+  ring, keeping its active layout if it is still listed and starting at the
+  first entry otherwise. An open layout picker is closed;
+* `workspaces`: tags that do not exist yet are added. Workspaces removed from
+  the list are *not* removed (use `remove-workspace`);
+* `[bar] tray` and `tray_icon_size`: the tray is started or stopped, and
+  restarted when the icon size changed.
+
+A workspace whose bar was toggled with `toggle-bar` keeps that choice across
+reloads; `bar.visible` applies to the others.
+
+== Value syntax
+
+=== Colors
+
+Colors are strings `"#RRGGBB"` or `"#RRGGBBAA"` with hexadecimal digits in
+either case; `AA` is the alpha (`FF` opaque, the default when omitted). Color
+names such as `"red"` are not accepted.
+
+=== Key combinations
+
+A key combination is written as modifiers and a key joined by `+`:
+`"Mod+Shift+Return"`. Every part but the last is a modifier; the last part is
+the key. Spaces around `+` are ignored.
+
+[cols="1,3",options="header"]
+|===
+|Modifier |Accepted names (case-insensitive)
+|Super (the logo key) |`Super`, `Logo`, `Win`, `Mod4`
+|Alt |`Alt`, `Mod1`
+|Control |`Ctrl`, `Control`
+|Shift |`Shift`
+|The configured `modifier` |`Mod` (only in bindings, not in the `modifier` setting)
+|===
+
+Keys are xkb keysym names, as in `xkbcommon-keysyms.h` without the `XKB_KEY_`
+prefix: `Return`, `space`, `comma`, `period`, `slash`, `grave`, `BackSpace`,
+`Left`, `F1`, `XF86AudioPlay`, letters and digits. An exact name is tried
+first, then a case-insensitive match. Bindings match the *unshifted* key plus
+the held modifiers, so write the key itself and add `Shift`:
+`"Mod+Shift+slash"` (not `"Mod+question"`), `"Mod+Shift+1"`. Write letters in
+lower case as the defaults do: `"Mod+Shift+j"` is `j` with Shift, and only the
+exact same spelling overrides or removes a default binding.
+
+A combination without modifiers (`"XF86AudioMute"`) is allowed. While the
+screen is locked, only bindings without modifiers work.
+
+=== Pointer buttons
+
+Pointer combinations are written the same way with a button as the last part,
+`"Mod+Button1"`. Button names are case-insensitive:
+
+[cols="1,1",options="header"]
+|===
+|Name |Button
+|`Button1`, `Left` |left
+|`Button2`, `Middle` |middle
+|`Button3`, `Right` |right
+|`Button8`, `Side` |side (back)
+|`Button9`, `Extra` |extra (forward)
+|===
+
+Pointer bindings act on the window under the pointer and do not work while
+the screen is locked.
+
+=== Fonts
+
+`font_family` is a font family name. `"Fira Mono"` (the default) is embedded
+in oxmonad and used without looking at installed fonts; any other family is
+looked up among the installed fonts, and an unknown family falls back to Fira
+Mono. `font_size` is in points, converted to logical pixels at 96 dpi
+(`12.0` points are 16 logical pixels).
+
+== Top-level settings
+
+These must come before the first table of the file.
+
+[cols="2,2,3,5",options="header"]
+|===
+|Key |Type |Default |Description
+
+|`modifier`
+|string
+|`"Super"`
+|What `Mod` stands for in bindings: one modifier name or a `+`-joined
+combination such as `"Ctrl+Alt"`. `"Alt"` gives xmonad's classic `mod1Mask`.
+
+|`terminal`
+|string
+|`"alacritty"`
+|The command `spawn-terminal` runs (through `sh -c`).
+
+|`focus_follows_mouse`
+|boolean
+|`true`
+|Focus the window under the pointer when the pointer moves onto it. Clicking
+always focuses.
+
+|`workspaces`
+|array of strings
+|`["1", "2", "3", "4", "5", "6", "7", "8", "9"]`
+|The initial workspace tags, in order. Must not be empty; tags must be
+non-empty and unique. More workspaces can be created at runtime from the
+prompt (`prompt view`, `prompt move`).
+
+|`layouts`
+|array of strings
+|all ten layouts, see <<layouts>>
+|The layout ring of every workspace, in ring order.
+|===
+
+[[layouts]]
+=== `layouts`
+
+The layouts each workspace cycles through, in the order `next-layout` cycles
+through them and the layout picker shows them (its `1`–`9` and `0` keys pick
+the first to tenth). The first entry is every workspace's initial layout and
+what `reset-layout` returns to. A layout left out is not in the ring. Names
+are matched ignoring case and surrounding whitespace; each may appear only
+once, and the list must not be empty.
+
+Default:
+
+[source,toml]
+----
+layouts = [
+  "Tall Right",
+  "Tall",
+  "Wide",
+  "Full",
+  "Tabs",
+  "Grid Rows",
+  "Grid",
+  "Three Columns",
+  "Three Columns Right",
+  "Corner",
+]
+----
+
+[cols="1,3",options="header"]
+|===
+|Name |Arrangement
+|`Tall Right` |master column on the right, stack on the left
+|`Tall` |master column on the left, stack on the right
+|`Wide` |master row on top, stack below
+|`Full` |focused window fills the screen, without borders
+|`Tabs` |focused window below a tab strip (styled by `[tabs]`)
+|`Grid Rows` |grid filled row by row
+|`Grid` |grid filled column by column
+|`Three Columns` |master column on the left, stack split over two columns
+|`Three Columns Right` |mirror image of `Three Columns`
+|`Corner` |master in the top-left corner, the others in an L around it
+|===
+
+Pictures of every layout are in
+link:keybindings.adoc#_layouts_resizing[`keybindings.adoc`].
+
+== `[border]`
+
+Window borders.
+
+[cols="2,2,2,5",options="header"]
+|===
+|Key |Type |Default |Description
+|`width` |integer ≥ 0 |`1` |Border width in logical pixels.
+|`focused` |color |`"#C62828"` |Border color of the focused window.
+|`normal` |color |`"#969694"` |Border color of the other windows.
+|===
+
+== `[font]`
+
+Text rendering of the bar, prompt, tab strip, layout picker, help overlay and
+tray menus. The font families and sizes are set per surface in `[bar]`,
+`[prompt]` and `[tabs]`.
+
+[cols="2,2,2,5",options="header"]
+|===
+|Key |Type |Default |Description
+|`antialias`
+|`"grayscale"`, `"rgb"` or `"bgr"`
+|`"grayscale"`
+|Glyph edge antialiasing: grayscale, or subpixel antialiasing for the
+screen's subpixel order. Subpixel text is only drawn in opaque colors over
+opaque backgrounds; elsewhere it falls back to grayscale.
+|===
+
+== `[bar]`
+
+The status bar: workspaces, the layout name, the focused window's title, and
+on the right the system tray, battery and clock.
+
+[cols="2,2,2,5",options="header"]
+|===
+|Key |Type |Default |Description
+
+|`visible`
+|boolean
+|`true`
+|Whether the bar is shown, for every workspace. `toggle-bar` (`Mod+b`)
+overrides it per workspace.
+
+|`position`
+|`"top"` or `"bottom"`
+|`"top"`
+|The screen edge the bar sits on.
+
+|`height`
+|integer ≥ 0
+|`24`
+|Height in logical pixels.
+
+|`output`
+|string
+|unset
+|The name of the output (e.g. `"DP-1"`) to show the bar on. When unset, or
+when no output has that name, the bar is on the first output.
+
+|`font_family`
+|string
+|`"Fira Mono"`
+|Font family of the bar. The tray menus use it too.
+
+|`font_size`
+|float (points)
+|`12.0`
+|Font size of the bar. The layout picker, help overlay and tray menus use it
+too.
+
+|`title_max_len`
+|integer ≥ 0
+|`100`
+|Shorten the window title to this many characters, ending in `...`
+(xmonad's `shorten`). `0` disables shortening.
+
+|`tray`
+|boolean
+|`true`
+|Show a system tray (`StatusNotifierItem` icons) left of the clock. A reload
+starts or stops it.
+
+|`tray_icon_size`
+|integer ≥ 0
+|`16`
+|Tray icon size in logical pixels (`0` is treated as `1`).
+
+|`layout_icon`
+|boolean
+|`true`
+|Draw a miniature of the current layout before its name.
+|===
+
+=== `[bar.colors]`
+
+[cols="2,2,2,5",options="header"]
+|===
+|Key |Type |Default |Description
+|`background` |color |`"#161616"` |Bar background.
+|`foreground` |color |`"#F2F2F2"` |Default text color.
+|`current` |color |`"#F8E63A"` |The current workspace (shown as `<tag>`). The headings of the help overlay use it too.
+|`visible` |color |`"#F2F2F2"` |Workspaces visible on other screens (shown as `(tag)`). Accepted but currently not used: they are drawn in `foreground`.
+|`hidden` |color |`"#F2F2F2"` |Hidden workspaces with windows. Accepted but currently not used: they are drawn in `foreground`.
+|`hidden_empty` |color |`"#969694"` |Hidden empty workspaces. Accepted but currently not used: hidden empty workspaces are not shown in the bar.
+|`title` |color |`"#86BD47"` |The focused window's title.
+|`layout` |color |`"#F2F2F2"` |The layout name. Accepted but currently not used: it is drawn in `foreground`.
+|===
+
+== `[prompt]`
+
+The workspace prompt (`prompt view|move|copy|rename`). Its colors are also
+used by the layout picker, the help overlay and the tray menus.
+
+[cols="2,2,2,5",options="header"]
+|===
+|Key |Type |Default |Description
+|`position` |`"top"` or `"bottom"` |`"bottom"` |The screen edge the prompt sits on.
+|`height` |integer ≥ 0 |`28` |Height in logical pixels.
+|`font_family` |string |`"Fira Mono"` |Font family of the prompt.
+|`font_size` |float (points) |`16.0` |Font size of the prompt.
+|===
+
+=== `[prompt.colors]`
+
+[cols="2,2,2,5",options="header"]
+|===
+|Key |Type |Default |Description
+|`background` |color |`"#161616"` |Background.
+|`foreground` |color |`"#F2F2F2"` |Text.
+|`border` |color |`"#F2F2F2"` |Border.
+|`highlight_background` |color |`"#1565C1"` |Background of the highlighted completion (and the selection in the layout picker and tray menus).
+|`highlight_foreground` |color |`"#F2F2F2"` |Text of the highlighted completion (and the selection in the layout picker and tray menus).
+|===
+
+== `[tabs]`
+
+The tab strip of the `Tabs` layout.
+
+[cols="2,2,2,5",options="header"]
+|===
+|Key |Type |Default |Description
+|`height` |integer ≥ 0 |`20` |Tab strip height in logical pixels.
+|`font_family` |string |`"Fira Mono"` |Font family of the tab titles.
+|`font_size` |float (points) |`12.0` |Font size of the tab titles.
+|`active_color` |color |`"#999999"` |Background of the focused window's tab.
+|`inactive_color` |color |`"#666666"` |Background of the other tabs.
+|`active_text_color` |color |`"#FFFFFF"` |Text of the focused window's tab.
+|`inactive_text_color` |color |`"#BFBFBF"` |Text of the other tabs.
+|`active_border_color` |color |`"#FFFFFF"` |Border of the focused window's tab.
+|`inactive_border_color` |color |`"#BBBBBB"` |Border of the other tabs.
+|===
+
+== `[keybindings]`
+
+Each entry binds a <<_key_combinations,key combination>> to an
+<<actions,action>>: `"Modifiers+Key" = "action"`. Combinations must be quoted
+because they contain `+`. See <<_merging_over_the_defaults>> for overriding
+and removing (`"none"`) defaults.
+
+[source,toml]
+----
+[keybindings]
+"Mod+Shift+Return" = "spawn-terminal"
+"Mod+d" = "spawn fuzzel"
+"Mod+Ctrl+r" = "reload"
+----
+
+The defaults (with `Mod` = Super, explained in
+link:keybindings.adoc[`keybindings.adoc`]):
+
+[cols="2,3",options="header"]
+|===
+|Combination |Action
+|`Mod+Shift+Return` |`spawn-terminal`
+|`Mod+p` |`spawn tofi-run …` (the application launcher; see the default file for the full command)
+|`Mod+Shift+l` |`spawn oxmonad-lock`
+|`Mod+j` |`focus-next`
+|`Mod+k` |`focus-prev`
+|`Mod+Shift+j` |`swap-next`
+|`Mod+Shift+k` |`swap-prev`
+|`Mod+Return` |`swap-master`
+|`Mod+t` |`sink`
+|`Mod+Shift+c` |`close`
+|`Mod+o` |`shift-screen-follow next`
+|`Mod+f` |`toggle-fullscreen`
+|`Mod+grave` |`toggle-scratchpad term`
+|`Mod+space` |`next-layout`
+|`Mod+Shift+space` |`reset-layout`
+|`Mod+Ctrl+space` |`pick-layout`
+|`Mod+h` |`shrink`
+|`Mod+l` |`expand`
+|`Mod+Up` |`mirror-expand`
+|`Mod+Down` |`mirror-shrink`
+|`Mod+comma` |`inc-master 1`
+|`Mod+period` |`inc-master -1`
+|`Mod+1` … `Mod+9` |`view 1` … `view 9`
+|`Mod+Shift+1` … `Mod+Shift+9` |`shift 1` … `shift 9`
+|`Mod+Shift+z` |`toggle-ws`
+|`Mod+v` |`prompt view`
+|`Mod+m` |`prompt move`
+|`Mod+Shift+m` |`prompt copy`
+|`Mod+Shift+r` |`prompt rename`
+|`Mod+Shift+BackSpace` |`remove-workspace`
+|`Mod+Right` |`focus-screen next`
+|`Mod+Left` |`focus-screen prev`
+|`Mod+Shift+Right` |`shift-screen next`
+|`Mod+Shift+Left` |`shift-screen prev`
+|`Mod+z` |`swap-next-screen`
+|`Mod+Shift+s` |`split-screen 2`
+|`Mod+Ctrl+Shift+s` |`rescreen`
+|`Mod+b` |`toggle-bar`
+|`Mod+n` |`refresh`
+|`Mod+Shift+q` |`quit`
+|`Mod+q` |`restart`
+|`Mod+Shift+slash` |`help`
+|===
+
+== `[pointer_bindings]`
+
+Each entry binds a <<_pointer_buttons,pointer combination>> to an
+<<actions,action>>, merged like `[keybindings]`.
+
+[cols="2,3",options="header"]
+|===
+|Combination (default) |Action
+|`Mod+Button1` |`float-move`
+|`Mod+Button3` |`float-resize`
+|===
+
+[[rules-section]]
+== `+[[rules]]+`
+
+Manage rules decide what happens to a window when it first appears (xmonad's
+`manageHook`). Rules are checked in order and the *first* matching rule
+applies. A rule matches when all the conditions it sets match; a rule without
+conditions matches every window.
+
+Independently of the rules, windows with a parent (dialogs, transients) float;
+a matching rule with an `action` overrides that.
+
+[cols="2,3,5",options="header"]
+|===
+|Key |Type |Description
+|`app_id` |pattern |Condition: the window's app id (the X11 class under Xwayland).
+|`title` |pattern |Condition: the window's title when it appears.
+|`has_parent` |boolean |Condition: the window has (`true`) or has no (`false`) parent.
+|`action` |`"float"`, `"tile"` or `"tile-below-master"` |`float`: float it, centred on its screen. `tile`: tile it even if it would float. `tile-below-master`: tile it and move it one position down, out of the master slot.
+|`workspace` |string |Put the window on this workspace instead of the current one, creating the workspace if it does not exist.
+|===
+
+Every key is optional. A pattern is a string glob (`*` matches any run of
+characters, `?` one character, everything else literally and case-sensitive)
+or an array of globs of which any may match.
+
+The default rules (replaced as a whole by any `+[[rules]]+` of your own) tile
+Zoom's main and meeting windows out of the master slot and float every other
+Zoom window:
+
+[source,toml]
+----
+[[rules]]
+app_id = "zoom"
+title = ["Zoom - Free Account", "Zoom - Licensed Account", "Zoom", "Zoom Meeting"]
+action = "tile-below-master"
+
+[[rules]]
+app_id = "zoom"
+action = "float"
+----
+
+[[scratchpads-section]]
+== `+[[scratchpads]]+`
+
+Named scratchpads (xmonad-contrib's `NamedScratchpad`). `toggle-scratchpad
+<name>` spawns `command` if no window with the scratchpad's `app_id` exists;
+otherwise it moves that window between the current workspace and the hidden
+`NSP` workspace. A window with a scratchpad's `app_id` floats at its `rect`.
+
+[cols="2,2,6",options="header"]
+|===
+|Key |Type |Description
+|`name` |string |Name used by `toggle-scratchpad`. Non-empty and unique.
+|`command` |string |Command to spawn (through `sh -c`) when the window does not exist.
+|`app_id` |string |App id identifying the scratchpad's window (matched exactly).
+|`rect` |array of 4 floats |`[x, y, width, height]` as fractions of the screen, each in `0`–`1`; width and height must be greater than 0.
+|===
+
+All keys are required. Default (replaced as a whole by any `+[[scratchpads]]+`
+of your own):
+
+[source,toml]
+----
+[[scratchpads]]
+name = "term"
+command = "alacritty --class scratchpad"
+app_id = "scratchpad"
+rect = [0.1, 0.1, 0.8, 0.8]
+----
+
+[[actions]]
+== Actions
+
+Actions are the values of `[keybindings]` and `[pointer_bindings]`, and the
+commands of the control socket (`OXMONAD_CONTROL`, see
+link:../README.adoc[`README.adoc`]). An action is a name, optionally followed
+by whitespace and an argument. Actions without an argument reject one.
+
+[cols="3,2,6",options="header"]
+|===
+|Action |Argument |What it does
+
+3+h|Programs
+|`spawn` |shell command |Run the rest of the line with `sh -c`.
+|`spawn-terminal` | |Run `terminal`.
+
+3+h|Windows
+|`focus-next` | |Focus the next window in stack order, wrapping.
+|`focus-prev` | |Focus the previous window, wrapping.
+|`focus-master` | |Focus the master window.
+|`swap-next` | |Swap the focused window with the next one.
+|`swap-prev` | |Swap the focused window with the previous one.
+|`swap-master` | |Swap the focused window with the master.
+|`sink` | |Put the focused floating window back into the tiling.
+|`close` | |Close the focused window.
+|`toggle-fullscreen` | |Toggle fullscreen for the focused window.
+|`float-move` | |Float the window and move it with the pointer (for pointer bindings).
+|`float-resize` | |Float the window and resize it with the pointer (for pointer bindings).
+|`toggle-scratchpad` |scratchpad name |Show, hide or spawn the named <<scratchpads-section,scratchpad>>. Unknown names do nothing.
+
+3+h|Layouts
+|`next-layout` | |Switch the current workspace to the next layout in its ring.
+|`pick-layout` | |Open the layout picker, or close it if it is open.
+|`reset-layout` | |Reset the current workspace's layouts to the configured ring (first layout, default parameters).
+|`shrink` | |Shrink the master area.
+|`expand` | |Expand the master area.
+|`mirror-shrink` | |Shrink the focused window in the other direction (`ResizableTall`'s `MirrorShrink`).
+|`mirror-expand` | |Expand the focused window in the other direction (`MirrorExpand`).
+|`inc-master` |integer (may be negative) |Change the number of windows in the master area by this amount.
+
+3+h|Workspaces
+|`view` |workspace tag |Show the workspace on the current screen; if it is visible on another screen, the two screens swap workspaces (xmonad's `greedyView`). Unknown tags do nothing.
+|`shift` |workspace tag |Move the focused window to the workspace. Unknown tags do nothing.
+|`copy` |workspace tag |Copy the focused window to the workspace (it is then on both). Unknown tags do nothing.
+|`toggle-ws` | |View the most recently hidden workspace (skipping the scratchpad workspace).
+|`prompt` |`view`, `move`, `copy` or `rename` |Open the workspace prompt to view a workspace, move or copy the focused window to one (creating the workspace if needed), or rename the current workspace.
+|`remove-workspace` | |Remove the current workspace; its windows merge into the most recently hidden workspace, which is shown instead. Does nothing if there is no hidden workspace to fall back to.
+
+3+h|Screens
+|`focus-screen` |`next` or `prev` |Focus the next or previous screen.
+|`shift-screen` |`next` or `prev` |Send the focused window to the workspace of the next or previous screen; focus stays.
+|`shift-screen-follow` |`next` or `prev` |Send the focused window to the next or previous screen and follow it.
+|`swap-next-screen` | |Swap the current screen's workspace with the next screen's.
+|`split-screen` |integer 2–16 |Split the current screen into this many virtual screens side by side.
+|`rescreen` | |Undo every split: one screen per output again.
+
+3+h|Bar and session
+|`toggle-bar` | |Show or hide the bar for the current workspace.
+|`help` | |Show every key and pointer binding, or close that overlay.
+|`refresh` | |Re-arrange everything.
+|`reload` | |Reload the configuration file (like `SIGUSR1`).
+|`restart` | |Restart oxmonad in place, keeping the windows, and load the configuration anew.
+|`quit` | |Quit oxmonad, which ends the river session.
+|===
+
+Screens are ordered as described in
+link:keybindings.adoc#_screens_multi_monitor[`keybindings.adoc`]; split
+screens are covered in link:multimonitor.adoc[`multimonitor.adoc`] and
+link:architecture.adoc#_virtual_screens[Virtual screens].
+
+== Example
+
+A typical `~/.config/oxmonad/config.toml`:
+
+[source,toml]
+----
+# Top-level settings first.
+modifier = "Alt"
+terminal = "foot"
+workspaces = ["web", "code", "chat", "4", "5", "6", "7", "8", "9"]
+layouts = ["Tall", "Full", "Tabs"]
+
+[border]
+width = 2
+focused = "#1565C1"
+
+[font]
+antialias = "rgb"
+
+[bar]
+position = "bottom"
+font_size = 11.0
+output = "DP-1"
+
+[bar.colors]
+title = "#F2F2F2"
+
+[keybindings]
+"Mod+p" = "spawn fuzzel"
+"Mod+Shift+l" = "spawn swaylock"
+"Mod+1" = "view web"
+"Mod+2" = "view code"
+"Mod+3" = "view chat"
+"Mod+Shift+1" = "shift web"
+"Mod+Shift+2" = "shift code"
+"Mod+Shift+3" = "shift chat"
+"Mod+Ctrl+r" = "reload"
+"XF86AudioRaiseVolume" = "spawn wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
+"XF86AudioLowerVolume" = "spawn wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+"Mod+grave" = "toggle-scratchpad term"
+
+# Replaces the default rules (including the Zoom rules).
+[[rules]]
+app_id = "firefox"
+workspace = "web"
+
+[[rules]]
+app_id = "pavucontrol"
+action = "float"
+
+# Replaces the default scratchpad, so `term` is defined again.
+[[scratchpads]]
+name = "term"
+command = "foot --app-id scratchpad"
+app_id = "scratchpad"
+rect = [0.1, 0.1, 0.8, 0.8]
+----
+
+Check it with `oxmonad --check-config`, then reload with `Mod+Ctrl+r` (as
+bound above) or `kill -USR1 $(pidof oxmonad)`.

@@ -64,7 +64,8 @@ link:crates/oxmonad-core/default-config.toml[`crates/oxmonad-core/default-config
 which documents every setting: modifier, terminal, workspaces, the order of
 the layout ring (`layouts`), colors, fonts, bar, prompt, tabs, key and
 pointer bindings, manage rules and scratchpads. You only write what you
-change.
+change. link:docs/config.adoc[`docs/config.adoc`] is the reference for every
+setting, the merge rules and every action.
 
 [source,sh]
 ----
