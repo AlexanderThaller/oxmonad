@@ -19,8 +19,13 @@ use oxmonad_ui::{
     HelpGroup,
     HelpStyle,
     HelpView,
+    Icon,
     LayoutPickerStyle,
     LayoutPickerView,
+    MenuEntry,
+    MenuEntryKind,
+    MenuStyle,
+    MenuView,
     PickerEntry,
     PpStyle,
     PreviewRect,
@@ -43,6 +48,7 @@ use oxmonad_ui::{
     render_bar,
     render_help,
     render_layout_picker,
+    render_menu,
     render_prompt,
     render_tabs,
 };
@@ -626,4 +632,149 @@ fn help_overlays() {
         assert_eq!(max_scroll > 0, scrolls, "{name}");
         assert_snapshot(name, &canvas);
     }
+}
+
+/// A synthetic straight-RGBA icon: `pixel(x, y)` at each pixel centre,
+/// with coordinates in 0..1.
+fn synthetic_icon(width: u32, height: u32, pixel: impl Fn(f32, f32) -> [u8; 4]) -> Icon {
+    let mut rgba = Vec::new();
+    for y in 0..height {
+        for x in 0..width {
+            #[expect(clippy::cast_precision_loss, reason = "tiny test icons")]
+            let (fx, fy) = (
+                (x as f32 + 0.5) / width as f32,
+                (y as f32 + 0.5) / height as f32,
+            );
+            rgba.extend(pixel(fx, fy));
+        }
+    }
+    Icon::from_straight_rgba(width, height, &rgba).expect("valid icon size")
+}
+
+/// A 64×64 red disc (shrunk), a 16×16 translucent green square with an
+/// opaque border (drawn 1:1) and a 12×6 blue–white bar (enlarged).
+fn tray_icons() -> Vec<Icon> {
+    let disc = synthetic_icon(64, 64, |x, y| {
+        let distance = (x - 0.5).hypot(y - 0.5);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 0..=255"
+        )]
+        let alpha = ((0.45 - distance) * 64.0 * 255.0).clamp(0.0, 255.0) as u8;
+        [230, 40, 40, alpha]
+    });
+    let square = synthetic_icon(16, 16, |x, y| {
+        let edge = x < 0.1 || x > 0.9 || y < 0.1 || y > 0.9;
+        if edge {
+            [60, 200, 80, 255]
+        } else {
+            [60, 200, 80, 110]
+        }
+    });
+    let bar = synthetic_icon(12, 6, |x, _| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "0..=255"
+        )]
+        let level = (x * 255.0) as u8;
+        [level, level, 255, 255]
+    });
+    vec![disc, square, bar]
+}
+
+fn tray_bar_view() -> BarView {
+    let style = BarStyle::default();
+    let tray = tray_icons()
+        .into_iter()
+        .enumerate()
+        .map(|(index, icon)| Segment::with_icon(icon).action(format!("item{index}")))
+        .collect();
+    BarView {
+        segments_left: pp_segments(
+            &[tag("1", WorkspaceState::Current, true, false)],
+            "Tall",
+            "alacritty",
+            &PpStyle::default(),
+        ),
+        segments_right: join_groups(
+            [
+                format_battery(discharging(80), &BatteryStyle::default()),
+                tray,
+                vec![Segment::new("2026.10.01-4 13:05")],
+            ],
+            &style.separator,
+        ),
+    }
+}
+
+#[test]
+fn bar_with_tray() {
+    let fonts = Fonts::embedded();
+    let style = BarStyle::default();
+    assert_snapshot(
+        "bar_tray",
+        &render_bar(&tray_bar_view(), &style, &fonts, 700, 1),
+    );
+    assert_snapshot(
+        "bar_tray_scale_2",
+        &render_bar(&tray_bar_view(), &style, &fonts, 700, 2),
+    );
+}
+
+fn menu(selected: Option<usize>) -> MenuView {
+    let entry = |label: &str, kind, enabled, submenu| MenuEntry {
+        label: label.to_owned(),
+        kind,
+        enabled,
+        submenu,
+    };
+    MenuView {
+        entries: vec![
+            entry("Open Window", MenuEntryKind::Normal, true, false),
+            entry("Unavailable", MenuEntryKind::Normal, false, false),
+            MenuEntry::separator(),
+            entry("Notifications", MenuEntryKind::Check(true), true, false),
+            entry("Do Not Disturb", MenuEntryKind::Check(false), true, false),
+            entry("Locked", MenuEntryKind::Check(true), false, false),
+            MenuEntry::separator(),
+            entry("Wi-Fi", MenuEntryKind::Radio(true), true, false),
+            entry("Ethernet", MenuEntryKind::Radio(false), true, false),
+            MenuEntry::separator(),
+            entry("Preferences", MenuEntryKind::Normal, true, true),
+            entry("Quit", MenuEntryKind::Normal, true, false),
+        ],
+        selected,
+    }
+}
+
+#[test]
+fn menus() {
+    let fonts = Fonts::embedded();
+    let style = MenuStyle::default();
+    assert_snapshot(
+        "menu_selected",
+        &render_menu(&menu(Some(4)), &style, &fonts, 1),
+    );
+    assert_snapshot(
+        "menu_submenu_selected",
+        &render_menu(&menu(Some(10)), &style, &fonts, 1),
+    );
+    assert_snapshot(
+        "menu_scale_2",
+        &render_menu(&menu(Some(7)), &style, &fonts, 2),
+    );
+    let narrow = MenuStyle {
+        max_width: 120,
+        ..MenuStyle::default()
+    };
+    let plain = MenuView {
+        entries: vec![
+            MenuEntry::new("A rather long menu entry label"),
+            MenuEntry::new("Short"),
+        ],
+        selected: None,
+    };
+    assert_snapshot("menu_ellipsized", &render_menu(&plain, &narrow, &fonts, 1));
 }
