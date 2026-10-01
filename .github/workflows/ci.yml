@@ -12,6 +12,12 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # .cargo/config.toml builds for -Ctarget-cpu=native. Runners differ in
+  # CPU, so a cached build script compiled on a newer one dies with SIGILL
+  # on an older one. RUSTFLAGS replaces the config's rustflags (and is part
+  # of rust-cache's key), so CI builds for x86-64-v3 (AVX2), which every
+  # GitHub-hosted x86 runner supports.
+  RUSTFLAGS: -Ctarget-cpu=x86-64-v3
 
 jobs:
   fmt:
