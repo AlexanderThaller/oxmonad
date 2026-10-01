@@ -32,6 +32,9 @@ items are marked N/A with a rationale.
   date (`%Y.%m.%d-%u %H:%M`) modules right-aligned with `|` separators,
   toggle with `Mod+b`. Proper font rendering (Fira Mono embedded, system
   fonts by family).
+* System tray left of the clock (`[bar] tray`, replacing xmobar's
+  `trayer`/`stalonetray` slot): `StatusNotifierItem` icons with
+  activate/secondary/scroll and their dbusmenu menus as cascading popups.
 * Tab strip for the tabbed layout, clickable.
 * Workspace prompt with completion, `XMonad.Prompt` editing keys and key
   repeat.

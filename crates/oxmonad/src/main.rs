@@ -17,6 +17,8 @@ mod shm;
 mod spawn;
 mod state;
 mod status;
+mod tray;
+mod tray_ui;
 
 use std::{
     env,
@@ -266,6 +268,7 @@ fn run(
         state.request_restart();
     }
     start_status_timers(&handle, &mut state)?;
+    state.sync_tray();
     if let Some(path) = env::var_os(control::ENV).filter(|path| !path.is_empty()) {
         listen_control(&handle, Path::new(&path))?;
     }

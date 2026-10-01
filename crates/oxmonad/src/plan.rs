@@ -35,14 +35,19 @@ pub enum Node {
     LayoutPicker,
     /// The key binding help overlay.
     Help,
+    /// A level of the tray menu (0 is the root, then each open submenu).
+    TrayMenu(usize),
 }
 
 impl Node {
     /// Whether this is an overlay that takes the keyboard (prompt, layout
-    /// picker or help), stacked above everything.
+    /// picker, help or tray menu), stacked above everything.
     #[must_use]
     pub const fn is_overlay(self) -> bool {
-        matches!(self, Self::Prompt | Self::LayoutPicker | Self::Help)
+        matches!(
+            self,
+            Self::Prompt | Self::LayoutPicker | Self::Help | Self::TrayMenu(_)
+        )
     }
 }
 

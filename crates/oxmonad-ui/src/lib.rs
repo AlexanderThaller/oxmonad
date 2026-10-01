@@ -1,6 +1,6 @@
-//! Software rendering of oxmonad's own UI: the status bar, the workspace
-//! prompt, the layout picker, the key binding help and the tabbed layout's
-//! tab strip.
+//! Software rendering of oxmonad's own UI: the status bar (with tray
+//! icons), the workspace prompt, the layout picker, the key binding help,
+//! popup menus and the tabbed layout's tab strip.
 //!
 //! Every widget is a pure function from a plain view struct and a style to a
 //! [`Canvas`]: premultiplied ARGB8888 pixels in the `wl_shm` `argb8888`
@@ -11,7 +11,9 @@ mod bar;
 mod canvas;
 mod color;
 mod help;
+mod icon;
 mod layout_picker;
+mod menu;
 mod prompt;
 mod tabs;
 mod text;
@@ -50,6 +52,7 @@ pub use help::{
     help_viewport,
     render_help,
 };
+pub use icon::Icon;
 pub use layout_picker::{
     LayoutPickerStyle,
     LayoutPickerView,
@@ -60,6 +63,16 @@ pub use layout_picker::{
     picker_entry_at,
     picker_entry_rects,
     render_layout_picker,
+};
+pub use menu::{
+    MenuEntry,
+    MenuEntryKind,
+    MenuStyle,
+    MenuView,
+    menu_entry_at,
+    menu_entry_rects,
+    menu_size,
+    render_menu,
 };
 pub use prompt::{
     PromptPosition,

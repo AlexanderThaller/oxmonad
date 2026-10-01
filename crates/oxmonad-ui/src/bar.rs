@@ -8,6 +8,7 @@ use crate::{
     Canvas,
     Color,
     Fonts,
+    Icon,
     canvas::{
         Painter,
         round_i32,
@@ -16,9 +17,11 @@ use crate::{
     },
 };
 
-/// A run of text in one color, optionally on its own background.
+/// A run of text in one color, or an icon, optionally on its own
+/// background.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Segment {
+    /// The text drawn; ignored when [`Segment::icon`] is set.
     pub text: String,
     /// Text color; `None` uses [`BarStyle::fg`].
     pub fg: Option<Color>,
@@ -27,6 +30,10 @@ pub struct Segment {
     /// What clicking the segment means to the binary (like xmobar's
     /// `<action=…>`); [`pp_segments`] sets it to the workspace tag.
     pub action: Option<String>,
+    /// An icon drawn instead of the text: a [`BarStyle::icon_size`] square
+    /// with [`BarStyle::icon_spacing`] on either side, the icon scaled to
+    /// fit it and vertically centered in the bar.
+    pub icon: Option<Icon>,
 }
 
 impl Segment {
@@ -38,24 +45,41 @@ impl Segment {
             fg: None,
             bg: None,
             action: None,
+            icon: None,
         }
     }
 
+    /// An icon segment (see [`Segment::icon`]) in the bar's default colors.
+    #[must_use]
+    pub fn with_icon(icon: Icon) -> Self {
+        Self::new("").icon(icon)
+    }
+
+    /// Sets the text color.
     #[must_use]
     pub fn fg(mut self, color: Color) -> Self {
         self.fg = Some(color);
         self
     }
 
+    /// Sets the background color.
     #[must_use]
     pub fn bg(mut self, color: Color) -> Self {
         self.bg = Some(color);
         self
     }
 
+    /// Sets what clicking the segment means to the binary.
     #[must_use]
     pub fn action(mut self, action: impl Into<String>) -> Self {
         self.action = Some(action.into());
+        self
+    }
+
+    /// Draws `icon` instead of the text.
+    #[must_use]
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
         self
     }
 }
@@ -96,6 +120,10 @@ pub struct BarStyle {
     /// Put between right-side groups by [`join_groups`] (the template's
     /// literal `" | "`).
     pub separator: String,
+    /// Side of the square an icon segment's icon is fitted into.
+    pub icon_size: u32,
+    /// Space on either side of an icon segment's icon.
+    pub icon_spacing: u32,
 }
 
 impl Default for BarStyle {
@@ -108,6 +136,8 @@ impl Default for BarStyle {
             padding: 6,
             separator: " | ".to_owned(),
             antialias: Antialias::Grayscale,
+            icon_size: 16,
+            icon_spacing: 4,
         }
     }
 }
@@ -144,7 +174,7 @@ pub struct SegmentId {
 }
 
 /// A segment's final placement: device-pixel span and the (possibly
-/// ellipsized) text drawn there.
+/// ellipsized) text drawn there (empty for icon segments).
 #[derive(Debug, Clone, PartialEq)]
 struct Placed {
     id: SegmentId,
@@ -174,6 +204,30 @@ impl BarLayout {
             })
             .map(|placed| placed.id)
     }
+
+    /// Where segment `id` was placed: its `(start, end)` x coordinates in
+    /// logical pixels relative to the bar's left edge, e.g. to anchor a popup
+    /// menu under a clicked tray icon. `None` when the segment did not fit.
+    #[must_use]
+    pub fn segment_span(&self, id: SegmentId) -> Option<(f64, f64)> {
+        let scale = f64::from(self.scale);
+        self.placed
+            .iter()
+            .find(|placed| placed.id == id)
+            .map(|placed| {
+                let start = f64::from(placed.x);
+                (start / scale, (start + f64::from(placed.width)) / scale)
+            })
+    }
+}
+
+/// The device-pixel width of a segment at device font size `size`.
+fn segment_width(segment: &Segment, style: &BarStyle, fonts: &Fonts, size: f32, scale: u32) -> f32 {
+    if segment.icon.is_some() {
+        to_f32(to_i32((style.icon_size + 2 * style.icon_spacing) * scale))
+    } else {
+        fonts.text_width(&segment.text, size)
+    }
 }
 
 /// Lays the bar out without drawing it (for hit-testing).
@@ -194,12 +248,17 @@ pub fn layout_bar(
     let right_width: f32 = view
         .segments_right
         .iter()
-        .map(|segment| fonts.text_width(&segment.text, size))
+        .map(|segment| segment_width(segment, style, fonts, size, scale))
         .sum();
     let right_start = (width - padding - right_width).max(padding);
     let mut pen = right_start;
     for (index, segment) in view.segments_right.iter().enumerate() {
-        let segment_width = fonts.text_width(&segment.text, size);
+        let segment_width = segment_width(segment, style, fonts, size, scale);
+        let text = if segment.icon.is_some() {
+            String::new()
+        } else {
+            segment.text.clone()
+        };
         placed.push(Placed {
             id: SegmentId {
                 side: Side::Right,
@@ -207,7 +266,7 @@ pub fn layout_bar(
             },
             x: pen,
             width: segment_width,
-            text: segment.text.clone(),
+            text,
         });
         pen += segment_width;
     }
@@ -219,6 +278,24 @@ pub fn layout_bar(
     };
     let mut pen = padding;
     for (index, segment) in view.segments_left.iter().enumerate() {
+        let id = SegmentId {
+            side: Side::Left,
+            index,
+        };
+        if segment.icon.is_some() {
+            let segment_width = segment_width(segment, style, fonts, size, scale);
+            if pen + segment_width > left_limit {
+                break;
+            }
+            placed.push(Placed {
+                id,
+                x: pen,
+                width: segment_width,
+                text: String::new(),
+            });
+            pen += segment_width;
+            continue;
+        }
         let text = fonts.ellipsize(&segment.text, size, left_limit - pen);
         if text.is_empty() {
             break;
@@ -226,10 +303,7 @@ pub fn layout_bar(
         let segment_width = fonts.text_width(&text, size);
         let truncated = *text != *segment.text;
         placed.push(Placed {
-            id: SegmentId {
-                side: Side::Left,
-                index,
-            },
+            id,
             x: pen,
             width: segment_width,
             text: text.into_owned(),
@@ -265,6 +339,14 @@ pub fn render_bar(
         let (start, end) = (round_i32(placed.x), round_i32(placed.x + placed.width));
         if let Some(bg) = segment.bg {
             painter.fill_rect(start, 0, end - start, canvas_height, bg);
+        }
+        if let Some(icon) = &segment.icon {
+            let box_size = style.icon_size * painter.scale();
+            let (icon_width, icon_height) = icon.fitted_size(box_size);
+            let x = start + (end - start - to_i32(icon_width)) / 2;
+            let y = (canvas_height - to_i32(icon_height)) / 2;
+            painter.draw_icon(icon, x, y, icon_width, icon_height);
+            continue;
         }
         painter.draw_text(
             fonts,
@@ -610,5 +692,94 @@ mod tests {
         );
         let scaled = layout_bar(&view, &style, &fonts, 400, 2);
         assert_eq!(scaled.segment_at(padding + 2.5 * char_width), left(2));
+    }
+
+    fn icon() -> Icon {
+        Icon::from_straight_rgba(4, 2, &[255; 4 * 2 * 4]).expect("valid size")
+    }
+
+    #[test]
+    fn icon_segments_are_padded_squares() {
+        let fonts = Fonts::embedded();
+        let style = BarStyle::default();
+        let view = BarView {
+            segments_left: vec![Segment::with_icon(icon()).action("left")],
+            segments_right: vec![
+                Segment::with_icon(icon()).action("a"),
+                Segment::with_icon(icon()).action("b"),
+                Segment::new("date"),
+            ],
+        };
+        let right = |index| SegmentId {
+            side: Side::Right,
+            index,
+        };
+        let icon_width = f64::from(style.icon_size + 2 * style.icon_spacing);
+        let padding = f64::from(style.padding);
+        for scale in [1, 2] {
+            let layout = layout_bar(&view, &style, &fonts, 400, scale);
+            let device_size = style.font_size * to_f32(to_i32(scale));
+            let date_width = f64::from(fonts.text_width("date", device_size)) / f64::from(scale);
+            let date_start = 400.0 - padding - date_width;
+            assert_eq!(
+                layout.segment_span(right(1)),
+                Some((date_start - icon_width, date_start))
+            );
+            assert_eq!(
+                layout.segment_span(right(0)),
+                Some((date_start - 2.0 * icon_width, date_start - icon_width))
+            );
+            assert_eq!(layout.segment_at(date_start - 1.0), Some(right(1)));
+            assert_eq!(
+                layout.segment_at(date_start - icon_width - 1.0),
+                Some(right(0))
+            );
+            assert_eq!(
+                layout.segment_span(SegmentId {
+                    side: Side::Left,
+                    index: 0
+                }),
+                Some((padding, padding + icon_width))
+            );
+        }
+    }
+
+    #[test]
+    fn left_icons_that_do_not_fit_are_dropped() {
+        let fonts = Fonts::embedded();
+        let style = BarStyle::default();
+        let view = BarView {
+            segments_left: vec![Segment::with_icon(icon()); 3],
+            segments_right: Vec::new(),
+        };
+        let layout = layout_bar(&view, &style, &fonts, 60, 1);
+        let id = |index| SegmentId {
+            side: Side::Left,
+            index,
+        };
+        assert!(layout.segment_span(id(1)).is_some());
+        assert_eq!(layout.segment_span(id(2)), None);
+    }
+
+    #[test]
+    fn icons_are_centered_in_their_square() {
+        let fonts = Fonts::embedded();
+        let style = BarStyle {
+            padding: 0,
+            ..BarStyle::default()
+        };
+        let view = BarView {
+            segments_left: vec![Segment::with_icon(icon())],
+            segments_right: Vec::new(),
+        };
+        // The 4×2 icon becomes 16×8, at x 4..20 and y 8..16.
+        let canvas = render_bar(&view, &style, &fonts, 40, 1);
+        let white = Some([255; 4]);
+        assert_eq!(canvas.pixel(4, 8), white);
+        assert_eq!(canvas.pixel(19, 15), white);
+        assert_ne!(canvas.pixel(3, 8), white);
+        assert_ne!(canvas.pixel(20, 8), white);
+        assert_ne!(canvas.pixel(4, 7), white);
+        assert_ne!(canvas.pixel(4, 16), white);
     }
 }

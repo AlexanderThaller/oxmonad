@@ -40,7 +40,10 @@ use oxmonad_core::{
     WindowId,
     WindowInfo,
     Wm,
-    config::Config,
+    config::{
+        BarPosition,
+        Config,
+    },
     prompt::PromptKey,
 };
 use river_protocols::{
@@ -123,6 +126,19 @@ use crate::{
         Wanted,
     },
     spawn::Children,
+    tray::{
+        Tray,
+        TrayEvent,
+        TrayItem,
+    },
+    tray_ui::{
+        self,
+        Anchor,
+        Button,
+        IconAction,
+        OpenMenu,
+        Outcome,
+    },
 };
 
 /// Identifies a river seat.
@@ -239,8 +255,14 @@ struct Seat {
     wl_pointer: Option<WlPointer>,
     /// The shell surface under that pointer.
     pointer_surface: Option<WlSurface>,
+    /// Surface-local position of that pointer on it.
+    pointer_local: Option<(f64, f64)>,
     /// The layout picker entry last reported as hovered.
     hovered_layout: Option<usize>,
+    /// The tray menu row (level, row) last reported as hovered.
+    hovered_menu: Option<(usize, usize)>,
+    /// Scrolling within the current `wl_pointer` frame.
+    scroll: Scroll,
     pointer: Option<(i32, i32)>,
     /// The pointer position in the previous manage sequence.
     pointer_before: Option<(i32, i32)>,
@@ -268,6 +290,66 @@ impl Seat {
         }
         self.proxy.destroy();
     }
+}
+
+/// Scrolling reported by a seat's `wl_pointer`, summed up per frame.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct Scroll {
+    /// Wheel clicks (`axis_discrete`) this frame, vertical and horizontal.
+    discrete: (i32, i32),
+    /// Continuous scrolling (`axis`) not yet turned into steps.
+    continuous: (f64, f64),
+}
+
+/// The `axis` distance one wheel click scrolls (libinput's default).
+const SCROLL_STEP: f64 = 15.0;
+
+impl Scroll {
+    /// Ends a frame: the whole steps scrolled, vertical and horizontal.
+    /// Wheel clicks win over the continuous distance they come with;
+    /// continuous scrolling (touchpads) is kept until it adds up to a step.
+    fn take_steps(&mut self) -> (i32, i32) {
+        let discrete = std::mem::take(&mut self.discrete);
+        if discrete != (0, 0) {
+            self.continuous = (0.0, 0.0);
+            return discrete;
+        }
+        let steps = |value: &mut f64| {
+            let steps = (*value / SCROLL_STEP).trunc();
+            *value -= steps * SCROLL_STEP;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a frame scrolls a few steps"
+            )]
+            let steps = steps as i32;
+            steps
+        };
+        let (vertical, horizontal) = &mut self.continuous;
+        (steps(vertical), steps(horizontal))
+    }
+}
+
+/// The running tray thread.
+#[derive(Debug)]
+struct TrayHandle {
+    tray: Tray,
+    /// Its event channel in the event loop.
+    token: RegistrationToken,
+    /// The logical icon size it was started with.
+    icon_size: u32,
+}
+
+/// The system tray's part of the state.
+#[derive(Debug, Default)]
+struct TrayState {
+    /// The tray thread, while `[bar] tray` is on.
+    thread: Option<TrayHandle>,
+    /// The open tray menu.
+    menu: Option<OpenMenu>,
+    /// Whether the seats' keyboard focus was last given to the menu.
+    menu_focused: bool,
+    /// Whether the thread reported in (it is connected to the bus).
+    connected: bool,
 }
 
 /// Data of a key binding object.
@@ -308,13 +390,25 @@ enum Input {
     PromptKey(PromptKey),
     Interaction(WindowId),
     Hover(SeatId, WindowId),
-    ShellClick(SeatId, Node),
+    /// A pointer button pressed on a shell surface, at global `(x, y)`;
+    /// `button` is the evdev code.
+    ShellButton {
+        seat: SeatId,
+        node: Node,
+        x: i32,
+        y: i32,
+        button: u32,
+    },
     MoveRequested(SeatId, WindowId),
     ResizeRequested(SeatId, WindowId),
     Fullscreen(WindowId, bool),
     Control(Command, Reply),
     /// The pointer moved onto a layout picker entry.
     PickerHover(usize),
+    /// The pointer moved onto row `.1` of tray menu level `.0`.
+    MenuHover(usize, usize),
+    /// A key typed while the tray menu has the keyboard.
+    MenuKey(PromptKey),
     /// An action from outside, e.g. `restart` on `SIGUSR2`.
     Action(Action),
 }
@@ -373,6 +467,8 @@ pub struct State {
     applied: Applied,
     arrangement: Option<Arrangement>,
     shells: Shells,
+    /// The system tray thread and its menu.
+    tray: TrayState,
     /// Control commands applied in the running manage sequence, answered
     /// after the next render sequence.
     answers: Vec<(Command, Reply)>,
@@ -443,6 +539,7 @@ impl State {
             applied: Applied::default(),
             arrangement: None,
             shells: Shells::default(),
+            tray: TrayState::default(),
             answers: Vec::new(),
             children: Children::default(),
             locked: false,
@@ -514,6 +611,55 @@ impl State {
         if self.status != before {
             self.dirty();
         }
+    }
+
+    /// Starts or stops the tray thread to match the configuration
+    /// (`[bar] tray` and `tray_icon_size`; a changed size restarts it).
+    pub fn sync_tray(&mut self) {
+        let bar = &self.wm.config().bar;
+        let wanted = bar.tray.then_some(bar.tray_icon_size.max(1));
+        if self.tray.thread.as_ref().map(|t| t.icon_size) == wanted {
+            return;
+        }
+        if let Some(running) = self.tray.thread.take() {
+            self.handle.remove(running.token);
+            drop(running.tray);
+            self.tray.menu = None;
+            self.tray.connected = false;
+            self.set_status(|status| status.tray.clear());
+        }
+        let Some(icon_size) = wanted else {
+            return;
+        };
+        let (tray, channel) = match Tray::start(icon_size) {
+            Ok(started) => started,
+            Err(err) => {
+                tracing::warn!(%err, "cannot start the system tray");
+                return;
+            }
+        };
+        let inserted = self.handle.insert_source(channel, |event, (), state| {
+            if let calloop::channel::Event::Msg(TrayEvent::Items(items)) = event {
+                state.set_tray_items(items);
+            }
+        });
+        match inserted {
+            Ok(token) => {
+                self.tray.thread = Some(TrayHandle {
+                    tray,
+                    token,
+                    icon_size,
+                });
+            }
+            Err(err) => tracing::warn!(%err, "cannot watch the system tray"),
+        }
+    }
+
+    /// The tray's items changed: redraws if the bar shows something new.
+    fn set_tray_items(&mut self, items: Vec<TrayItem>) {
+        self.tray.connected = true;
+        let items = tray_ui::bar_items(items);
+        self.set_status(|status| status.tray = items);
     }
 
     /// Queues a command from the control socket.
@@ -607,6 +753,7 @@ impl State {
 
         let arrangement = self.wm.arrange();
         self.update_help_viewport(&arrangement);
+        self.refresh_tray_menu(&arrangement);
         let wanted = self.wanted_shells(&arrangement);
         let globals = ShellGlobals {
             wm: &self.globals.wm,
@@ -615,11 +762,19 @@ impl State {
             qh: &self.qh,
         };
         self.shells.sync(wanted, &self.styles, &globals);
+        // The tray menu takes the keyboard while it is open; resend the
+        // focus whenever that changes.
+        let menu_open = self.tray.menu.is_some();
+        if menu_open != self.tray.menu_focused {
+            self.applied.invalidate_focus();
+            self.tray.menu_focused = menu_open;
+        }
         let mut out = RiverRequests {
             windows: &self.windows,
             outputs: &self.outputs,
             seats: &self.seats,
             shells: &self.shells,
+            menu_focus: menu_open,
         };
         self.applied.manage(&arrangement, &mut out);
         self.arrangement = Some(arrangement);
@@ -758,12 +913,14 @@ impl State {
                 if self.locked && binding.modified {
                     return;
                 }
+                self.tray.menu = None;
                 self.apply(binding.action, None);
             }
             Input::Pointer(binding) => {
                 if self.locked {
                     return;
                 }
+                self.tray.menu = None;
                 // Like xmonad's mouse bindings: act on the window under
                 // the pointer.
                 if let Some(window) = self.seats.get(&binding.seat).and_then(|s| s.hovered) {
@@ -775,7 +932,11 @@ impl State {
                 let effects = self.wm.prompt_key(key);
                 self.execute(effects, None);
             }
-            Input::Interaction(window) => self.wm.focus_window(window),
+            Input::Interaction(window) => {
+                // A click outside the menu closes it.
+                self.tray.menu = None;
+                self.wm.focus_window(window);
+            }
             Input::Action(action) => self.apply(action, None),
             Input::Hover(seat, window) => {
                 // The first position river reports (e.g. right after a
@@ -788,18 +949,13 @@ impl State {
                     self.wm.focus_window(window);
                 }
             }
-            Input::ShellClick(seat, node) => {
-                let Some((x, y)) = self.seats.get(&seat).and_then(|s| s.pointer) else {
-                    return;
-                };
-                match self.shells.click(node, x, y, &self.styles) {
-                    Some(Click::Workspace(tag)) => self.apply(Action::View(tag), Some(seat)),
-                    Some(Click::Window(window)) => self.wm.focus_window(window),
-                    Some(Click::Layout(index)) => self.wm.pick_layout(index),
-                    Some(Click::Dismiss) => self.wm.close_help(),
-                    None => {}
-                }
-            }
+            Input::ShellButton {
+                seat,
+                node,
+                x,
+                y,
+                button,
+            } => self.shell_button(seat, node, (x, y), button),
             Input::MoveRequested(seat, window) => {
                 self.wm.focus_window(window);
                 self.apply(Action::FloatMove, Some(seat));
@@ -810,12 +966,134 @@ impl State {
             }
             Input::Fullscreen(window, on) => self.wm.request_fullscreen(window, on),
             Input::PickerHover(index) => self.wm.hover_layout(index),
+            Input::MenuHover(level, row) => {
+                if let Some(menu) = &mut self.tray.menu {
+                    menu.hover(level, row);
+                }
+            }
+            Input::MenuKey(key) => {
+                if let Some(menu) = &mut self.tray.menu {
+                    let outcome = menu.key(key);
+                    self.menu_outcome(outcome);
+                }
+            }
             Input::Control(command, reply) => {
                 if let Command::Action(action) = &command {
                     self.apply(action.clone(), None);
                 }
                 answers.push((command, reply));
             }
+        }
+    }
+
+    /// A pointer button pressed on shell surface `node` at global `at`.
+    /// Anything but the tray menu itself closes the menu.
+    fn shell_button(&mut self, seat: SeatId, node: Node, (x, y): (i32, i32), button: u32) {
+        let click = self.shells.click(node, x, y, &self.styles);
+        if let Node::TrayMenu(_) = node {
+            if let Some(Click::MenuEntry(level, row)) = click
+                && let Some(menu) = &mut self.tray.menu
+            {
+                let outcome = menu.click(level, row);
+                self.menu_outcome(outcome);
+            }
+            return;
+        }
+        let closed = self.tray.menu.take().map(|menu| menu.item);
+        let Some(button) = Button::from_code(button) else {
+            return;
+        };
+        let left = button == Button::Left;
+        match click {
+            Some(Click::Workspace(tag)) if left => self.apply(Action::View(tag), Some(seat)),
+            Some(Click::Window(window)) if left => self.wm.focus_window(window),
+            Some(Click::Layout(index)) if left => self.wm.pick_layout(index),
+            Some(Click::Dismiss) => self.wm.close_help(),
+            Some(Click::TrayItem(id)) => self.tray_click(&id, button, (x, y), closed.as_deref()),
+            Some(
+                Click::Workspace(_) | Click::Window(_) | Click::Layout(_) | Click::MenuEntry(..),
+            )
+            | None => {}
+        }
+    }
+
+    /// `button` clicked on tray item `id`'s icon at global `at`; `closed`
+    /// is the item whose menu this click closed.
+    fn tray_click(&mut self, id: &str, button: Button, (x, y): (i32, i32), closed: Option<&str>) {
+        let (Some(item), Some(handle)) = (
+            self.status.tray.iter().find(|item| item.id == id),
+            &self.tray.thread,
+        ) else {
+            return;
+        };
+        let tray = &handle.tray;
+        match tray_ui::icon_action(item, button) {
+            IconAction::Activate => tray.activate(id, x, y),
+            IconAction::SecondaryActivate => tray.secondary_activate(id, x, y),
+            IconAction::ContextMenu => tray.context_menu(id, x, y),
+            // Clicking the icon of the open menu just closes it.
+            IconAction::OpenMenu if closed == Some(id) => {}
+            IconAction::OpenMenu => {
+                let root = item.menu.as_ref().map_or(0, |menu| menu.id);
+                let Some(anchor) = self.menu_anchor(id) else {
+                    return;
+                };
+                tray.menu_about_to_show(id, root);
+                self.tray.menu = Some(OpenMenu::new(id.to_owned(), anchor, root));
+            }
+        }
+    }
+
+    /// Where the menu of tray item `id` hangs: under (or above) its icon,
+    /// inside the bar output's usable area.
+    fn menu_anchor(&self, id: &str) -> Option<Anchor> {
+        let (x, bar) = self.shells.tray_icon(id, &self.styles)?;
+        let (output, _) = self.arrangement.as_ref()?.bar?;
+        let area = self.wm.stack_set().output(output)?.usable;
+        Some(Anchor {
+            x,
+            bar,
+            below: self.wm.config().bar.position == BarPosition::Top,
+            area,
+        })
+    }
+
+    /// Carries out what the tray menu asked for.
+    fn menu_outcome(&mut self, outcome: Outcome) {
+        let (Some(menu), Some(handle)) = (&self.tray.menu, &self.tray.thread) else {
+            return;
+        };
+        match outcome {
+            Outcome::Stay => {}
+            Outcome::AboutToShow(id) => handle.tray.menu_about_to_show(&menu.item, id),
+            Outcome::Activate(id) => {
+                handle.tray.menu_clicked(&menu.item, id);
+                self.tray.menu = None;
+            }
+            Outcome::Close => self.tray.menu = None,
+        }
+    }
+
+    /// Rebuilds the open tray menu from its item's current layout; closes
+    /// it when the item, its menu or the bar is gone or an overlay takes
+    /// the keyboard.
+    fn refresh_tray_menu(&mut self, arrangement: &Arrangement) {
+        let Some(menu) = &mut self.tray.menu else {
+            return;
+        };
+        let root = self
+            .status
+            .tray
+            .iter()
+            .find(|item| item.id == menu.item)
+            .and_then(|item| item.menu.as_ref());
+        let keep = arrangement.bar.is_some()
+            && !self.wm.grabs_keyboard()
+            && root.is_some_and(|root| {
+                menu.refresh(root, self.styles.menu(), self.styles.menu_fonts())
+            });
+        if !keep {
+            self.tray.menu = None;
         }
     }
 
@@ -946,6 +1224,8 @@ impl State {
             window.destroy();
         }
         self.shells.destroy();
+        self.tray.menu = None;
+        self.tray.menu_focused = false;
         self.applied = Applied::default();
         self.arrangement = None;
         self.globals.wm.destroy();
@@ -998,6 +1278,7 @@ impl State {
                         create_bindings(&self.globals, self.wm.config(), id, seat, &self.qh),
                     );
                 }
+                self.sync_tray();
             }
             Err(err) => tracing::error!(%err, "keeping the previous configuration"),
         }
@@ -1179,6 +1460,15 @@ impl State {
                 content: Content::Help(shell::help_view(&model)),
             });
         }
+        if let (Some(menu), Some((output, _))) = (&self.tray.menu, arrangement.bar) {
+            let scale = self.scale_of(output);
+            wanted.extend(menu.levels.iter().enumerate().map(|(index, level)| Wanted {
+                node: Node::TrayMenu(index),
+                rect: level.rect,
+                scale,
+                content: Content::TrayMenu(level.view.clone()),
+            }));
+        }
         wanted
     }
 
@@ -1193,6 +1483,7 @@ impl State {
                 outputs: &self.outputs,
                 seats: &self.seats,
                 shells: &self.shells,
+                menu_focus: self.tray.menu_focused,
             };
             let windows = &self.windows;
             plan::render(
@@ -1225,6 +1516,64 @@ impl State {
                 .into_iter()
                 .map(|r| json!([r.x, r.y, r.w, r.h]))
                 .collect::<Vec<_>>(),
+        })
+    }
+
+    /// The bar's clickable spans for `dump-state`: workspace tags and tray
+    /// icons with their global x range.
+    fn bar_clicks(&self) -> Vec<serde_json::Value> {
+        use serde_json::json;
+
+        self.shells
+            .click_targets(Node::Bar, &self.styles)
+            .into_iter()
+            .filter_map(|(start, end, click)| match click {
+                Click::Workspace(tag) => Some(json!({ "workspace": tag, "x": [start, end] })),
+                Click::TrayItem(id) => Some(json!({ "tray": id, "x": [start, end] })),
+                Click::Window(_) | Click::Layout(_) | Click::Dismiss | Click::MenuEntry(..) => None,
+            })
+            .collect()
+    }
+
+    /// The tray for `dump-state`: whether it runs and is connected, its
+    /// items and the open menu with each level's entries, selection and
+    /// global rectangles.
+    fn tray_state(&self) -> serde_json::Value {
+        use serde_json::json;
+
+        json!({
+            "running": self.tray.thread.is_some(),
+            "connected": self.tray.connected,
+            "items": self.status.tray.iter().map(|item| json!({
+                "id": item.id,
+                "title": item.title,
+                "status": format!("{:?}", item.status).to_lowercase(),
+                "icon": item.icon.is_some(),
+                "menu": item.menu.is_some(),
+            })).collect::<Vec<_>>(),
+            "menu": self.tray.menu.as_ref().map(|menu| json!({
+                "item": menu.item,
+                "levels": menu.levels.iter().map(|level| json!({
+                    "node": level.node,
+                    "entries": level
+                        .view
+                        .entries
+                        .iter()
+                        .map(|entry| entry.label.clone())
+                        .collect::<Vec<_>>(),
+                    "ids": level.ids,
+                    "selected": level.selected,
+                    "rect": [level.rect.x, level.rect.y, level.rect.w, level.rect.h],
+                    "rows": oxmonad_ui::menu_entry_rects(
+                        &level.view,
+                        self.styles.menu(),
+                        self.styles.menu_fonts(),
+                    )
+                    .into_iter()
+                    .map(|(x, y, w, h)| [level.rect.x + x, level.rect.y + y, w, h])
+                    .collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+            })),
         })
     }
 
@@ -1315,15 +1664,8 @@ impl State {
                 "node": format!("{:?}", s.node),
                 "rect": rect(s.rect),
             })).collect::<Vec<_>>(),
-            "bar_clicks": self
-                .shells
-                .click_targets(Node::Bar, &self.styles)
-                .into_iter()
-                .filter_map(|(start, end, click)| match click {
-                    Click::Workspace(tag) => Some(json!({ "workspace": tag, "x": [start, end] })),
-                    Click::Window(_) | Click::Layout(_) | Click::Dismiss => None,
-                })
-                .collect::<Vec<_>>(),
+            "bar_clicks": self.bar_clicks(),
+            "tray": self.tray_state(),
             "bar_visible": self.wm.bar_visible(),
             "managed": self.windows.len(),
         })
@@ -1403,6 +1745,8 @@ struct RiverRequests<'a> {
     outputs: &'a BTreeMap<OutputId, Output>,
     seats: &'a BTreeMap<SeatId, Seat>,
     shells: &'a Shells,
+    /// The open tray menu takes the keyboard instead of core's focus.
+    menu_focus: bool,
 }
 
 impl RiverRequests<'_> {
@@ -1447,6 +1791,14 @@ impl Requests for RiverRequests<'_> {
     }
 
     fn focus(&mut self, focus: Focus) {
+        if self.menu_focus
+            && let Some(menu) = self.shells.shell_surface(Node::TrayMenu(0))
+        {
+            for seat in self.seats.values().filter(|s| !s.removed) {
+                seat.proxy.focus_shell_surface(menu);
+            }
+            return;
+        }
         for seat in self.seats.values().filter(|s| !s.removed) {
             match focus {
                 Focus::Window(id) => match self.window(id) {
@@ -1502,9 +1854,12 @@ impl Requests for RiverRequests<'_> {
     fn set_position(&mut self, node: Node, x: i32, y: i32) {
         let proxy = match node {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
-            Node::Bar | Node::Tabs(_) | Node::Prompt | Node::LayoutPicker | Node::Help => {
-                self.shells.node_proxy(node)
-            }
+            Node::Bar
+            | Node::Tabs(_)
+            | Node::Prompt
+            | Node::LayoutPicker
+            | Node::Help
+            | Node::TrayMenu(_) => self.shells.node_proxy(node),
         };
         if let Some(proxy) = proxy {
             proxy.set_position(x, y);
@@ -1514,9 +1869,12 @@ impl Requests for RiverRequests<'_> {
     fn place_top(&mut self, node: Node) {
         let proxy = match node {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
-            Node::Bar | Node::Tabs(_) | Node::Prompt | Node::LayoutPicker | Node::Help => {
-                self.shells.node_proxy(node)
-            }
+            Node::Bar
+            | Node::Tabs(_)
+            | Node::Prompt
+            | Node::LayoutPicker
+            | Node::Help
+            | Node::TrayMenu(_) => self.shells.node_proxy(node),
         };
         if let Some(proxy) = proxy {
             proxy.place_top();
@@ -1527,6 +1885,28 @@ impl Requests for RiverRequests<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wheel_clicks_scroll_one_step_each() {
+        let mut scroll = Scroll {
+            discrete: (2, -1),
+            continuous: (30.0, -15.0),
+        };
+        assert_eq!(scroll.take_steps(), (2, -1));
+        assert_eq!(scroll, Scroll::default());
+    }
+
+    #[test]
+    fn continuous_scrolling_adds_up_to_steps() {
+        let mut scroll = Scroll {
+            continuous: (10.0, -20.0),
+            ..Scroll::default()
+        };
+        assert_eq!(scroll.take_steps(), (0, -1));
+        scroll.continuous.0 += 10.0;
+        assert_eq!(scroll.take_steps(), (1, 0));
+        assert_eq!(scroll.take_steps(), (0, 0));
+    }
 
     #[test]
     fn pointer_op_rects() {

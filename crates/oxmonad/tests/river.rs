@@ -9,8 +9,13 @@
 //! The test drives oxmonad through its control socket (`OXMONAD_CONTROL`)
 //! and a virtual keyboard, and checks the state oxmonad reports with
 //! `dump-state`.
+//!
+//! Each session gets a private D-Bus session bus when `dbus-daemon` is
+//! installed (and an unreachable bus address otherwise), so oxmonad's
+//! system tray never touches the desktop's bus.
 
 use std::{
+    collections::HashMap,
     env,
     fs::{
         self,
@@ -33,6 +38,10 @@ use std::{
         Child,
         Command,
         Stdio,
+    },
+    sync::{
+        Arc,
+        Mutex,
     },
     thread::sleep,
     time::{
@@ -84,6 +93,8 @@ mod key {
     pub const Q: u32 = 16;
     pub const PAGE_DOWN: u32 = 109;
     pub const BTN_LEFT: u32 = 0x110;
+    pub const BTN_RIGHT: u32 = 0x111;
+    pub const BTN_MIDDLE: u32 = 0x112;
 }
 
 /// The xkb modifier mask of Mod4 in the `us` keymap.
@@ -105,6 +116,10 @@ struct Session {
     dir: PathBuf,
     river: Child,
     clients: Vec<Child>,
+    /// The private session bus, if `dbus-daemon` is installed.
+    bus: Option<Child>,
+    /// Its address (unreachable without `dbus-daemon`).
+    bus_address: String,
 }
 
 impl Drop for Session {
@@ -115,8 +130,32 @@ impl Drop for Session {
         }
         let _ = self.river.kill();
         let _ = self.river.wait();
+        if let Some(bus) = &mut self.bus {
+            let _ = bus.kill();
+            let _ = bus.wait();
+        }
         let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+/// Starts a private session bus listening in `dir`; `None` without
+/// `dbus-daemon`.
+fn start_bus(dir: &Path) -> Option<(Child, String)> {
+    if !have("dbus-daemon") {
+        return None;
+    }
+    let mut daemon = Command::new("dbus-daemon")
+        .args(["--session", "--nofork", "--print-address"])
+        .arg(format!("--address=unix:path={}", dir.join("bus").display()))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut address = String::new();
+    BufReader::new(daemon.stdout.take()?)
+        .read_line(&mut address)
+        .ok()?;
+    Some((daemon, address.trim().to_owned()))
 }
 
 impl Session {
@@ -137,6 +176,10 @@ impl Session {
     /// window manager.
     fn start_in(dir: PathBuf, binary: &Path) -> Self {
         let log = File::create(dir.join("river.log")).expect("log file");
+        let (bus, bus_address) = match start_bus(&dir) {
+            Some((bus, address)) => (Some(bus), address),
+            None => (None, format!("unix:path={}", dir.join("no-bus").display())),
+        };
         let init = binary.to_str().expect("UTF-8 binary path");
         let river = Command::new("river")
             .args(["-no-xwayland", "-c", init])
@@ -149,6 +192,7 @@ impl Session {
             .env("WLR_RENDERER", "pixman")
             .env("WLR_HEADLESS_OUTPUTS", "1")
             .env("OXMONAD_CONTROL", dir.join("ctl"))
+            .env("DBUS_SESSION_BUS_ADDRESS", &bus_address)
             .env("RUST_LOG", "oxmonad=debug")
             .stdout(log.try_clone().expect("log file"))
             .stderr(log)
@@ -158,6 +202,8 @@ impl Session {
             dir,
             river,
             clients: Vec::new(),
+            bus,
+            bus_address,
         };
         wait_for("the control socket", || session.control_path().exists());
         session
@@ -362,21 +408,41 @@ impl Input {
     }
 
     fn button(&mut self, pressed: bool) {
+        self.button_code(key::BTN_LEFT, pressed);
+    }
+
+    /// Presses or releases the evdev button `code`.
+    fn button_code(&mut self, code: u32, pressed: bool) {
         let time = self.tick();
         let state = if pressed {
             wayland_client::protocol::wl_pointer::ButtonState::Pressed
         } else {
             wayland_client::protocol::wl_pointer::ButtonState::Released
         };
-        self.pointer.button(time, key::BTN_LEFT, state);
+        self.pointer.button(time, code, state);
         self.pointer.frame();
         self.flush();
     }
 
     fn click_at(&mut self, x: i64, y: i64) {
+        self.click_button_at(x, y, key::BTN_LEFT);
+    }
+
+    /// Clicks the evdev button `code` at global `(x, y)`.
+    fn click_button_at(&mut self, x: i64, y: i64, code: u32) {
         self.move_to(x, y);
-        self.button(true);
-        self.button(false);
+        self.button_code(code, true);
+        self.button_code(code, false);
+    }
+
+    /// Turns the wheel by `clicks` (positive: down).
+    fn scroll(&mut self, clicks: i32) {
+        let time = self.tick();
+        let axis = wayland_client::protocol::wl_pointer::Axis::VerticalScroll;
+        self.pointer
+            .axis_discrete(time, axis, f64::from(clicks) * 15.0, clicks);
+        self.pointer.frame();
+        self.flush();
     }
 
     fn hold_super(&mut self, held: bool) {
@@ -659,6 +725,17 @@ fn open_fds(pid: u32) -> Vec<String> {
     }
 }
 
+/// [`open_fds`] once the system tray is connected to the session's bus
+/// (when it has one), so its descriptors are part of the comparison.
+fn connected_fds(session: &Session, pid: u32) -> Vec<String> {
+    if session.bus.is_some() {
+        wait_for("the tray to connect", || {
+            session.state()["tray"]["connected"] == true
+        });
+    }
+    open_fds(pid)
+}
+
 /// What must survive a restart: the arrangement with windows named by
 /// river's identifiers instead of oxmonad's ids.
 fn arrangement(state: &Value) -> Value {
@@ -912,7 +989,7 @@ fn restarts_in_place() {
     let pid = wm_pid(&session);
     let scratchpad = children_of(pid);
     assert_eq!(scratchpad.len(), 1, "the scratchpad is oxmonad's child");
-    let fds = open_fds(pid);
+    let fds = connected_fds(&session, pid);
     let unchanged = |session: &mut Session| {
         assert_eq!(observe(session), before);
         assert_eq!(wm_pid(session), pid, "oxmonad keeps its pid");
@@ -928,7 +1005,11 @@ fn restarts_in_place() {
     rebuild(&binary);
     restart(&session, &current);
     unchanged(&mut session);
-    assert_eq!(open_fds(pid), fds, "no descriptor leaks across exec");
+    assert_eq!(
+        connected_fds(&session, pid),
+        fds,
+        "no descriptor leaks across exec"
+    );
     // The scratchpad is still known: toggling shows the same window.
     session.act("toggle-scratchpad term");
     let state = session.state();
@@ -947,7 +1028,11 @@ fn restarts_in_place() {
     fs::copy(env!("CARGO_BIN_EXE_oxmonad"), &binary).expect("copy the binary");
     restart(&session, &current);
     unchanged(&mut session);
-    assert_eq!(open_fds(pid), fds, "no descriptor leaks across exec");
+    assert_eq!(
+        connected_fds(&session, pid),
+        fds,
+        "no descriptor leaks across exec"
+    );
 
     // Without a binary, oxmonad refuses to restart and keeps running.
     fs::remove_file(&binary).expect("remove the binary");
@@ -1436,4 +1521,379 @@ fn locks_like_slock() {
     });
     let _ = lock.kill();
     let _ = lock.wait();
+}
+
+// --------------------------------------------------------------------
+// System tray
+
+type Calls = Arc<Mutex<Vec<String>>>;
+
+fn record(calls: &Calls, call: String) {
+    calls.lock().expect("lock").push(call);
+}
+
+/// A `StatusNotifierItem` with a red icon and a menu at `/Menu`.
+struct FakeItem {
+    calls: Calls,
+}
+
+#[expect(clippy::unused_self, reason = "zbus properties take self")]
+#[zbus::interface(name = "org.kde.StatusNotifierItem")]
+impl FakeItem {
+    fn activate(&self, x: i32, y: i32) {
+        record(&self.calls, format!("Activate {x} {y}"));
+    }
+
+    fn secondary_activate(&self, x: i32, y: i32) {
+        record(&self.calls, format!("SecondaryActivate {x} {y}"));
+    }
+
+    fn context_menu(&self, x: i32, y: i32) {
+        record(&self.calls, format!("ContextMenu {x} {y}"));
+    }
+
+    fn scroll(&self, delta: i32, orientation: &str) {
+        record(&self.calls, format!("Scroll {delta} {orientation}"));
+    }
+
+    #[zbus(property)]
+    fn id(&self) -> String {
+        "fake".to_owned()
+    }
+
+    #[zbus(property)]
+    fn title(&self) -> String {
+        "Fake item".to_owned()
+    }
+
+    #[zbus(property)]
+    fn status(&self) -> String {
+        "Active".to_owned()
+    }
+
+    #[zbus(property)]
+    fn icon_pixmap(&self) -> Vec<(i32, i32, Vec<u8>)> {
+        // ARGB, network byte order: opaque red.
+        vec![(4, 4, [255, 255, 0, 0].repeat(16))]
+    }
+
+    #[zbus(property)]
+    fn item_is_menu(&self) -> bool {
+        false
+    }
+
+    #[zbus(property)]
+    fn menu(&self) -> zbus::zvariant::ObjectPath<'static> {
+        zbus::zvariant::ObjectPath::from_static_str("/Menu").expect("path")
+    }
+}
+
+/// A dbusmenu entry: `(id, properties, children)`.
+fn menu_entry(
+    id: i32,
+    props: &[(&str, zbus::zvariant::Value<'static>)],
+    children: Vec<zbus::zvariant::Value<'static>>,
+) -> zbus::zvariant::Value<'static> {
+    use zbus::zvariant::{
+        Array,
+        Dict,
+        Signature,
+        StructureBuilder,
+        Value,
+    };
+
+    let mut dict = Dict::new(&Signature::Str, &Signature::Variant);
+    for (key, value) in props {
+        dict.append(
+            Value::from((*key).to_owned()),
+            Value::Value(Box::new(value.clone())),
+        )
+        .expect("dict entry");
+    }
+    let mut array = Array::new(&Signature::Variant);
+    for child in children {
+        array
+            .append(Value::Value(Box::new(child)))
+            .expect("array entry");
+    }
+    Value::Structure(
+        StructureBuilder::new()
+            .add_field(id)
+            .append_field(Value::Dict(dict))
+            .append_field(Value::Array(array))
+            .build()
+            .expect("structure"),
+    )
+}
+
+type LayoutReply = (
+    u32,
+    (
+        i32,
+        HashMap<String, zbus::zvariant::OwnedValue>,
+        Vec<zbus::zvariant::OwnedValue>,
+    ),
+);
+
+/// `Open`, a separator, `More` (with `Inner`) and `Quit`.
+struct FakeMenu {
+    calls: Calls,
+}
+
+#[zbus::interface(name = "com.canonical.dbusmenu")]
+impl FakeMenu {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "zbus hands arguments over by value"
+    )]
+    fn get_layout(&self, parent: i32, depth: i32, properties: Vec<String>) -> LayoutReply {
+        use zbus::zvariant::{
+            OwnedValue,
+            Value,
+        };
+
+        let wanted = properties.len();
+        record(&self.calls, format!("GetLayout {parent} {depth} {wanted}"));
+        let label = |text: &'static str| ("label", Value::from(text));
+        let children = vec![
+            menu_entry(1, &[label("_Open")], vec![]),
+            menu_entry(2, &[("type", Value::from("separator"))], vec![]),
+            menu_entry(
+                3,
+                &[label("More"), ("children-display", Value::from("submenu"))],
+                vec![menu_entry(4, &[label("Inner")], vec![])],
+            ),
+            menu_entry(5, &[label("Quit")], vec![]),
+        ];
+        (
+            1,
+            (
+                0,
+                HashMap::new(),
+                children
+                    .into_iter()
+                    .map(|child| OwnedValue::try_from(child).expect("owned"))
+                    .collect(),
+            ),
+        )
+    }
+
+    fn about_to_show(&self, id: i32) -> bool {
+        record(&self.calls, format!("AboutToShow {id}"));
+        false
+    }
+
+    fn event(&self, id: i32, event: &str, data: zbus::zvariant::Value<'_>, timestamp: u32) {
+        // The data and timestamp are not checked.
+        let _ = (data, timestamp);
+        record(&self.calls, format!("Event {id} {event}"));
+    }
+}
+
+/// Connects a fake item to `address` and registers it with oxmonad's
+/// watcher (retrying until the watcher is there).
+fn fake_item(address: &str, calls: &Calls) -> zbus::Connection {
+    let conn = zbus::block_on(async {
+        zbus::connection::Builder::address(address)?
+            .serve_at(
+                "/StatusNotifierItem",
+                FakeItem {
+                    calls: Arc::clone(calls),
+                },
+            )?
+            .serve_at(
+                "/Menu",
+                FakeMenu {
+                    calls: Arc::clone(calls),
+                },
+            )?
+            .build()
+            .await
+    })
+    .expect("fake item connects");
+    wait_for("the watcher to accept the item", || {
+        zbus::block_on(conn.call_method(
+            Some("org.kde.StatusNotifierWatcher"),
+            "/StatusNotifierWatcher",
+            Some("org.kde.StatusNotifierWatcher"),
+            "RegisterStatusNotifierItem",
+            &"/StatusNotifierItem",
+        ))
+        .is_ok()
+    });
+    conn
+}
+
+fn wait_for_call(calls: &Calls, prefix: &str) -> String {
+    let mut found = None;
+    wait_for(prefix, || {
+        found = calls
+            .lock()
+            .expect("lock")
+            .iter()
+            .find(|call| call.starts_with(prefix))
+            .cloned();
+        found.is_some()
+    });
+    calls.lock().expect("lock").clear();
+    found.unwrap_or_default()
+}
+
+/// The open tray menu in `dump-state` (`null` when closed).
+fn tray_menu(session: &Session) -> Value {
+    session.state()["tray"]["menu"].clone()
+}
+
+/// The centre of row `row` of tray menu level `level`.
+fn menu_row(session: &Session, level: usize, row: usize) -> (i64, i64) {
+    let menu = tray_menu(session);
+    let r = rect(&menu["levels"][level]["rows"][row]);
+    (r[0] + r[2] / 2, r[1] + r[3] / 2)
+}
+
+/// Opens the fake item's menu with a right click on its icon.
+fn open_tray_menu(session: &Session, input: &mut Input, (x, y): (i64, i64)) {
+    input.click_button_at(x, y, key::BTN_RIGHT);
+    wait_for("the tray menu", || !tray_menu(session).is_null());
+    let menu = tray_menu(session);
+    let entries = &menu["levels"][0]["entries"];
+    assert_eq!(
+        *entries,
+        serde_json::json!(["Open", "", "More", "Quit"]),
+        "{menu}"
+    );
+}
+
+/// Opens the fake item's menu at `at` and works it with the pointer and
+/// the keyboard.
+fn uses_the_tray_menu(
+    session: &Session,
+    input: &mut Input,
+    calls: &Calls,
+    at: (i64, i64),
+    (bar, area): ([i64; 4], [i64; 4]),
+) {
+    // Right click opens the menu below the icon.
+    open_tray_menu(session, input, at);
+    wait_for_call(calls, "AboutToShow 0");
+    let root = rect(&tray_menu(session)["levels"][0]["rect"]);
+    assert_eq!(root[1], bar[1] + bar[3], "below the bar");
+    assert!(within(root, area), "{root:?}");
+    // A submenu cascades to its side; its entry is chosen with a click.
+    let (x, y) = menu_row(session, 0, 2);
+    input.click_at(x, y);
+    wait_for("the submenu", || {
+        tray_menu(session)["levels"].as_array().map(Vec::len) == Some(2)
+    });
+    wait_for_call(calls, "AboutToShow 3");
+    let (x, y) = menu_row(session, 1, 0);
+    input.move_to(x, y);
+    wait_for("the hovered entry", || {
+        tray_menu(session)["levels"][1]["selected"] == 0
+    });
+    screenshot(session, "tray-submenu");
+    input.click_at(x, y);
+    assert_eq!(wait_for_call(calls, "Event"), "Event 4 clicked");
+    wait_for("the menu to close", || tray_menu(session).is_null());
+
+    // The keyboard: j selects, Return chooses; Escape closes.
+    open_tray_menu(session, input, at);
+    input.tap(key::J);
+    wait_for("the selection", || {
+        tray_menu(session)["levels"][0]["selected"] == 0
+    });
+    input.tap(key::ENTER);
+    assert_eq!(wait_for_call(calls, "Event"), "Event 1 clicked");
+    wait_for("the menu to close", || tray_menu(session).is_null());
+    open_tray_menu(session, input, at);
+    input.tap(key::ESC);
+    wait_for("Escape to close the menu", || tray_menu(session).is_null());
+
+    // Clicking the icon again or elsewhere in the bar closes it.
+    open_tray_menu(session, input, at);
+    input.click_button_at(at.0, at.1, key::BTN_RIGHT);
+    wait_for("the icon to close the menu", || {
+        tray_menu(session).is_null()
+    });
+    open_tray_menu(session, input, at);
+    input.click_at(bar[0] + 5, at.1);
+    wait_for("a bar click to close the menu", || {
+        tray_menu(session).is_null()
+    });
+}
+
+#[test]
+#[ignore = "needs river and dbus-daemon; run with --ignored"]
+fn shows_tray_items() {
+    if !have("river") || !have("dbus-daemon") {
+        eprintln!("skipping: river or dbus-daemon is not installed");
+        return;
+    }
+    let session = Session::start_in(
+        Session::dir("tray"),
+        Path::new(env!("CARGO_BIN_EXE_oxmonad")),
+    );
+    wait_for("the tray", || session.state()["tray"]["running"] == true);
+    let state = session.state();
+    let area = rect(&state["screens"][0]["rect"]);
+    let bar = rect(&state["bar"]["rect"]);
+    let extent = (
+        u32::try_from(area[2]).expect("width"),
+        u32::try_from(area[3]).expect("height"),
+    );
+    let mut input = Input::connect(&session, extent);
+
+    let calls = Calls::default();
+    let item = fake_item(&session.bus_address, &calls);
+    let mut icon = None;
+    wait_for("the tray icon in the bar", || {
+        icon = session.state()["bar_clicks"]
+            .as_array()
+            .and_then(|targets| targets.iter().find(|t| !t["tray"].is_null()))
+            .cloned();
+        icon.is_some()
+    });
+    let state = session.state();
+    let items = &state["tray"]["items"];
+    assert_eq!(items[0]["title"], "Fake item", "{state}");
+    assert_eq!(items[0]["status"], "active", "{state}");
+    // Left of the clock: the icon is the bar's last click target and ends
+    // before the right edge.
+    let span = &icon.expect("icon")["x"];
+    let (start, end) = (span[0].as_i64().unwrap_or(0), span[1].as_i64().unwrap_or(0));
+    assert!(start < end && end < bar[0] + bar[2] - 50, "{state}");
+    let at = (i64::midpoint(start, end), bar[1] + bar[3] / 2);
+    screenshot(&session, "tray-icon");
+
+    // Left, middle click and scrolling go to the item.
+    input.click_at(at.0, at.1);
+    assert_eq!(
+        wait_for_call(&calls, "Activate"),
+        format!("Activate {} {}", at.0, at.1)
+    );
+    input.click_button_at(at.0, at.1, key::BTN_MIDDLE);
+    wait_for_call(&calls, "SecondaryActivate");
+    input.scroll(1);
+    assert_eq!(wait_for_call(&calls, "Scroll"), "Scroll 1 vertical");
+
+    uses_the_tray_menu(&session, &mut input, &calls, at, (bar, area));
+
+    // The item going away takes its icon and open menu with it.
+    open_tray_menu(&session, &mut input, at);
+    drop(item);
+    wait_for("the item to go", || {
+        let state = session.state();
+        state["tray"]["items"].as_array().is_some_and(Vec::is_empty)
+            && state["tray"]["menu"].is_null()
+    });
+    let state = session.state();
+    let tray_clicks = state["bar_clicks"]
+        .as_array()
+        .map(|targets| targets.iter().filter(|t| !t["tray"].is_null()).count());
+    assert_eq!(tray_clicks, Some(0), "{state}");
+
+    session.act("quit");
+    let log = session.log();
+    assert!(!log.contains("protocol error"), "{log}");
+    assert!(!log.contains("ERROR"), "{log}");
 }

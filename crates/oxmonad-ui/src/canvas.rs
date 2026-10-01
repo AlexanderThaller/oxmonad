@@ -4,9 +4,13 @@ use std::fmt;
 
 use tiny_skia::{
     FillRule,
+    LineCap,
+    LineJoin,
     Paint,
+    Path,
     PathBuilder,
     Pixmap,
+    PixmapPaint,
     Rect,
     Stroke,
     Transform,
@@ -16,6 +20,7 @@ use crate::{
     Antialias,
     Color,
     Fonts,
+    Icon,
     color::premultiply,
 };
 
@@ -222,6 +227,94 @@ impl Painter {
         }
     }
 
+    /// Fills the closed polygon through `points` (device pixels),
+    /// antialiased.
+    pub fn fill_polygon(&mut self, points: &[(f32, f32)], color: Color) {
+        if let Some(path) = polyline(points, true) {
+            self.pixmap.fill_path(
+                &path,
+                &antialiased(color),
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+    }
+
+    /// Strokes the open polyline through `points` (device pixels) `width`
+    /// pixels wide with round joins and caps, antialiased.
+    pub fn stroke_polyline(&mut self, points: &[(f32, f32)], width: f32, color: Color) {
+        if let Some(path) = polyline(points, false) {
+            let stroke = Stroke {
+                width,
+                line_cap: LineCap::Round,
+                line_join: LineJoin::Round,
+                ..Stroke::default()
+            };
+            self.pixmap.stroke_path(
+                &path,
+                &antialiased(color),
+                &stroke,
+                Transform::identity(),
+                None,
+            );
+        }
+    }
+
+    /// Draws an antialiased circle around `center` with `radius`, filled
+    /// with `fill` and outlined along the inside with a `stroke` (color,
+    /// width). All values are device pixels.
+    pub fn circle(
+        &mut self,
+        (cx, cy): (f32, f32),
+        radius: f32,
+        fill: Option<Color>,
+        stroke: Option<(Color, f32)>,
+    ) {
+        if let Some(color) = fill
+            && let Some(path) = PathBuilder::from_circle(cx, cy, radius)
+        {
+            self.pixmap.fill_path(
+                &path,
+                &antialiased(color),
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+        if let Some((color, width)) = stroke
+            && width > 0.0
+            && let Some(path) = PathBuilder::from_circle(cx, cy, radius - width / 2.0)
+        {
+            let stroke = Stroke {
+                width,
+                ..Stroke::default()
+            };
+            self.pixmap.stroke_path(
+                &path,
+                &antialiased(color),
+                &stroke,
+                Transform::identity(),
+                None,
+            );
+        }
+    }
+
+    /// Composites `icon`, resampled to `width` × `height`, with its top-left
+    /// corner at (`x`, `y`). All values are device pixels.
+    pub fn draw_icon(&mut self, icon: &Icon, x: i32, y: i32, width: u32, height: u32) {
+        if let Some(scaled) = icon.resampled(width, height) {
+            self.pixmap.draw_pixmap(
+                x,
+                y,
+                scaled.as_ref(),
+                &PixmapPaint::default(),
+                Transform::identity(),
+                None,
+            );
+        }
+    }
+
     /// Draws `text` starting at pen position `x`, vertically centered in the
     /// band `top..top + band`, clipped to `clip_x..clip_right`. All values
     /// are device pixels; `size_px` is the device pixel font size.
@@ -346,6 +439,28 @@ impl Painter {
             data,
         }
     }
+}
+
+/// An antialiased solid paint.
+fn antialiased(color: Color) -> Paint<'static> {
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(color.r, color.g, color.b, color.a);
+    paint.anti_alias = true;
+    paint
+}
+
+/// The path through `points`, closed when `close` is set.
+fn polyline(points: &[(f32, f32)], close: bool) -> Option<Path> {
+    let (&(x0, y0), rest) = points.split_first()?;
+    let mut pb = PathBuilder::new();
+    pb.move_to(x0, y0);
+    for &(x, y) in rest {
+        pb.line_to(x, y);
+    }
+    if close {
+        pb.close();
+    }
+    pb.finish()
 }
 
 /// The baseline y that vertically centers a line of text in `top..top+band`.
