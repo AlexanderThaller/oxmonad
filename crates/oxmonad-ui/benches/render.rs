@@ -24,11 +24,14 @@ use oxmonad_ui::{
     HelpStyle,
     HelpView,
     Icon,
+    LayoutGlyph,
     MenuEntry,
     MenuEntryKind,
     MenuStyle,
     MenuView,
     PpStyle,
+    PreviewRect,
+    PreviewWindow,
     Segment,
     WorkspaceState,
     WorkspaceTag,
@@ -40,8 +43,8 @@ use oxmonad_ui::{
     render_menu,
 };
 
-/// The bar of a busy session: nine workspaces, a long title, battery,
-/// three tray icons and the clock.
+/// The bar of a busy session: nine workspaces, the layout miniature, a
+/// long title, battery, three tray icons and the clock.
 fn bar_view() -> BarView {
     let tags: Vec<WorkspaceTag> = (1..=9)
         .map(|n| WorkspaceTag {
@@ -74,6 +77,7 @@ fn bar_view() -> BarView {
         segments_left: pp_segments(
             &tags,
             "Tall",
+            Some(tall_glyph()),
             "alacritty: ~/src/priv/oxmonad — cargo bench -p oxmonad-ui",
             &PpStyle::default(),
         ),
@@ -85,6 +89,24 @@ fn bar_view() -> BarView {
             ],
             &BarStyle::default().separator,
         ),
+    }
+}
+
+/// The Tall layout's miniature: the master and three stacked windows.
+fn tall_glyph() -> LayoutGlyph {
+    let window = |index, x, y, w, h| PreviewWindow {
+        index,
+        rect: PreviewRect::new(x, y, w, h),
+    };
+    LayoutGlyph {
+        area: (320, 180),
+        windows: vec![
+            window(0, 0, 0, 192, 180),
+            window(1, 192, 0, 128, 60),
+            window(2, 192, 60, 128, 60),
+            window(3, 192, 120, 128, 60),
+        ],
+        tabs: Vec::new(),
     }
 }
 

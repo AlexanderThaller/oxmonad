@@ -27,7 +27,10 @@ use oxmonad_core::{
         Color as CoreColor,
         Config,
     },
-    layout::PREVIEW_AREA,
+    layout::{
+        LayoutOutput,
+        PREVIEW_AREA,
+    },
 };
 use oxmonad_ui::{
     Antialias,
@@ -42,6 +45,7 @@ use oxmonad_ui::{
     HelpGroup,
     HelpStyle,
     HelpView,
+    LayoutGlyph,
     LayoutPickerStyle,
     LayoutPickerView,
     MenuStyle,
@@ -139,6 +143,8 @@ pub struct Styles {
     menu: MenuStyle,
     tabs: TabStyle,
     tab_fonts: Rc<Fonts>,
+    /// Whether the bar draws a miniature of the layout (`bar.layout_icon`).
+    layout_icon: bool,
 }
 
 impl Styles {
@@ -231,6 +237,7 @@ impl Styles {
                 ..TabStyle::default()
             },
             tab_fonts: fonts.get(&tabs.font_family),
+            layout_icon: bar.layout_icon,
         }
     }
 
@@ -290,11 +297,48 @@ pub fn bar_view(model: &BarModel, status: &Status, styles: &Styles) -> BarView {
         vec![Segment::new(&status.clock)]
     };
     BarView {
-        segments_left: pp_segments(&tags, &model.layout, &model.title, &styles.pp),
+        segments_left: pp_segments(
+            &tags,
+            &model.layout,
+            styles
+                .layout_icon
+                .then(|| layout_glyph(&model.layout_preview)),
+            &model.title,
+            &styles.pp,
+        ),
         segments_right: join_groups(
             [battery, tray_ui::segments(&status.tray), clock],
             &styles.bar.separator,
         ),
+    }
+}
+
+/// The windows and tabs of a layout preview, as the UI draws them.
+fn preview_shapes(preview: &LayoutOutput) -> (Vec<PreviewWindow>, Vec<PreviewRect>) {
+    let rect = |r: Rect| PreviewRect::new(r.x, r.y, r.w, r.h);
+    let windows = preview
+        .rects
+        .iter()
+        .map(|&(index, r)| PreviewWindow {
+            index,
+            rect: rect(r),
+        })
+        .collect();
+    let tabs = preview
+        .tabs
+        .iter()
+        .flat_map(|tabs| tabs.tabs.iter().copied().map(rect))
+        .collect();
+    (windows, tabs)
+}
+
+/// The bar's miniature of the layout that arranged `preview`.
+fn layout_glyph(preview: &LayoutOutput) -> LayoutGlyph {
+    let (windows, tabs) = preview_shapes(preview);
+    LayoutGlyph {
+        area: (PREVIEW_AREA.w.unsigned_abs(), PREVIEW_AREA.h.unsigned_abs()),
+        windows,
+        tabs,
     }
 }
 
@@ -313,7 +357,6 @@ pub fn prompt_view(model: &PromptModel) -> PromptView {
 /// The layout picker view for `model`.
 #[must_use]
 pub fn layout_picker_view(model: &LayoutPickerModel) -> LayoutPickerView {
-    let rect = |r: Rect| PreviewRect::new(r.x, r.y, r.w, r.h);
     LayoutPickerView {
         title: format!("Layout of workspace {}", model.tag),
         hint: "j/k: select  Return: apply  Esc: cancel".to_owned(),
@@ -321,23 +364,13 @@ pub fn layout_picker_view(model: &LayoutPickerModel) -> LayoutPickerView {
         entries: model
             .entries
             .iter()
-            .map(|entry| PickerEntry {
-                name: entry.name.clone(),
-                windows: entry
-                    .preview
-                    .rects
-                    .iter()
-                    .map(|&(index, r)| PreviewWindow {
-                        index,
-                        rect: rect(r),
-                    })
-                    .collect(),
-                tabs: entry
-                    .preview
-                    .tabs
-                    .iter()
-                    .flat_map(|tabs| tabs.tabs.iter().copied().map(rect))
-                    .collect(),
+            .map(|entry| {
+                let (windows, tabs) = preview_shapes(&entry.preview);
+                PickerEntry {
+                    name: entry.name.clone(),
+                    windows,
+                    tabs,
+                }
             })
             .collect(),
         selected: model.selected,
@@ -845,8 +878,43 @@ mod tests {
         BarModel {
             workspaces: vec![("1".to_owned(), WorkspaceState::Current)],
             layout: "Tall".to_owned(),
+            layout_preview: oxmonad_core::layout::Layout::Full.preview(),
             title: "title".to_owned(),
         }
+    }
+
+    #[test]
+    fn the_layout_icon_precedes_the_layout_name() {
+        let status = Status::default();
+        let glyph = |view: &BarView| {
+            view.segments_left
+                .iter()
+                .position(|segment| segment.layout.is_some())
+        };
+        let name = |view: &BarView| {
+            view.segments_left
+                .iter()
+                .position(|segment| segment.text == "Tall")
+        };
+        let view = bar_view(&model(), &status, &styles());
+        let (Some(glyph_at), Some(name_at)) = (glyph(&view), name(&view)) else {
+            panic!("missing segments: {view:?}");
+        };
+        assert!(glyph_at < name_at);
+        assert_eq!(
+            view.segments_left[glyph_at]
+                .layout
+                .as_ref()
+                .map(|g| g.windows.len()),
+            Some(1)
+        );
+
+        let mut config = Config::defaults();
+        config.bar.layout_icon = false;
+        let styles = Styles::new(&config, &mut FontCache::new(None));
+        let view = bar_view(&model(), &status, &styles);
+        assert_eq!(glyph(&view), None);
+        assert!(name(&view).is_some());
     }
 
     fn item(id: &str, status: ItemStatus) -> TrayItem {

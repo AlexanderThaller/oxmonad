@@ -126,6 +126,9 @@ behaves the same way.
 |`Super` + `.` |Fewer windows in the master area
 |===
 
+The bar draws a small version of the current layout's picture before its
+name (turn it off with `layout_icon = false` under `[bar]`).
+
 The layout picker shows the pictures above with the layout names, the
 current layout outlined and the selection highlighted (starting on the
 current layout). `j`/`k` (or the arrow keys, `Tab`/`Shift`+`Tab`) move the

@@ -64,7 +64,7 @@ pub struct LayoutContext {
 }
 
 /// Geometry of a tab strip (`tabbed` with at least two windows).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TabGeometry {
     /// The whole strip.
     pub strip: Rect,
@@ -73,7 +73,7 @@ pub struct TabGeometry {
 }
 
 /// The result of arranging a workspace's tiled windows.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct LayoutOutput {
     /// `(index into the tiled windows, rectangle)` pairs; windows that are
     /// not listed are hidden.

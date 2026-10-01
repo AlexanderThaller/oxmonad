@@ -20,6 +20,7 @@ use oxmonad_ui::{
     HelpStyle,
     HelpView,
     Icon,
+    LayoutGlyph,
     LayoutPickerStyle,
     LayoutPickerView,
     MenuEntry,
@@ -125,7 +126,7 @@ fn bar_view(title: &str, battery: BatteryState) -> BarView {
     ];
     let style = BarStyle::default();
     BarView {
-        segments_left: pp_segments(&tags, "Tall", title, &PpStyle::default()),
+        segments_left: pp_segments(&tags, "Tall", None, title, &PpStyle::default()),
         segments_right: join_groups(
             [
                 format_battery(battery, &BatteryStyle::default()),
@@ -695,6 +696,7 @@ fn tray_bar_view() -> BarView {
         segments_left: pp_segments(
             &[tag("1", WorkspaceState::Current, true, false)],
             "Tall",
+            None,
             "alacritty",
             &PpStyle::default(),
         ),
@@ -777,4 +779,85 @@ fn menus() {
         selected: None,
     };
     assert_snapshot("menu_ellipsized", &render_menu(&plain, &narrow, &fonts, 1));
+}
+
+/// A layout miniature of `windows` (index, x, y, w, h) and `tabs` in the
+/// 320×180 preview area.
+fn glyph(windows: &[(usize, i32, i32, i32, i32)], tabs: &[(i32, i32, i32, i32)]) -> LayoutGlyph {
+    LayoutGlyph {
+        area: (320, 180),
+        windows: windows
+            .iter()
+            .map(|&(index, x, y, w, h)| PreviewWindow {
+                index,
+                rect: PreviewRect::new(x, y, w, h),
+            })
+            .collect(),
+        tabs: tabs
+            .iter()
+            .map(|&(x, y, w, h)| PreviewRect::new(x, y, w, h))
+            .collect(),
+    }
+}
+
+#[test]
+fn bar_layout_icons() {
+    let fonts = Fonts::embedded();
+    let style = BarStyle::default();
+    let tall = glyph(
+        &[
+            (0, 0, 0, 192, 180),
+            (1, 192, 0, 128, 60),
+            (2, 192, 60, 128, 60),
+            (3, 192, 120, 128, 60),
+        ],
+        &[],
+    );
+    let grid = glyph(
+        &[
+            (0, 0, 0, 160, 90),
+            (1, 160, 0, 160, 90),
+            (2, 0, 90, 160, 90),
+            (3, 160, 90, 160, 90),
+        ],
+        &[],
+    );
+    let tabs = glyph(
+        &[(0, 0, 20, 320, 160)],
+        &[
+            (0, 0, 80, 20),
+            (80, 0, 80, 20),
+            (160, 0, 80, 20),
+            (240, 0, 80, 20),
+        ],
+    );
+    let full = glyph(&[(0, 0, 0, 320, 180)], &[]);
+    for (name, layout, preview) in [
+        ("tall", "Tall", tall),
+        ("grid", "Grid", grid),
+        ("tabs", "Tabs", tabs),
+        ("full", "Full", full),
+    ] {
+        let view = BarView {
+            segments_left: pp_segments(
+                &[
+                    tag("1", WorkspaceState::Current, true, false),
+                    tag("2", WorkspaceState::Hidden, true, false),
+                ],
+                layout,
+                Some(preview),
+                "alacritty",
+                &PpStyle::default(),
+            ),
+            segments_right: vec![Segment::new("2026.10.01-4 13:05")],
+        };
+        assert_snapshot(
+            &format!("bar_layout_{name}"),
+            &render_bar(&view, &style, &fonts, 500, 1),
+        );
+        assert_snapshot(
+            &format!("bar_layout_{name}_scale_2"),
+            &render_bar(&view, &style, &fonts, 500, 2),
+        );
+    }
 }
