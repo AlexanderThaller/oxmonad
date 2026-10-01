@@ -250,6 +250,8 @@ default keybindings, colors, commands and rules). `SIGUSR1` (or the
   geometry, every action, rules, prompt editing and config parsing.
 * `oxmonad-ui`: golden PNGs in `crates/oxmonad-ui/tests/snapshots/`;
   regenerate with `OXMONAD_BLESS=1 cargo test -p oxmonad-ui`.
+* `oxmonad-ui` also has a criterion benchmark of the bar, help and menu
+  renders at scale 1 and 2: `cargo bench -p oxmonad-ui`.
 * `oxmonad`: unit tests for arrangement → request translation against a
   recording fake; an `#[ignore]`d end-to-end test runs river headless
   (`WLR_BACKENDS=headless WLR_RENDERER=pixman river -c <oxmonad>`) when

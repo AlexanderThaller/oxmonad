@@ -15,7 +15,12 @@ tiny-skia = { version = "0.12", default-features = false, features = [
 zeno = { version = "0.3", default-features = false, features = ["eval", "std"] }
 
 [dev-dependencies]
+criterion = { version = "0.8.2", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "render"
+harness = false
