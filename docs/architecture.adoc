@@ -239,7 +239,9 @@ a `LayoutGlyph`, a miniature of the current layout drawn before its name
 the layout picker and `docs/layouts/*.svg` draw) scaled to
 `BarStyle::layout_icon_size` (14) high at the preview's 16:9 ratio, snapped
 to device pixels with a pixel gap per scale step between windows, the
-master in the segment's color and the other windows and tabs fainter.
+master and its tab in the segment's color and the other windows and tabs
+fainter. A tab strip keeps at least 4 px, the windows below it sharing the
+rest, so Tabs does not shrink to Full's plain block.
 `BarModel::layout_preview` carries the preview from core. The popup menu
 (`MenuView`, `render_menu`) is a bordered column of rows: plain, disabled
 (dimmed), separator, check box or radio entries, with an arrow on entries
