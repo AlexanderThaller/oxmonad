@@ -41,6 +41,8 @@ fn defaults_parse() {
     assert_eq!(config.bar.position, BarPosition::Top);
     assert_eq!(config.bar.output, None);
     assert_eq!(config.bar.title_max_len, Some(100));
+    assert!(config.bar.tray);
+    assert_eq!(config.bar.tray_icon_size, 16);
     assert_eq!(config.bar.colors.current, Color::rgb(0xF8, 0xE6, 0x3A));
     assert_eq!(config.bar.colors.title, Color::rgb(0x86, 0xBD, 0x47));
     assert_eq!(config.prompt.position, BarPosition::Bottom);
@@ -271,6 +273,8 @@ fn nested_tables_deep_merge() {
         [bar]
         output = "DP-1"
         title_max_len = 0
+        tray = false
+        tray_icon_size = 24
         "##,
     );
     let d = Config::defaults();
@@ -279,6 +283,9 @@ fn nested_tables_deep_merge() {
     assert_eq!(c.bar.height, d.bar.height);
     assert_eq!(c.bar.output.as_deref(), Some("DP-1"));
     assert_eq!(c.bar.title_max_len, None);
+    assert!(!c.bar.tray);
+    assert_eq!(c.bar.tray_icon_size, 24);
+    assert!(Config::from_toml("[bar]\ntray_icon_size = -1").is_err());
 }
 
 #[test]

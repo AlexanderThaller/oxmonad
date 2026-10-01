@@ -184,6 +184,11 @@ pub struct BarConfig {
     /// `0` disables shortening.
     #[serde(deserialize_with = "zero_is_none")]
     pub title_max_len: Option<usize>,
+    /// Whether to show a system tray (`StatusNotifierItem` icons) left of
+    /// the clock. Read at startup and on reload.
+    pub tray: bool,
+    /// Tray icon size in logical pixels.
+    pub tray_icon_size: u32,
     /// Colors.
     pub colors: BarColors,
 }
