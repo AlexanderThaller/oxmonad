@@ -17,6 +17,7 @@ mod shm;
 mod spawn;
 mod state;
 mod status;
+mod tray;
 
 use std::{
     env,
