@@ -427,8 +427,12 @@ pub fn render_bar(
     painter.finish()
 }
 
+/// Smallest height of a layout miniature's tab strip in logical pixels
+/// (without the gap below it).
+const MIN_TAB_STRIP: i32 = 4;
+
 /// Draws `glyph` `size` logical pixels high, centered in the device
-/// span `(start, end)`: the master window in `fg`, the others and the tabs
+/// span `(start, end)`: the master window and its tab in `fg`, the others
 /// fainter, each separated from its neighbours by a device-pixel gap per
 /// scale step.
 fn draw_layout_glyph(
@@ -452,23 +456,52 @@ fn draw_layout_glyph(
     // Rectangles are mapped into a box one gap larger and lose the gap on
     // their right and bottom edges, so neighbours are separated and the
     // outer edges stay inside `width` × `height`.
-    let map = |value: i32, area: i64, extent: i32| -> i32 {
-        let mapped = i64::from(value) * i64::from(extent + gap) / area;
-        i32::try_from(mapped).unwrap_or(0)
+    let scaled = |value: i64, extent: i64, area: i64| -> i32 {
+        i32::try_from(value * extent / area.max(1)).unwrap_or(0)
+    };
+    let map_x = |x: i32| scaled(i64::from(x), i64::from(width + gap), area_width);
+    // A tab strip is a small part of the preview and would vanish at bar
+    // size, so it gets at least `MIN_TAB_STRIP` and the windows below it
+    // share the rest.
+    let strip_bottom = glyph
+        .tabs
+        .iter()
+        .map(|tab| i64::from(tab.y + tab.h))
+        .max()
+        .unwrap_or(0)
+        .clamp(0, area_height);
+    let strip_px = if strip_bottom > 0 {
+        scaled(strip_bottom, i64::from(height + gap), area_height)
+            .max(MIN_TAB_STRIP * gap + gap)
+            .min(height / 2 + gap)
+    } else {
+        0
+    };
+    let map_y = |y: i32| -> i32 {
+        let y = i64::from(y);
+        if y <= strip_bottom {
+            scaled(y, i64::from(strip_px), strip_bottom)
+        } else {
+            strip_px
+                + scaled(
+                    y - strip_bottom,
+                    i64::from(height + gap - strip_px),
+                    area_height - strip_bottom,
+                )
+        }
     };
     let mut fill = |rect: &PreviewRect, color: Color| {
-        let x0 = map(rect.x, area_width, width);
-        let x1 = map(rect.x + rect.w, area_width, width);
-        let y0 = map(rect.y, area_height, height);
-        let y1 = map(rect.y + rect.h, area_height, height);
+        let (x0, x1) = (map_x(rect.x), map_x(rect.x + rect.w));
+        let (y0, y1) = (map_y(rect.y), map_y(rect.y + rect.h));
         let (w, h) = (x1 - x0 - gap, y1 - y0 - gap);
         if w > 0 && h > 0 {
             painter.fill_rect(left + x0, top + y0, w, h, color);
         }
     };
     let faint = fg.with_alpha(0x70);
-    for tab in &glyph.tabs {
-        fill(tab, faint);
+    // Tabs are in stack order; the first is the focused master's.
+    for (index, tab) in glyph.tabs.iter().enumerate() {
+        fill(tab, if index == 0 { fg } else { faint });
     }
     for window in &glyph.windows {
         fill(&window.rect, if window.index == 0 { fg } else { faint });
@@ -772,6 +805,45 @@ mod tests {
             }),
             Some((start, start + width))
         );
+    }
+
+    #[test]
+    fn layout_glyph_tabs_stay_visible() {
+        // Tabbed's real preview: a 20-unit strip of four tabs over the
+        // focused window, which would round away at bar size.
+        let window = PreviewWindow {
+            index: 0,
+            rect: PreviewRect::new(0, 20, 320, 160),
+        };
+        let tabs = (0..4)
+            .map(|i| PreviewRect::new(i * 80, 0, 80, 20))
+            .collect();
+        let full = LayoutGlyph {
+            area: (320, 180),
+            windows: vec![window],
+            tabs: Vec::new(),
+        };
+        let tabbed = LayoutGlyph {
+            tabs,
+            ..full.clone()
+        };
+        let fonts = Fonts::embedded();
+        let style = BarStyle::default();
+        let render = |glyph| {
+            let view = BarView {
+                segments_left: vec![Segment::with_layout(glyph)],
+                segments_right: Vec::new(),
+            };
+            render_bar(&view, &style, &fonts, 60, 1)
+        };
+        let (full, tabbed) = (render(full), render(tabbed));
+        // The glyph is 14 px high in a 24 px bar, so it starts at row 5;
+        // the strip takes the first four rows, then a gap.
+        let x = style.padding + style.icon_spacing + 1;
+        let pixel = |canvas: &Canvas, y| canvas.pixel(x, y);
+        assert_ne!(pixel(&tabbed, 6), pixel(&tabbed, 9), "gap under the tabs");
+        assert_eq!(pixel(&full, 6), pixel(&full, 9), "full is one block");
+        assert_eq!(pixel(&tabbed, 6), pixel(&full, 6), "focused tab is bright");
     }
 
     #[test]
