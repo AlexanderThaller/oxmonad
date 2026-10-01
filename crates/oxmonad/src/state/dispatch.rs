@@ -84,6 +84,7 @@ use wayland_client::{
         },
         wl_pointer::{
             self,
+            ButtonState,
             WlPointer,
         },
         wl_registry::{
@@ -106,6 +107,7 @@ use super::{
     KeyBindingData,
     Output,
     PointerBindingData,
+    Scroll,
     Seat,
     SeatId,
     State,
@@ -198,7 +200,10 @@ impl Dispatch<RiverWindowManagerV1, ()> for State {
                         keyboard: None,
                         wl_pointer: None,
                         pointer_surface: None,
+                        pointer_local: None,
                         hovered_layout: None,
+                        hovered_menu: None,
+                        scroll: Scroll::default(),
                         pointer: None,
                         pointer_before: None,
                         hovered: None,
@@ -403,11 +408,6 @@ impl Dispatch<RiverSeatV1, SeatId> for State {
                     state.inputs.push_back(Input::Interaction(window));
                 }
             }
-            Event::ShellSurfaceInteraction { shell_surface } => {
-                if let Some(&node) = shell_surface.data::<Node>() {
-                    state.inputs.push_back(Input::ShellClick(id, node));
-                }
-            }
             Event::OpDelta { dx, dy } => {
                 if let Some(op) = state.op.as_mut().filter(|op| op.seat == id) {
                     op.delta = Some((dx, dy));
@@ -423,7 +423,10 @@ impl Dispatch<RiverSeatV1, SeatId> for State {
                     seat.pointer = Some((x, y));
                 }
             }
-            _ => {}
+            // `shell_surface_interaction` is ignored: shell surface clicks
+            // come from our own `wl_pointer`, which knows the button and
+            // the exact position (see its dispatch).
+            Event::ShellSurfaceInteraction { .. } | _ => {}
         }
     }
 }
@@ -521,7 +524,7 @@ impl Dispatch<WlSeat, SeatId> for State {
 impl Dispatch<WlPointer, SeatId> for State {
     fn event(
         state: &mut Self,
-        _: &WlPointer,
+        pointer: &WlPointer,
         event: wl_pointer::Event,
         id: &SeatId,
         _: &Connection,
@@ -530,7 +533,7 @@ impl Dispatch<WlPointer, SeatId> for State {
         let Some(seat) = state.seats.get_mut(id) else {
             return;
         };
-        let (x, y) = match event {
+        match event {
             wl_pointer::Event::Enter {
                 surface,
                 surface_x,
@@ -538,44 +541,135 @@ impl Dispatch<WlPointer, SeatId> for State {
                 ..
             } => {
                 seat.pointer_surface = Some(surface);
-                (surface_x, surface_y)
+                seat.pointer_local = Some((surface_x, surface_y));
+                state.pointer_hover(*id);
             }
             wl_pointer::Event::Motion {
                 surface_x,
                 surface_y,
                 ..
-            } => (surface_x, surface_y),
+            } => {
+                seat.pointer_local = Some((surface_x, surface_y));
+                state.pointer_hover(*id);
+            }
             wl_pointer::Event::Leave { .. } => {
                 seat.pointer_surface = None;
+                seat.pointer_local = None;
                 seat.hovered_layout = None;
-                return;
+                seat.hovered_menu = None;
+                seat.scroll = Scroll::default();
             }
+            wl_pointer::Event::Button {
+                button,
+                state: WEnum::Value(ButtonState::Pressed),
+                ..
+            } => {
+                let (Some(surface), Some((x, y))) = (&seat.pointer_surface, seat.pointer_local)
+                else {
+                    return;
+                };
+                let Some((node, x, y)) = state.shells.to_global(surface, x, y, &state.styles)
+                else {
+                    return;
+                };
+                state.inputs.push_back(Input::ShellButton {
+                    seat: *id,
+                    node,
+                    x,
+                    y,
+                    button,
+                });
+                state.dirty();
+            }
+            wl_pointer::Event::AxisDiscrete { axis, discrete } => match axis {
+                WEnum::Value(wl_pointer::Axis::VerticalScroll) => {
+                    seat.scroll.discrete.0 += discrete;
+                }
+                WEnum::Value(wl_pointer::Axis::HorizontalScroll) => {
+                    seat.scroll.discrete.1 += discrete;
+                }
+                WEnum::Value(_) | WEnum::Unknown(_) => {}
+            },
+            wl_pointer::Event::Axis { axis, value, .. } => {
+                match axis {
+                    WEnum::Value(wl_pointer::Axis::VerticalScroll) => {
+                        seat.scroll.continuous.0 += value;
+                    }
+                    WEnum::Value(wl_pointer::Axis::HorizontalScroll) => {
+                        seat.scroll.continuous.1 += value;
+                    }
+                    WEnum::Value(_) | WEnum::Unknown(_) => {}
+                }
+                // Before version 5 there are no frames.
+                if pointer.version() < wl_pointer::EVT_FRAME_SINCE {
+                    state.pointer_scroll(*id);
+                }
+            }
+            wl_pointer::Event::Frame => state.pointer_scroll(*id),
             wl_pointer::Event::Button { .. }
-            | wl_pointer::Event::Axis { .. }
-            | wl_pointer::Event::Frame
             | wl_pointer::Event::AxisSource { .. }
             | wl_pointer::Event::AxisStop { .. }
-            | wl_pointer::Event::AxisDiscrete { .. }
             | wl_pointer::Event::AxisValue120 { .. }
             | wl_pointer::Event::AxisRelativeDirection { .. }
-            | _ => return,
-        };
-        // Only the layout picker reacts to hovering: the entry under the
-        // pointer becomes the selection, like j/k.
-        let Some(surface) = seat.pointer_surface.clone() else {
+            | _ => {}
+        }
+    }
+}
+
+impl State {
+    /// The pointer of seat `id` moved over one of our surfaces: hovering
+    /// selects layout picker entries (like `j`/`k`) and highlights tray
+    /// menu rows.
+    fn pointer_hover(&mut self, id: SeatId) {
+        let Some(seat) = self.seats.get(&id) else {
             return;
         };
-        let Some(Click::Layout(index)) = state.shells.at_local(&surface, x, y, &state.styles)
-        else {
+        let (Some(surface), Some((x, y))) = (&seat.pointer_surface, seat.pointer_local) else {
             return;
         };
-        let Some(seat) = state.seats.get_mut(id) else {
+        let click = self.shells.at_local(surface, x, y, &self.styles);
+        let Some(seat) = self.seats.get_mut(&id) else {
             return;
         };
-        if seat.hovered_layout != Some(index) {
-            seat.hovered_layout = Some(index);
-            state.inputs.push_back(Input::PickerHover(index));
-            state.dirty();
+        match click {
+            Some(Click::Layout(index)) if seat.hovered_layout != Some(index) => {
+                seat.hovered_layout = Some(index);
+                self.inputs.push_back(Input::PickerHover(index));
+                self.dirty();
+            }
+            Some(Click::MenuEntry(level, row)) if seat.hovered_menu != Some((level, row)) => {
+                seat.hovered_menu = Some((level, row));
+                self.inputs.push_back(Input::MenuHover(level, row));
+                self.dirty();
+            }
+            _ => {}
+        }
+    }
+
+    /// A `wl_pointer` frame ended: scrolling over a tray icon goes to its
+    /// item right away (it changes nothing oxmonad manages).
+    fn pointer_scroll(&mut self, id: SeatId) {
+        let Some(seat) = self.seats.get_mut(&id) else {
+            return;
+        };
+        let (vertical, horizontal) = seat.scroll.take_steps();
+        if (vertical, horizontal) == (0, 0) {
+            return;
+        }
+        let (Some(surface), Some((x, y))) = (&seat.pointer_surface, seat.pointer_local) else {
+            return;
+        };
+        let (Some(Click::TrayItem(item)), Some(handle)) = (
+            self.shells.at_local(surface, x, y, &self.styles),
+            &self.tray.thread,
+        ) else {
+            return;
+        };
+        if vertical != 0 {
+            handle.tray.scroll(&item, vertical, false);
+        }
+        if horizontal != 0 {
+            handle.tray.scroll(&item, horizontal, true);
         }
     }
 }
@@ -590,6 +684,7 @@ impl Dispatch<WlKeyboard, SeatId> for State {
         _: &QueueHandle<Self>,
     ) {
         let prompt_open = state.wm.grabs_keyboard();
+        let menu_open = state.tray.menu.is_some();
         let Some(keyboard) = state.seats.get_mut(id).and_then(|s| s.keyboard.as_mut()) else {
             return;
         };
@@ -619,6 +714,16 @@ impl Dispatch<WlKeyboard, SeatId> for State {
                     if let Some(timing) = repeat {
                         state.start_repeat(*id, key, prompt_key, timing);
                     }
+                }
+            }
+            wl_keyboard::Event::Key {
+                key,
+                state: WEnum::Value(KeyState::Pressed),
+                ..
+            } if menu_open => {
+                if let Some(menu_key) = keyboard.prompt_key(key) {
+                    state.inputs.push_back(Input::MenuKey(menu_key));
+                    state.dirty();
                 }
             }
             wl_keyboard::Event::Key {

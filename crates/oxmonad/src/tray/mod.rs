@@ -12,8 +12,6 @@
 //! as a host with the existing watcher and follows its signals. If that
 //! watcher goes away, the tray takes the name over.
 
-#![expect(dead_code, reason = "wired into the bar in a follow-up")]
-
 mod icon;
 mod item;
 mod menu;

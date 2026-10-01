@@ -1,5 +1,5 @@
 //! The WM-drawn shell surfaces: the bar, the tab strips, the prompt, the
-//! layout picker and the key binding help.
+//! layout picker, the key binding help and the tray menu.
 //!
 //! Their content is derived from core state in each manage sequence and
 //! committed with `sync_next_commit`, so it changes in the same frame as
@@ -44,6 +44,8 @@ use oxmonad_ui::{
     HelpView,
     LayoutPickerStyle,
     LayoutPickerView,
+    MenuStyle,
+    MenuView,
     PickerEntry,
     PpStyle,
     PreviewRect,
@@ -52,6 +54,7 @@ use oxmonad_ui::{
     PromptStyle,
     PromptView,
     Segment,
+    SegmentId,
     Side,
     Tab,
     TabColors,
@@ -65,6 +68,7 @@ use oxmonad_ui::{
     join_groups,
     layout_bar,
     layout_picker_size,
+    menu_entry_at,
     picker_entry_at,
     picker_entry_rects,
     pp_segments,
@@ -72,6 +76,7 @@ use oxmonad_ui::{
     render_bar,
     render_help,
     render_layout_picker,
+    render_menu,
     render_prompt,
     render_tabs,
     tab_at,
@@ -97,6 +102,10 @@ use crate::{
     },
     shm::Buffers,
     state::State,
+    tray_ui::{
+        self,
+        BarItem,
+    },
 };
 
 /// Points to logical pixels at 96 dpi.
@@ -127,6 +136,7 @@ pub struct Styles {
     prompt_fonts: Rc<Fonts>,
     picker: LayoutPickerStyle,
     help: HelpStyle,
+    menu: MenuStyle,
     tabs: TabStyle,
     tab_fonts: Rc<Fonts>,
 }
@@ -145,6 +155,7 @@ impl Styles {
                 font_size: points_to_px(bar.font_size),
                 antialias,
                 height: bar.height.unsigned_abs(),
+                icon_size: bar.tray_icon_size.max(1),
                 ..BarStyle::default()
             },
             bar_fonts: fonts.get(&bar.font_family),
@@ -192,6 +203,16 @@ impl Styles {
                 antialias,
                 ..HelpStyle::default()
             },
+            menu: MenuStyle {
+                bg: color(prompt.colors.background),
+                fg: color(prompt.colors.foreground),
+                border: color(prompt.colors.border),
+                bg_selected: color(prompt.colors.highlight_background),
+                fg_selected: color(prompt.colors.highlight_foreground),
+                font_size: points_to_px(bar.font_size),
+                antialias,
+                ..MenuStyle::default()
+            },
             prompt_fonts: fonts.get(&prompt.font_family),
             tabs: TabStyle {
                 active: TabColors {
@@ -212,6 +233,18 @@ impl Styles {
             tab_fonts: fonts.get(&tabs.font_family),
         }
     }
+
+    /// The tray menu's style.
+    #[must_use]
+    pub fn menu(&self) -> &MenuStyle {
+        &self.menu
+    }
+
+    /// The tray menu's fonts (the bar's).
+    #[must_use]
+    pub fn menu_fonts(&self) -> &Fonts {
+        &self.bar_fonts
+    }
 }
 
 /// The bar's status modules.
@@ -221,9 +254,12 @@ pub struct Status {
     pub clock: String,
     /// The battery, if there is one.
     pub battery: Option<BatteryState>,
+    /// The system tray's items, in registration order.
+    pub tray: Vec<BarItem>,
 }
 
-/// The bar view for `model` and `status`.
+/// The bar view for `model` and `status`: workspaces, layout and title on
+/// the left; battery, tray icons and clock on the right.
 #[must_use]
 pub fn bar_view(model: &BarModel, status: &Status, styles: &Styles) -> BarView {
     let tags: Vec<WorkspaceTag> = model
@@ -255,7 +291,10 @@ pub fn bar_view(model: &BarModel, status: &Status, styles: &Styles) -> BarView {
     };
     BarView {
         segments_left: pp_segments(&tags, &model.layout, &model.title, &styles.pp),
-        segments_right: join_groups([battery, clock], &styles.bar.separator),
+        segments_right: join_groups(
+            [battery, tray_ui::segments(&status.tray), clock],
+            &styles.bar.separator,
+        ),
     }
 }
 
@@ -358,6 +397,8 @@ pub enum Content {
     LayoutPicker(LayoutPickerView),
     /// The key binding help, centred in [`Wanted::rect`].
     Help(HelpView),
+    /// A level of the tray menu, filling [`Wanted::rect`].
+    TrayMenu(MenuView),
 }
 
 /// A surface oxmonad wants to show.
@@ -366,7 +407,8 @@ pub struct Wanted {
     /// Which surface.
     pub node: Node,
     /// Where it goes (for the prompt: the input line's strip; for the
-    /// layout picker and the help: the area it is centred in).
+    /// layout picker and the help: the area it is centred in; for a tray
+    /// menu exactly its rectangle).
     pub rect: Rect,
     /// Its buffer scale.
     pub scale: u32,
@@ -560,14 +602,8 @@ impl Shells {
     /// would mean (for pointer hover over WM-drawn surfaces).
     #[must_use]
     pub fn at_local(&self, surface: &WlSurface, x: f64, y: f64, styles: &Styles) -> Option<Click> {
-        let (&node, found) = self.surfaces.iter().find(|(_, s)| &s.base == surface)?;
-        let rect = surface_rect(found.drawn.as_ref()?, styles);
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "surface coordinates are small"
-        )]
-        let (x, y) = (x.floor() as i32, y.floor() as i32);
-        self.click(node, rect.x + x, rect.y + y, styles)
+        let (node, x, y) = self.to_global(surface, x, y, styles)?;
+        self.click(node, x, y, styles)
     }
 
     /// What a click at global `(x, y)` on shell surface `node` means.
@@ -588,11 +624,7 @@ impl Shells {
                     rect.w.unsigned_abs(),
                     want.scale,
                 );
-                let id = layout.segment_at(local_x)?;
-                (id.side == Side::Left)
-                    .then(|| view.segment(id)?.action.clone())
-                    .flatten()
-                    .map(Click::Workspace)
+                bar_click(view, layout.segment_at(local_x)?)
             }
             Content::Tabs(view, windows) => {
                 let index = tab_at(view, rect.w.unsigned_abs(), local_x)?;
@@ -608,8 +640,69 @@ impl Shells {
             )
             .map(Click::Layout),
             Content::Help(_) => Some(Click::Dismiss),
+            Content::TrayMenu(view) => {
+                let Node::TrayMenu(level) = node else {
+                    return None;
+                };
+                menu_entry_at(
+                    view,
+                    &styles.menu,
+                    &styles.bar_fonts,
+                    local_x,
+                    f64::from(y - rect.y),
+                )
+                .map(|row| Click::MenuEntry(level, row))
+            }
             Content::Prompt(..) => None,
         }
+    }
+
+    /// The shell surface `surface` belongs to and the global logical
+    /// position of surface-local `(x, y)` on it.
+    #[must_use]
+    pub fn to_global(
+        &self,
+        surface: &WlSurface,
+        x: f64,
+        y: f64,
+        styles: &Styles,
+    ) -> Option<(Node, i32, i32)> {
+        let (&node, found) = self.surfaces.iter().find(|(_, s)| &s.base == surface)?;
+        let rect = surface_rect(found.drawn.as_ref()?, styles);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "surface coordinates are small"
+        )]
+        let (x, y) = (x.floor() as i32, y.floor() as i32);
+        Some((node, rect.x + x, rect.y + y))
+    }
+
+    /// The left edge (global logical x) of tray item `id`'s icon and the
+    /// bar's rectangle, if the bar shows the item.
+    #[must_use]
+    pub fn tray_icon(&self, id: &str, styles: &Styles) -> Option<(i32, Rect)> {
+        let want = self.surfaces.get(&Node::Bar)?.drawn.as_ref()?;
+        let Content::Bar(view) = &want.content else {
+            return None;
+        };
+        let index = view
+            .segments_right
+            .iter()
+            .position(|segment| segment.action.as_deref() == Some(id))?;
+        let layout = layout_bar(
+            view,
+            &styles.bar,
+            &styles.bar_fonts,
+            want.rect.w.unsigned_abs(),
+            want.scale,
+        );
+        let (start, _) = layout.segment_span(SegmentId {
+            side: Side::Right,
+            index,
+        })?;
+        #[expect(clippy::cast_possible_truncation, reason = "bar coordinates are small")]
+        let start = start.floor() as i32;
+        Some((want.rect.x + start, want.rect))
     }
 }
 
@@ -624,6 +717,20 @@ pub enum Click {
     Layout(usize),
     /// Close the overlay (anywhere on the help).
     Dismiss,
+    /// A tray item's icon in the bar (the item id).
+    TrayItem(String),
+    /// Row `.1` of the tray menu level `.0` (0 is the root menu).
+    MenuEntry(usize, usize),
+}
+
+/// What a click on bar segment `id` means: the left side's actions are
+/// workspace tags, the right side's tray item ids.
+fn bar_click(view: &BarView, id: SegmentId) -> Option<Click> {
+    let action = view.segment(id)?.action.clone()?;
+    Some(match id.side {
+        Side::Left => Click::Workspace(action),
+        Side::Right => Click::TrayItem(action),
+    })
 }
 
 /// The logical rectangle a surface covers.
@@ -672,7 +779,7 @@ fn surface_rect(want: &Wanted, styles: &Styles) -> Rect {
             );
             want.rect.centered(size)
         }
-        Content::Bar(_) | Content::Tabs(..) => want.rect,
+        Content::Bar(_) | Content::Tabs(..) | Content::TrayMenu(_) => want.rect,
     }
 }
 
@@ -712,5 +819,149 @@ fn draw(want: &Wanted, styles: &Styles) -> Canvas {
             want.rect.h.max(1).unsigned_abs(),
             want.scale,
         ),
+        Content::TrayMenu(view) => render_menu(view, &styles.menu, &styles.bar_fonts, want.scale),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use oxmonad_core::{
+        BarModel,
+        WorkspaceState,
+    };
+
+    use super::*;
+    use crate::tray::{
+        ItemStatus,
+        TrayIcon,
+        TrayItem,
+    };
+
+    fn styles() -> Styles {
+        Styles::new(&Config::defaults(), &mut FontCache::new(None))
+    }
+
+    fn model() -> BarModel {
+        BarModel {
+            workspaces: vec![("1".to_owned(), WorkspaceState::Current)],
+            layout: "Tall".to_owned(),
+            title: "title".to_owned(),
+        }
+    }
+
+    fn item(id: &str, status: ItemStatus) -> TrayItem {
+        TrayItem {
+            id: id.to_owned(),
+            title: id.to_owned(),
+            status,
+            icon: Some(TrayIcon {
+                width: 1,
+                height: 1,
+                bgra: vec![0, 0, 0, 255],
+            }),
+            item_is_menu: false,
+            menu: None,
+        }
+    }
+
+    /// The right side as text, icons as `[action]`.
+    fn right_side(view: &BarView) -> Vec<String> {
+        view.segments_right
+            .iter()
+            .map(|segment| match (&segment.icon, &segment.action) {
+                (Some(_), Some(action)) => format!("[{action}]"),
+                _ => segment.text.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_tray_sits_between_battery_and_clock() {
+        let styles = styles();
+        let status = Status {
+            clock: "2026.10.01-4 13:05".to_owned(),
+            battery: Some(BatteryState {
+                percent: 80,
+                status: oxmonad_ui::BatteryStatus::Discharging,
+                time_left: None,
+            }),
+            tray: tray_ui::bar_items(vec![
+                item("a", ItemStatus::Active),
+                item("hidden", ItemStatus::Passive),
+                item("b", ItemStatus::NeedsAttention),
+            ]),
+        };
+        let view = bar_view(&model(), &status, &styles);
+        let right = right_side(&view);
+        let sep = styles.bar.separator.clone();
+        let clock = right.iter().position(|s| s == "2026.10.01-4 13:05");
+        let a = right.iter().position(|s| s == "[a]");
+        let b = right.iter().position(|s| s == "[b]");
+        assert!(!right.contains(&"[hidden]".to_owned()), "{right:?}");
+        let (Some(a), Some(b), Some(clock)) = (a, b, clock) else {
+            panic!("missing segments: {right:?}");
+        };
+        assert_eq!(b, a + 1, "{right:?}");
+        assert_eq!(right[a - 1], sep, "{right:?}");
+        assert_eq!(right[b + 1], sep, "{right:?}");
+        assert_eq!(clock, b + 2, "{right:?}");
+        assert!(right[..a - 1].iter().any(|s| s.contains("80")), "{right:?}");
+    }
+
+    #[test]
+    fn without_tray_items_there_is_no_extra_separator() {
+        let styles = styles();
+        let status = Status {
+            clock: "13:05".to_owned(),
+            battery: None,
+            tray: Vec::new(),
+        };
+        let view = bar_view(&model(), &status, &styles);
+        assert_eq!(right_side(&view), vec!["13:05".to_owned()]);
+    }
+
+    #[test]
+    fn bar_clicks_map_tags_and_tray_icons() {
+        let styles = styles();
+        let status = Status {
+            clock: "13:05".to_owned(),
+            battery: None,
+            tray: tray_ui::bar_items(vec![item("a", ItemStatus::Active)]),
+        };
+        let view = bar_view(&model(), &status, &styles);
+        let tag = view
+            .segments_left
+            .iter()
+            .position(|s| s.action.is_some())
+            .map(|index| SegmentId {
+                side: Side::Left,
+                index,
+            });
+        assert_eq!(
+            tag.and_then(|id| bar_click(&view, id)),
+            Some(Click::Workspace("1".to_owned()))
+        );
+        let icon = SegmentId {
+            side: Side::Right,
+            index: 0,
+        };
+        assert_eq!(
+            bar_click(&view, icon),
+            Some(Click::TrayItem("a".to_owned()))
+        );
+        // The clock does nothing.
+        let clock = SegmentId {
+            side: Side::Right,
+            index: 2,
+        };
+        assert_eq!(bar_click(&view, clock), None);
+    }
+
+    #[test]
+    fn the_tray_icon_size_comes_from_the_config() {
+        let mut config = Config::defaults();
+        config.bar.tray_icon_size = 24;
+        let styles = Styles::new(&config, &mut FontCache::new(None));
+        assert_eq!(styles.bar.icon_size, 24);
     }
 }
