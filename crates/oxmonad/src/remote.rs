@@ -40,6 +40,10 @@ struct Process {
     /// Whether it handles [`RESTART_SIGNAL`]; an oxmonad from before
     /// `--restart` existed would be killed by it instead.
     catches_restart: bool,
+    /// Whether it is a short-lived helper (`--check-config`, which a
+    /// restarting oxmonad runs, or another `--restart`), not a window
+    /// manager.
+    helper: bool,
     runtime_dir: Option<String>,
     wayland_display: Option<String>,
 }
@@ -60,6 +64,7 @@ impl Caller {
         let same =
             |ours: &Option<String>, theirs: &Option<String>| ours.is_none() || ours == theirs;
         process.comm == "oxmonad"
+            && !process.helper
             && process.pid != self.pid
             && process.uid == self.uid
             && same(&self.runtime_dir, &process.runtime_dir)
@@ -87,6 +92,10 @@ pub fn restart_running() -> Result<Vec<u32>, String> {
             continue;
         }
         if !process.catches_restart && !wait_for_handler(&entry.path()) {
+            if !entry.path().exists() {
+                // It exited meanwhile.
+                continue;
+            }
             return Err(format!(
                 "oxmonad {} is too old for --restart (it would die from SIGUSR2); press Mod+q \
                  once instead",
@@ -134,11 +143,13 @@ fn read_process(dir: &Path) -> Option<Process> {
     let comm = fs::read_to_string(dir.join("comm")).ok()?;
     let environ = fs::read(dir.join("environ")).unwrap_or_default();
     let status = fs::read_to_string(dir.join("status")).unwrap_or_default();
+    let cmdline = fs::read(dir.join("cmdline")).unwrap_or_default();
     Some(Process {
         pid,
         uid,
         comm: comm.trim_end().to_owned(),
         catches_restart: catches(&status, RESTART_SIGNAL),
+        helper: is_helper(&cmdline),
         runtime_dir: env_value(&environ, "XDG_RUNTIME_DIR"),
         wayland_display: env_value(&environ, "WAYLAND_DISPLAY"),
     })
@@ -152,6 +163,15 @@ fn catches(status: &str, signal: Signal) -> bool {
         .find_map(|line| line.strip_prefix("SigCgt:"))
         .and_then(|mask| u64::from_str_radix(mask.trim(), 16).ok())
         .is_some_and(|mask| mask & (1 << (signal.as_raw() - 1)) != 0)
+}
+
+/// Whether a NUL-separated `/proc/<pid>/cmdline` runs oxmonad as a
+/// helper (`--check-config` or `--restart`) rather than a window manager.
+fn is_helper(cmdline: &[u8]) -> bool {
+    cmdline
+        .split(|&b| b == 0)
+        .skip(1)
+        .any(|arg| arg == b"--check-config" || arg == b"--restart")
 }
 
 /// The value of `name` in a NUL-separated `/proc/<pid>/environ`.
@@ -181,6 +201,7 @@ mod tests {
             uid: 1000,
             comm: "oxmonad".into(),
             catches_restart: true,
+            helper: false,
             runtime_dir: Some("/run/user/1000".into()),
             wayland_display: Some("wayland-1".into()),
         }
@@ -211,7 +232,19 @@ mod tests {
             comm: "river".into(),
             ..oxmonad(20)
         };
-        for process in [other_display, other_runtime, other_user, river, oxmonad(10)] {
+        // A restarting oxmonad's `--check-config` run.
+        let helper = Process {
+            helper: true,
+            ..oxmonad(30)
+        };
+        for process in [
+            other_display,
+            other_runtime,
+            other_user,
+            river,
+            helper,
+            oxmonad(10),
+        ] {
             assert!(!me.targets(&process), "{process:?}");
         }
     }
@@ -240,6 +273,15 @@ mod tests {
     fn this_process_reports_its_mask() {
         let status = fs::read_to_string("/proc/self/status").expect("status");
         assert!(status.contains("SigCgt:"));
+    }
+
+    #[test]
+    fn recognizes_helper_runs() {
+        assert!(is_helper(b"/usr/bin/oxmonad\0--check-config\0"));
+        assert!(is_helper(b"oxmonad\0-c\0x.toml\0--restart\0"));
+        assert!(!is_helper(b"oxmonad\0"));
+        assert!(!is_helper(b"oxmonad\0--config\0--restart.toml\0"));
+        assert!(!is_helper(b""));
     }
 
     #[test]
