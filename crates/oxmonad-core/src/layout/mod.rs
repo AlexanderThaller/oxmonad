@@ -249,6 +249,120 @@ fn tabbed(area: Rect, n: usize, focus: usize, tab_height: i32) -> LayoutOutput {
     }
 }
 
+/// The reference config's `myLayout` followed by `Corner`, in ring order:
+/// `reflectHoriz tiled ||| tiled ||| Mirror tiled ||| noBorders Full |||
+/// tabbed ||| Mirror Grid ||| Grid ||| ThreeCol ||| reflectHoriz ThreeCol
+/// ||| Corner` with
+/// `tiled = ResizableTall 1 (3/100) (3/5) []` and
+/// `ThreeCol 1 (3/100) (1/2)`. Their [names](Layout::name) are unique.
+#[must_use]
+pub fn standard_layouts(tab_height: i32) -> Vec<Layout> {
+    let tiled = || Layout::Tall(Tall::new(1, Ratio::new(3, 100), Ratio::new(3, 5)));
+    let three = || Layout::ThreeColumns(ThreeColumns::new(1, Ratio::new(3, 100), Ratio::new(1, 2)));
+    vec![
+        Layout::Reflect(Box::new(tiled())),
+        tiled(),
+        Layout::Mirror(Box::new(tiled())),
+        Layout::NoBorders(Box::new(Layout::Full)),
+        Layout::Tabbed { tab_height },
+        Layout::Mirror(Box::new(Layout::Grid)),
+        Layout::Grid,
+        three(),
+        Layout::Reflect(Box::new(three())),
+        Layout::Corner(Corner::new(
+            Ratio::new(3, 100),
+            Ratio::new(2, 3),
+            Ratio::new(2, 3),
+        )),
+    ]
+}
+
+/// Names of the [standard layouts](standard_layouts), in standard order.
+#[must_use]
+pub fn standard_names() -> Vec<String> {
+    standard_layouts(0).iter().map(Layout::name).collect()
+}
+
+/// Why a list of layout names is not a valid [`LayoutOrder`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum LayoutOrderError {
+    /// The list is empty.
+    #[error("the list must name at least one layout; valid layouts: {valid}", valid = valid_names())]
+    Empty,
+    /// A name matches no standard layout.
+    #[error("unknown layout `{0}`; valid layouts: {valid}", valid = valid_names())]
+    Unknown(String),
+    /// A layout is listed twice.
+    #[error("layout `{0}` is listed more than once")]
+    Duplicate(String),
+}
+
+/// The standard layout names, quoted and comma-separated, for messages.
+fn valid_names() -> String {
+    standard_names()
+        .iter()
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Which [standard layouts](standard_layouts) a ring holds and in which
+/// order (the config's `layouts`): a non-empty list without duplicates.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LayoutOrder {
+    /// Indices into [`standard_layouts`], in ring order.
+    indices: Vec<usize>,
+}
+
+impl LayoutOrder {
+    /// Every standard layout in standard order.
+    #[must_use]
+    pub fn standard() -> Self {
+        Self {
+            indices: (0..standard_layouts(0).len()).collect(),
+        }
+    }
+
+    /// Resolves layout `names` (as [`Layout::name`] shows them, ignoring
+    /// case and surrounding whitespace) in ring order.
+    pub fn parse<S: AsRef<str>>(names: &[S]) -> Result<Self, LayoutOrderError> {
+        if names.is_empty() {
+            return Err(LayoutOrderError::Empty);
+        }
+        let standard = standard_names();
+        let mut indices = Vec::with_capacity(names.len());
+        for name in names {
+            let name = name.as_ref();
+            let wanted = name.trim().to_lowercase();
+            let index = standard
+                .iter()
+                .position(|candidate| candidate.to_lowercase() == wanted)
+                .ok_or_else(|| LayoutOrderError::Unknown(name.to_owned()))?;
+            if indices.contains(&index) {
+                return Err(LayoutOrderError::Duplicate(name.to_owned()));
+            }
+            indices.push(index);
+        }
+        Ok(Self { indices })
+    }
+
+    /// The layouts' names in ring order.
+    #[must_use]
+    pub fn names(&self) -> Vec<String> {
+        let standard = standard_names();
+        self.indices
+            .iter()
+            .filter_map(|&i| standard.get(i).cloned())
+            .collect()
+    }
+}
+
+impl Default for LayoutOrder {
+    fn default() -> Self {
+        Self::standard()
+    }
+}
+
 /// A workspace's ring of layouts (`l1 ||| l2 ||| …`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayoutRing {
@@ -272,33 +386,25 @@ impl LayoutRing {
         }
     }
 
-    /// The reference config's `myLayout` followed by `Corner`:
-    /// `reflectHoriz tiled ||| tiled ||| Mirror tiled ||| noBorders Full |||
-    /// tabbed ||| Mirror Grid ||| Grid ||| ThreeCol ||| reflectHoriz ThreeCol
-    /// ||| Corner` with
-    /// `tiled = ResizableTall 1 (3/100) (3/5) []` and
-    /// `ThreeCol 1 (3/100) (1/2)`.
+    /// The standard ring: [`standard_layouts`] in order.
     #[must_use]
     pub fn standard(tab_height: i32) -> Self {
-        let tiled = || Layout::Tall(Tall::new(1, Ratio::new(3, 100), Ratio::new(3, 5)));
-        let three =
-            || Layout::ThreeColumns(ThreeColumns::new(1, Ratio::new(3, 100), Ratio::new(1, 2)));
-        Self::new(vec![
-            Layout::Reflect(Box::new(tiled())),
-            tiled(),
-            Layout::Mirror(Box::new(tiled())),
-            Layout::NoBorders(Box::new(Layout::Full)),
-            Layout::Tabbed { tab_height },
-            Layout::Mirror(Box::new(Layout::Grid)),
-            Layout::Grid,
-            three(),
-            Layout::Reflect(Box::new(three())),
-            Layout::Corner(Corner::new(
-                Ratio::new(3, 100),
-                Ratio::new(2, 3),
-                Ratio::new(2, 3),
-            )),
-        ])
+        Self::new(standard_layouts(tab_height))
+    }
+
+    /// The [standard layouts](standard_layouts) picked and ordered by
+    /// `order` (the config's `layouts`), each with its standard parameters;
+    /// the first one is active.
+    #[must_use]
+    pub fn from_order(order: &LayoutOrder, tab_height: i32) -> Self {
+        let standard = standard_layouts(tab_height);
+        Self::new(
+            order
+                .indices
+                .iter()
+                .filter_map(|&i| standard.get(i).cloned())
+                .collect(),
+        )
     }
 
     /// The ring to use for a workspace whose ring was `saved` (e.g. before

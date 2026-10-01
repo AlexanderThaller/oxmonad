@@ -105,6 +105,72 @@ fn empty_ring_falls_back_to_full() {
 }
 
 #[test]
+fn standard_names_are_unique() {
+    let names = standard_names();
+    assert_eq!(names.len(), 10);
+    for (i, name) in names.iter().enumerate() {
+        assert!(!names[..i].contains(name), "{name} is listed twice");
+    }
+}
+
+#[test]
+fn standard_order_builds_the_standard_ring() {
+    assert_eq!(
+        LayoutRing::from_order(&LayoutOrder::standard(), 20),
+        LayoutRing::standard(20)
+    );
+    assert_eq!(LayoutOrder::default(), LayoutOrder::standard());
+    assert_eq!(
+        LayoutOrder::parse(&standard_names()),
+        Ok(LayoutOrder::standard())
+    );
+}
+
+#[test]
+fn ring_from_order_picks_standard_layouts_in_order() {
+    let order = LayoutOrder::parse(&["corner", "TABS", "Tall Right"]).expect("valid");
+    let ring = LayoutRing::from_order(&order, 17);
+    let standard = standard_layouts(17);
+    assert_eq!(
+        ring.layouts(),
+        [
+            standard[9].clone(),
+            Layout::Tabbed { tab_height: 17 },
+            standard[0].clone(),
+        ]
+    );
+    assert_eq!(ring.name(), "Corner");
+}
+
+#[test]
+fn invalid_orders_are_rejected() {
+    let none: [&str; 0] = [];
+    assert_eq!(LayoutOrder::parse(&none), Err(LayoutOrderError::Empty));
+    assert_eq!(
+        LayoutOrder::parse(&["Tall", "Mirror Tall"]),
+        Err(LayoutOrderError::Unknown("Mirror Tall".into()))
+    );
+    assert_eq!(
+        LayoutOrder::parse(&["Full", "Tall", "FULL"]),
+        Err(LayoutOrderError::Duplicate("FULL".into()))
+    );
+}
+
+#[test]
+fn restore_onto_a_reordered_ring_keeps_the_active_layout() {
+    let mut saved = LayoutRing::standard(20);
+    saved.select(6);
+    assert_eq!(saved.name(), "Grid");
+    let order = LayoutOrder::parse(&["Full", "Grid"]).expect("valid");
+    let configured = LayoutRing::from_order(&order, 20);
+    let restored = configured.restore(&saved);
+    assert_eq!((restored.name(), restored.index()), ("Grid".to_owned(), 1));
+    // An active layout that is gone leaves the first one active.
+    saved.select(0);
+    assert_eq!(configured.restore(&saved), configured);
+}
+
+#[test]
 fn zero_windows_arrange_to_nothing() {
     let mut ring = LayoutRing::standard(20);
     for _ in 0..ring.len() {

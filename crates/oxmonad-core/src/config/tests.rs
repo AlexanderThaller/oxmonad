@@ -399,3 +399,65 @@ fn error_messages_mention_the_binding() {
     assert!(message.contains("Mod+j"), "{message}");
     assert!(message.contains("jump"), "{message}");
 }
+
+#[test]
+fn default_layouts_are_the_standard_ring() {
+    let config = Config::defaults();
+    assert_eq!(config.layouts, LayoutOrder::standard());
+    assert_eq!(
+        config.layouts.names(),
+        [
+            "Tall Right",
+            "Tall",
+            "Wide",
+            "Full",
+            "Tabs",
+            "Grid Rows",
+            "Grid",
+            "Three Columns",
+            "Three Columns Right",
+            "Corner",
+        ]
+    );
+}
+
+#[test]
+fn layouts_set_order_and_subset_ignoring_case() {
+    let config = load(r#"layouts = ["grid", "TALL", " three columns right "]"#);
+    assert_eq!(
+        config.layouts.names(),
+        ["Grid", "Tall", "Three Columns Right"]
+    );
+    // Other settings keep their defaults.
+    assert_eq!(config.workspaces.len(), 9);
+}
+
+#[test]
+fn invalid_layouts_are_rejected_with_the_valid_names() {
+    let err = |user: &str| Config::from_toml(user).expect_err("config must be rejected");
+    assert_eq!(
+        err("layouts = []"),
+        ConfigError::InvalidLayouts(LayoutOrderError::Empty)
+    );
+    assert_eq!(
+        err(r#"layouts = ["Tall", "Spiral"]"#),
+        ConfigError::InvalidLayouts(LayoutOrderError::Unknown("Spiral".into()))
+    );
+    assert_eq!(
+        err(r#"layouts = ["Grid", "Full", "grid"]"#),
+        ConfigError::InvalidLayouts(LayoutOrderError::Duplicate("grid".into()))
+    );
+    assert!(matches!(err("layouts = [1]"), ConfigError::Toml(_)));
+    assert!(matches!(err(r#"layouts = "Tall""#), ConfigError::Toml(_)));
+
+    let unknown = err(r#"layouts = ["Spiral"]"#).to_string();
+    assert!(unknown.contains("`layouts`"), "{unknown}");
+    assert!(unknown.contains("Spiral"), "{unknown}");
+    for name in crate::layout::standard_names() {
+        assert!(unknown.contains(&format!("\"{name}\"")), "{unknown}");
+    }
+    let empty = err("layouts = []").to_string();
+    assert!(empty.contains("\"Three Columns Right\""), "{empty}");
+    let duplicate = err(r#"layouts = ["Tabs", "tabs"]"#).to_string();
+    assert!(duplicate.contains("`tabs`"), "{duplicate}");
+}

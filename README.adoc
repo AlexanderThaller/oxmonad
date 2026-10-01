@@ -61,9 +61,10 @@ greeter.
 oxmonad reads `$XDG_CONFIG_HOME/oxmonad/config.toml` (default
 `~/.config/oxmonad/config.toml`) and merges it over the built-in defaults in
 link:crates/oxmonad-core/default-config.toml[`crates/oxmonad-core/default-config.toml`],
-which documents every setting: modifier, terminal, workspaces, colors, fonts,
-bar, prompt, tabs, key and pointer bindings, manage rules and scratchpads. You
-only write what you change.
+which documents every setting: modifier, terminal, workspaces, the order of
+the layout ring (`layouts`), colors, fonts, bar, prompt, tabs, key and
+pointer bindings, manage rules and scratchpads. You only write what you
+change.
 
 [source,sh]
 ----

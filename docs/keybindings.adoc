@@ -94,6 +94,24 @@ pictures are generated from the layout code itself (regenerate with
 
 Each workspace cycles independently and each layout keeps its own state.
 
+The table shows the default ring order. The top-level `layouts` setting in
+`config.toml` changes it: list layout names (the first column, ignoring
+case) in the order `Super` + `Space` cycles through them and the layout
+picker shows them. The first one is every workspace's default layout and
+what a reset returns to; a layout left out is not in the ring. Unknown or
+repeated names and an empty list are config errors.
+
+[source,toml]
+----
+# Must come before the first [table] of the file.
+layouts = ["Tall", "Full", "Tabs", "Grid"]
+----
+
+A reload applies a changed list to every workspace, keeping each one's
+active layout when it is still listed (otherwise the workspace starts at
+the first one); an unchanged list keeps every layout's state. A restart
+behaves the same way.
+
 [cols="1,2",options="header"]
 |===
 |Shortcut |Action

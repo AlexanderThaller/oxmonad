@@ -3,11 +3,12 @@
 //! The embedded [`Config::DEFAULT_TOML`] (`default-config.toml`) is the
 //! single source of defaults. A user file is merged over it
 //! ([`Config::from_toml`]): tables merge recursively, other values
-//! (including arrays such as `workspaces`, `rules` and `scratchpads`) are
-//! replaced wholesale. The `keybindings` and `pointer_bindings` tables are
-//! merged by *resolved* combination, so `Super+j` in a user file overrides
-//! a default `Mod+j` when the modifier is Super; the value `"none"` removes
-//! a binding. `Mod` always resolves with the final (merged) `modifier`.
+//! (including arrays such as `workspaces`, `layouts`, `rules` and
+//! `scratchpads`) are replaced wholesale. The `keybindings` and
+//! `pointer_bindings` tables are merged by *resolved* combination, so
+//! `Super+j` in a user file overrides a default `Mod+j` when the modifier
+//! is Super; the value `"none"` removes a binding. `Mod` always resolves
+//! with the final (merged) `modifier`.
 
 mod color;
 mod keys;
@@ -42,6 +43,10 @@ use crate::{
     geometry::{
         Ratio,
         RationalRect,
+    },
+    layout::{
+        LayoutOrder,
+        LayoutOrderError,
     },
     rules::Rule,
 };
@@ -92,6 +97,9 @@ pub enum ConfigError {
         /// Why it is invalid.
         reason: &'static str,
     },
+    /// `layouts` is empty or names an unknown or duplicate layout.
+    #[error("invalid `layouts`: {0}")]
+    InvalidLayouts(#[from] LayoutOrderError),
     /// A size (border width, bar/prompt/tab height) is negative.
     #[error("`{0}` must not be negative")]
     NegativeSize(&'static str),
@@ -291,6 +299,9 @@ pub struct Config {
     pub focus_follows_mouse: bool,
     /// Initial workspace tags, in order.
     pub workspaces: Vec<String>,
+    /// The layout ring of every workspace, in ring order; the first one is
+    /// a workspace's default layout.
+    pub layouts: LayoutOrder,
     /// Window borders.
     pub border: BorderConfig,
     /// Text rendering.
@@ -319,6 +330,7 @@ struct RawConfig {
     terminal: String,
     focus_follows_mouse: bool,
     workspaces: Vec<String>,
+    layouts: Vec<String>,
     border: BorderConfig,
     font: FontConfig,
     bar: BarConfig,
@@ -397,12 +409,14 @@ impl Config {
             }
         }
         let scratchpads = convert_scratchpads(raw.scratchpads)?;
+        let layouts = LayoutOrder::parse(&raw.layouts)?;
 
         Ok(Self {
             modifier,
             terminal: raw.terminal,
             focus_follows_mouse: raw.focus_follows_mouse,
             workspaces: raw.workspaces,
+            layouts,
             border: raw.border,
             font: raw.font,
             bar: raw.bar,

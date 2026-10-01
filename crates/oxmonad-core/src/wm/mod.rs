@@ -131,8 +131,16 @@ impl Wm {
     /// are kept; configured workspaces that do not exist yet are added, new
     /// workspaces and `reset-layout` use the new layout settings, and the
     /// per-workspace bar toggles are kept.
+    ///
+    /// Every existing workspace's layout ring is reconciled with the new
+    /// one ([`LayoutRing::restore`]): an unchanged ring keeps every
+    /// layout's state, a changed one (`layouts` reordered or shortened) is
+    /// replaced by the configured ring, keeping the active layout if it is
+    /// still in it. An open layout picker is closed, since its entries may
+    /// have moved.
     pub fn reconfigure(&mut self, config: Config) {
         self.stack_set.set_layout_template(layout_ring(&config));
+        self.picker = None;
         for tag in &config.workspaces {
             self.stack_set.add_workspace(tag);
         }
@@ -566,5 +574,5 @@ impl Wm {
 
 /// The layout ring the configuration asks for.
 fn layout_ring(config: &Config) -> LayoutRing {
-    LayoutRing::standard(config.tabs.height)
+    LayoutRing::from_order(&config.layouts, config.tabs.height)
 }

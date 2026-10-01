@@ -114,17 +114,34 @@ Layouts are pure functions `arrange(&self, area: Rect, n: usize, focus: usize)
 tabbed ||| Mirror Grid ||| Grid ||| ThreeCol ||| reflectHoriz ThreeCol` with
 `tiled = ResizableTall 1 (3/100) (3/5) []` and `ThreeCol 1 (3/100) (1/2)`.
 
-In code the ring is `LayoutRing::standard`: `Tall Right`, `Tall`, `Wide`,
-`Full`, `Tabs`, `Grid Rows`, `Grid`, `Three Columns`, `Three Columns Right`,
-built from the `Layout` variants `Tall`, `ThreeColumns`, `Grid`, `Full`,
-`Tabbed` and the modifiers `Mirror`, `Reflect` and `NoBorders`.
-`Layout::name` is both the bar text and the identity used when restoring a
-saved ring; a saved ring that no longer parses (layouts renamed or removed)
-only resets that workspace's layouts, the rest of a restart snapshot still
-applies.
+In code these are the `standard_layouts` (`LayoutRing::standard`): `Tall
+Right`, `Tall`, `Wide`, `Full`, `Tabs`, `Grid Rows`, `Grid`, `Three
+Columns`, `Three Columns Right`, `Corner`, built from the `Layout` variants
+`Tall`, `ThreeColumns`, `Corner`, `Grid`, `Full`, `Tabbed` and the
+modifiers `Mirror`, `Reflect` and `NoBorders`. `Layout::name` is both the
+bar text and the identity used when restoring a saved ring; a saved ring
+that no longer parses (layouts renamed or removed) only resets that
+workspace's layouts, the rest of a restart snapshot still applies.
+
+The config's top-level `layouts` list picks and orders the ring: config
+loading resolves the names (matched against `Layout::name` ignoring case)
+into a validated `LayoutOrder` (indices into `standard_layouts`; empty
+lists, unknown and duplicate names are `ConfigError::InvalidLayouts`, whose
+message lists the valid names), and `LayoutRing::from_order(order,
+tabs.height)` builds the ring from the standard layouts with their standard
+parameters. Its first entry is every workspace's default layout. The
+default config lists all ten in the standard order. The layout picker and
+its `1`–`9`/`0` keys follow ring order, so they follow the config too.
 
 Each ring entry keeps its own state; `NextLayout` rotates, `ResetLayout`
-rebuilds the ring from config. Messages: `Shrink`, `Expand`,
+rebuilds the ring from config (`StackSet::layout_template`). On a reload
+(`Wm::reconfigure`) `StackSet::set_layout_template` reconciles every
+existing workspace's ring with the new one through `LayoutRing::restore`,
+the same rule a restart uses: an unchanged list of layouts keeps every
+entry's state (only `Tabs` takes the new `tabs.height`); a reordered or
+shortened list replaces the ring, keeping the active layout active if it is
+still listed and starting at the first entry otherwise. A reload also
+closes an open layout picker, whose entries may have moved. Messages: `Shrink`, `Expand`,
 `IncMasterN(i32)`, `MirrorShrink`, `MirrorExpand`. Integer rounding must
 match xmonad (ported from the Haskell sources in `resources/`).
 
@@ -521,7 +538,8 @@ The sequence:
 
 Not preserved: an open prompt, layout picker, help or tray menu, a pointer move/resize in progress, and
 xmonad's workspace history beyond the hidden-workspace order. A layout ring
-whose layouts changed between the two binaries falls back to the
-configured ring (keeping the active layout if it still exists). river keeps
+whose layouts changed between the two binaries or in the config's `layouts`
+(reordered or shortened) falls back to the configured ring (keeping the
+active layout if it still exists). river keeps
 fullscreen windows fullscreen and does not report their dimensions to the
 new window manager again, so their size is unknown until they change.
