@@ -26,18 +26,13 @@ mod tests;
 
 use std::{
     io,
-    sync::mpsc,
     thread::{
         self,
         JoinHandle,
     },
-    time::Duration,
 };
 
 use calloop::channel::Channel;
-
-/// How long [`Tray::start`] waits for the session bus connection.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// What the tray thread reports to the main loop.
 #[derive(Clone, Debug, PartialEq)]
@@ -184,7 +179,9 @@ impl Tray {
     /// returned calloop channel. `icon_size` is the logical icon size;
     /// icons are prepared for twice that (scale 2).
     ///
-    /// Fails without a session bus.
+    /// Returns at once: the thread connects to the bus on its own. Without
+    /// a session bus it logs a warning and exits, and no events arrive.
+    /// Fails only if the thread cannot be spawned.
     pub fn start(icon_size: u32) -> io::Result<(Self, Channel<TrayEvent>)> {
         Self::start_on(icon_size, None)
     }
@@ -193,7 +190,6 @@ impl Tray {
     fn start_on(icon_size: u32, address: Option<String>) -> io::Result<(Self, Channel<TrayEvent>)> {
         let (events, channel) = calloop::channel::channel();
         let (messages, inbox) = async_channel::unbounded();
-        let (ready, connected) = mpsc::sync_channel(1);
         let config = service::Config {
             address,
             icon_size,
@@ -203,25 +199,14 @@ impl Tray {
         };
         let thread = thread::Builder::new()
             .name("oxmonad-tray".to_owned())
-            .spawn(move || service::run(config, &ready))?;
-        match connected.recv_timeout(CONNECT_TIMEOUT) {
-            Ok(Ok(())) => Ok((
-                Self {
-                    messages,
-                    thread: Some(thread),
-                },
-                channel,
-            )),
-            Ok(Err(err)) => Err(err),
-            Err(_) => {
-                // The thread gives up on its own once the channel is gone.
-                messages.close();
-                Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "timed out connecting to the session bus",
-                ))
-            }
-        }
+            .spawn(move || service::run(config))?;
+        Ok((
+            Self {
+                messages,
+                thread: Some(thread),
+            },
+            channel,
+        ))
     }
 
     fn send(&self, command: Command) {

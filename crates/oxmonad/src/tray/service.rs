@@ -8,14 +8,12 @@
 //! never stalls the others.
 
 use std::{
-    io,
     path::Path,
     rc::Rc,
     sync::{
         Arc,
         Mutex,
         PoisonError,
-        mpsc,
     },
     time::{
         Duration,
@@ -141,22 +139,21 @@ struct Entry {
     _task: Task<()>,
 }
 
-/// The tray thread's main function: connects, reports the outcome on
-/// `ready`, then serves until the [`Tray`](super::Tray) is dropped.
-pub fn run(config: Config, ready: &mpsc::SyncSender<io::Result<()>>) {
+/// The tray thread's main function: connects, then serves until the
+/// [`Tray`](super::Tray) is dropped. Without a bus it logs a warning and
+/// returns; the bar then simply shows no tray.
+pub fn run(config: Config) {
     let executor = Rc::new(LocalExecutor::new());
     let spawner = Rc::clone(&executor);
     async_io::block_on(executor.run(async move {
         let conn = match connect(config.address.as_deref()).await {
             Ok(conn) => conn,
             Err(err) => {
-                let _ = ready.send(Err(io::Error::other(format!(
-                    "cannot connect to the session bus: {err}"
-                ))));
+                tracing::warn!(%err, "no system tray: cannot connect to the session bus");
                 return;
             }
         };
-        if ready.send(Ok(())).is_err() {
+        if config.inbox.is_closed() {
             return;
         }
         let service = Service::new(conn, spawner, config);
