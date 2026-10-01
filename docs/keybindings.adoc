@@ -6,7 +6,8 @@ These are oxmonad's default bindings. They are defined in
 link:../crates/oxmonad-core/default-config.toml[`crates/oxmonad-core/default-config.toml`],
 the single source of defaults; override, add or remove (`= "none"`) bindings in
 the `[keybindings]` and `[pointer_bindings]` tables of your
-`~/.config/oxmonad/config.toml`, which also lists every available action.
+`~/.config/oxmonad/config.toml`. Every available action and the key, modifier
+and button names are listed in link:config.adoc[`config.adoc`].
 
 Bindings are written as `Mod+Shift+j`: key names are xkb keysym names
 (`Return`, `comma`, `XF86AudioPlay`, …) and *`Mod`* is the `modifier`
