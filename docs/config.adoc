@@ -71,8 +71,9 @@ oxmonad --config ./config.toml --check-config
 `configuration ok` and exits 0, or prints the error and exits 1. Besides
 everything listed under <<validation>>, it checks that every key name in
 `[keybindings]` is a known xkb keysym and lists the unknown ones
-(`oxmonad: unknown key names: …`). A missing file is not an error (the
-defaults are valid).
+(`oxmonad: unknown key names: …`). Pointer bindings need no extra check:
+their modifiers, buttons and actions are all validated when the file is
+loaded. A missing file is not an error (the defaults are valid).
 
 [[validation]]
 === What is an error
@@ -174,8 +175,10 @@ prefix: `Return`, `space`, `comma`, `period`, `slash`, `grave`, `BackSpace`,
 first, then a case-insensitive match. Bindings match the *unshifted* key plus
 the held modifiers, so write the key itself and add `Shift`:
 `"Mod+Shift+slash"` (not `"Mod+question"`), `"Mod+Shift+1"`. Write letters in
-lower case as the defaults do: `"Mod+Shift+j"` is `j` with Shift, and only the
-exact same spelling overrides or removes a default binding.
+lower case as the defaults do: `"Mod+Shift+j"` is `j` with Shift. Key names
+are compared ignoring case when merging, so `"Mod+Shift+J" = "none"` removes
+the default `"Mod+Shift+j"` too. (Different names for the same keysym, such as
+`Prior` and `Page_Up`, still count as different bindings.)
 
 A combination without modifiers (`"XF86AudioMute"`) is allowed. While the
 screen is locked, only bindings without modifiers work.
@@ -382,6 +385,12 @@ starts or stops it.
 |boolean
 |`true`
 |Draw a miniature of the current layout before its name.
+
+|`show_empty_workspaces`
+|boolean
+|`false`
+|Also list hidden workspaces without windows, in `colors.hidden_empty`
+(xmonad's `ppHiddenNoWindows`; `myPP` drops them).
 |===
 
 === `[bar.colors]`
@@ -392,11 +401,11 @@ starts or stops it.
 |`background` |color |`"#161616"` |Bar background.
 |`foreground` |color |`"#F2F2F2"` |Default text color.
 |`current` |color |`"#F8E63A"` |The current workspace (shown as `<tag>`). The headings of the help overlay use it too.
-|`visible` |color |`"#F2F2F2"` |Workspaces visible on other screens (shown as `(tag)`). Accepted but currently not used: they are drawn in `foreground`.
-|`hidden` |color |`"#F2F2F2"` |Hidden workspaces with windows. Accepted but currently not used: they are drawn in `foreground`.
-|`hidden_empty` |color |`"#969694"` |Hidden empty workspaces. Accepted but currently not used: hidden empty workspaces are not shown in the bar.
+|`visible` |color |`"#F2F2F2"` |Workspaces visible on other screens (shown as `(tag)`).
+|`hidden` |color |`"#F2F2F2"` |Hidden workspaces with windows.
+|`hidden_empty` |color |`"#969694"` |Hidden workspaces without windows, when `show_empty_workspaces` is on.
 |`title` |color |`"#86BD47"` |The focused window's title.
-|`layout` |color |`"#F2F2F2"` |The layout name. Accepted but currently not used: it is drawn in `foreground`.
+|`layout` |color |`"#F2F2F2"` |The layout name and its miniature.
 |===
 
 == `[prompt]`

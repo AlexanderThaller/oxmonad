@@ -68,16 +68,17 @@ title_max_len = 100  # ppTitle = shorten 100; 0 disables shortening
 tray = true          # system tray (StatusNotifierItem icons) left of the clock
 tray_icon_size = 16  # tray icon size in logical pixels
 layout_icon = true   # a miniature of the current layout next to its name
+show_empty_workspaces = false  # list empty hidden workspaces too
 
 [bar.colors]
 background = "#161616"    # xmobar bgColor
 foreground = "#F2F2F2"    # xmobar fgColor
 current = "#F8E63A"       # ppCurrent (colorYellow)
-visible = "#F2F2F2"
-hidden = "#F2F2F2"
-hidden_empty = "#969694"
+visible = "#F2F2F2"       # ppVisible
+hidden = "#F2F2F2"        # ppHidden
+hidden_empty = "#969694"  # ppHiddenNoWindows (with show_empty_workspaces)
 title = "#86BD47"         # ppTitle (colorGreen)
-layout = "#F2F2F2"
+layout = "#F2F2F2"        # ppLayout (also the layout miniature)
 
 # The workspace prompt (myXPConfig).
 [prompt]

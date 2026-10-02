@@ -5,7 +5,12 @@
 //! job.
 
 use std::{
+    cmp::Ordering,
     fmt,
+    hash::{
+        Hash,
+        Hasher,
+    },
     ops::BitOr,
 };
 
@@ -139,7 +144,12 @@ pub enum KeyError {
 }
 
 /// A keyboard shortcut: modifiers plus an unresolved keysym name.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Combinations compare (and hash) their key names ignoring case, like the
+/// binary resolves them (`Mod+Shift+J` is the `j` key with Shift), so a
+/// user binding overrides or removes a default however its key is
+/// capitalized.
+#[derive(Debug, Clone)]
 pub struct KeyCombo {
     /// Held modifiers.
     pub mods: Modifiers,
@@ -155,6 +165,44 @@ impl KeyCombo {
             mods,
             key: key.to_owned(),
         })
+    }
+}
+
+impl KeyCombo {
+    /// The key name folded for comparisons.
+    fn folded_key(&self) -> impl Iterator<Item = char> + '_ {
+        self.key.chars().flat_map(char::to_lowercase)
+    }
+}
+
+impl PartialEq for KeyCombo {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for KeyCombo {}
+
+impl PartialOrd for KeyCombo {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KeyCombo {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.mods
+            .cmp(&other.mods)
+            .then_with(|| self.folded_key().cmp(other.folded_key()))
+    }
+}
+
+impl Hash for KeyCombo {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.mods.hash(state);
+        for c in self.folded_key() {
+            c.hash(state);
+        }
     }
 }
 
@@ -325,6 +373,31 @@ mod tests {
         assert!(!mods.contains(Modifiers::ALT));
         assert!(Modifiers::EMPTY.is_empty());
         assert_eq!(Modifiers::EMPTY.to_string(), "");
+    }
+
+    #[test]
+    fn key_combos_compare_key_names_ignoring_case() {
+        use std::{
+            collections::hash_map::DefaultHasher,
+            hash::{
+                Hash,
+                Hasher,
+            },
+        };
+        let parse = |s| KeyCombo::parse(s, Modifiers::SUPER).expect("valid");
+        let hash = |combo: &KeyCombo| {
+            let mut hasher = DefaultHasher::new();
+            combo.hash(&mut hasher);
+            hasher.finish()
+        };
+        let (upper, lower) = (parse("Mod+Shift+J"), parse("Mod+Shift+j"));
+        assert_eq!(upper, lower);
+        assert_eq!(hash(&upper), hash(&lower));
+        assert_eq!(parse("Mod+return"), parse("Mod+Return"));
+        assert_ne!(parse("Mod+j"), parse("Mod+Shift+j"));
+        assert_ne!(parse("Mod+j"), parse("Mod+k"));
+        // The written name is kept for display.
+        assert_eq!(upper.to_string(), "Super+Shift+J");
     }
 
     #[test]

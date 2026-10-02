@@ -44,6 +44,7 @@ fn defaults_parse() {
     assert!(config.bar.tray);
     assert_eq!(config.bar.tray_icon_size, 16);
     assert!(config.bar.layout_icon);
+    assert!(!config.bar.show_empty_workspaces);
     assert_eq!(config.bar.colors.current, Color::rgb(0xF8, 0xE6, 0x3A));
     assert_eq!(config.bar.colors.title, Color::rgb(0x86, 0xBD, 0x47));
     assert_eq!(config.prompt.position, BarPosition::Bottom);
@@ -244,6 +245,33 @@ fn aliases_collide_with_defaults() {
 }
 
 #[test]
+fn key_names_override_defaults_ignoring_case() {
+    let c = load(
+        r#"
+        [keybindings]
+        "Mod+Shift+J" = "none"
+        "Mod+Shift+C" = "focus-master"
+        "Mod+RETURN" = "spawn-terminal"
+        "#,
+    );
+    assert_eq!(action(&c, "Mod+Shift+j"), None);
+    assert_eq!(action(&c, "Mod+Shift+c"), Some(Action::FocusMaster));
+    assert_eq!(action(&c, "Mod+Return"), Some(Action::SpawnTerminal));
+    let shift_c = c
+        .keybindings
+        .iter()
+        .filter(|b| {
+            b.combo.key.to_lowercase() == "c" && b.combo.mods == Modifiers::SUPER | Modifiers::SHIFT
+        })
+        .count();
+    assert_eq!(shift_c, 1);
+    assert_eq!(
+        c.keybindings.len(),
+        Config::defaults().keybindings.len() - 1
+    );
+}
+
+#[test]
 fn pointer_bindings_merge() {
     let c = load(
         r#"
@@ -277,6 +305,7 @@ fn nested_tables_deep_merge() {
         tray = false
         tray_icon_size = 24
         layout_icon = false
+        show_empty_workspaces = true
         "##,
     );
     let d = Config::defaults();
@@ -288,6 +317,7 @@ fn nested_tables_deep_merge() {
     assert!(!c.bar.tray);
     assert_eq!(c.bar.tray_icon_size, 24);
     assert!(!c.bar.layout_icon);
+    assert!(c.bar.show_empty_workspaces);
     assert!(Config::from_toml("[bar]\ntray_icon_size = -1").is_err());
 }
 
