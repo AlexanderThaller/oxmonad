@@ -167,6 +167,11 @@ impl Styles {
             bar_fonts: fonts.get(&bar.font_family),
             pp: PpStyle {
                 current_fg: color(bar.colors.current),
+                visible_fg: Some(color(bar.colors.visible)),
+                hidden_fg: Some(color(bar.colors.hidden)),
+                show_hidden_empty: bar.show_empty_workspaces,
+                hidden_empty_fg: Some(color(bar.colors.hidden_empty)),
+                layout_fg: Some(color(bar.colors.layout)),
                 title_fg: color(bar.colors.title),
                 // Core already shortened the title.
                 title_max_chars: usize::MAX,

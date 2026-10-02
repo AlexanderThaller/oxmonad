@@ -536,6 +536,19 @@ pub struct PpStyle {
     pub current_fg: Color,
     pub current_wrap: (String, String),
     pub visible_wrap: (String, String),
+    /// `ppVisible`'s color; `None` uses [`BarStyle::fg`].
+    pub visible_fg: Option<Color>,
+    /// `ppHidden`'s color (hidden workspaces with windows); `None` uses
+    /// [`BarStyle::fg`].
+    pub hidden_fg: Option<Color>,
+    /// Whether hidden workspaces without windows are shown
+    /// (`ppHiddenNoWindows`); `myPP` drops them.
+    pub show_hidden_empty: bool,
+    /// Their color; `None` uses [`BarStyle::fg`].
+    pub hidden_empty_fg: Option<Color>,
+    /// `ppLayout`'s color, also the layout miniature's; `None` uses
+    /// [`BarStyle::fg`].
+    pub layout_fg: Option<Color>,
     pub urgent_fg: Color,
     pub urgent_bg: Color,
     pub title_fg: Color,
@@ -554,6 +567,11 @@ impl Default for PpStyle {
             current_fg: Color::hex("#F8E63A"),
             current_wrap: ("<".to_owned(), ">".to_owned()),
             visible_wrap: ("(".to_owned(), ")".to_owned()),
+            visible_fg: None,
+            hidden_fg: None,
+            show_hidden_empty: false,
+            hidden_empty_fg: None,
+            layout_fg: None,
             urgent_fg: Color::hex("#FF0000"),
             urgent_bg: Color::hex("#FFFF00"),
             title_fg: Color::hex("#86BD47"),
@@ -566,8 +584,9 @@ impl Default for PpStyle {
 
 /// xmonad's `dynamicLogString`: workspace tags, layout name and window
 /// title, joined by `ppSep`, with empty sections dropped. Hidden workspaces
-/// without windows are omitted (`ppHiddenNoWindows = const ""`); urgency
-/// takes precedence over every other state. Each tag segment's
+/// without windows are omitted (`ppHiddenNoWindows = const ""`) unless
+/// [`PpStyle::show_hidden_empty`] is set; urgency takes precedence over
+/// every other state. Each tag segment's
 /// [`Segment::action`] is the workspace name. A `layout_glyph` is drawn
 /// right before the layout name.
 #[must_use]
@@ -590,9 +609,17 @@ pub fn pp_segments(
                 }
                 WorkspaceState::Visible => {
                     let (open, close) = &pp.visible_wrap;
-                    Segment::new(format!("{open}{}{close}", tag.name))
+                    with_fg(
+                        Segment::new(format!("{open}{}{close}", tag.name)),
+                        pp.visible_fg,
+                    )
                 }
-                WorkspaceState::Hidden if tag.has_windows => Segment::new(&tag.name),
+                WorkspaceState::Hidden if tag.has_windows => {
+                    with_fg(Segment::new(&tag.name), pp.hidden_fg)
+                }
+                WorkspaceState::Hidden if pp.show_hidden_empty => {
+                    with_fg(Segment::new(&tag.name), pp.hidden_empty_fg)
+                }
                 WorkspaceState::Hidden => continue,
             }
         };
@@ -607,8 +634,13 @@ pub fn pp_segments(
         workspaces,
         layout_glyph
             .into_iter()
-            .flat_map(|glyph| [Segment::with_layout(glyph), Segment::new(" ")])
-            .chain([Segment::new(layout)])
+            .flat_map(|glyph| {
+                [
+                    with_fg(Segment::with_layout(glyph), pp.layout_fg),
+                    Segment::new(" "),
+                ]
+            })
+            .chain([with_fg(Segment::new(layout), pp.layout_fg)])
             .collect(),
         vec![Segment::new(title).fg(pp.title_fg)],
     ];
@@ -616,6 +648,14 @@ pub fn pp_segments(
         .into_iter()
         .filter(|section| section.iter().any(|segment| !segment.text.is_empty()));
     join_groups(non_empty, &pp.sep)
+}
+
+/// `segment` in `fg`, if any.
+fn with_fg(segment: Segment, fg: Option<Color>) -> Segment {
+    match fg {
+        Some(fg) => segment.fg(fg),
+        None => segment,
+    }
 }
 
 /// xmonad's `shorten`: strings of `max_chars` or more characters are cut to
@@ -844,6 +884,48 @@ mod tests {
         assert_ne!(pixel(&tabbed, 6), pixel(&tabbed, 9), "gap under the tabs");
         assert_eq!(pixel(&full, 6), pixel(&full, 9), "full is one block");
         assert_eq!(pixel(&tabbed, 6), pixel(&full, 6), "focused tab is bright");
+    }
+
+    #[test]
+    fn pp_colors_every_workspace_state_and_the_layout() {
+        let pp = PpStyle {
+            visible_fg: Some(Color::hex("#000001")),
+            hidden_fg: Some(Color::hex("#000002")),
+            hidden_empty_fg: Some(Color::hex("#000003")),
+            layout_fg: Some(Color::hex("#000004")),
+            ..PpStyle::default()
+        };
+        let tags = [
+            tag("1", WorkspaceState::Hidden, true),
+            tag("2", WorkspaceState::Current, false),
+            tag("3", WorkspaceState::Hidden, false),
+            tag("4", WorkspaceState::Visible, false),
+        ];
+        let glyph = LayoutGlyph::default();
+        let fg = |segments: &[Segment], text: &str| {
+            segments
+                .iter()
+                .find(|segment| segment.text == text)
+                .and_then(|segment| segment.fg)
+        };
+        let segments = pp_segments(&tags, "Tall", Some(glyph.clone()), "vim", &pp);
+        assert_eq!(texts(&segments), "1 <2> (4) :  Tall : vim");
+        assert_eq!(fg(&segments, "1"), pp.hidden_fg);
+        assert_eq!(fg(&segments, "(4)"), pp.visible_fg);
+        assert_eq!(fg(&segments, "Tall"), pp.layout_fg);
+        let glyph_fg = segments
+            .iter()
+            .find(|s| s.layout.is_some())
+            .and_then(|s| s.fg);
+        assert_eq!(glyph_fg, pp.layout_fg);
+
+        let shown = PpStyle {
+            show_hidden_empty: true,
+            ..pp
+        };
+        let segments = pp_segments(&tags, "Tall", None, "vim", &shown);
+        assert_eq!(texts(&segments), "1 <2> 3 (4) : Tall : vim");
+        assert_eq!(fg(&segments, "3"), shown.hidden_empty_fg);
     }
 
     #[test]

@@ -174,6 +174,10 @@ pub struct BarColors {
 /// Status bar settings.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "mirrors the `[bar]` table's independent on/off keys"
+)]
 pub struct BarConfig {
     /// Whether the bar is shown at startup (`Mod+b` toggles it).
     pub visible: bool,
@@ -199,6 +203,9 @@ pub struct BarConfig {
     pub tray_icon_size: u32,
     /// Whether to draw a miniature of the current layout next to its name.
     pub layout_icon: bool,
+    /// Whether hidden workspaces without windows are shown (in
+    /// `colors.hidden_empty`); `myPP` drops them.
+    pub show_empty_workspaces: bool,
     /// Colors.
     pub colors: BarColors,
 }

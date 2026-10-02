@@ -13,13 +13,6 @@ started by hand.
 ** `Mod+w`/`e`/`r` and `Mod+Shift+w`/`e`/`r`: view / shift to physical
    screen 1/2/3.
 ** `Mod+Button2`: focus the window under the pointer and `shiftMaster` it.
-* [ ] Fix the config quirks found while writing `config.adoc`:
-** `[bar.colors]` `visible`, `hidden`, `hidden_empty` and `layout` are
-   parsed but never used.
-** Binding overrides compare key names literally: `"Mod+Shift+J" = "none"`
-   does not remove the default `Mod+Shift+j`. Compare resolved
-   combinations instead.
-** `--check-config` does not check pointer bindings.
 * [ ] More bar interactions:
 ** Click the layout name or miniature to open the layout picker.
 ** Scroll over the workspace tags to switch workspaces.
