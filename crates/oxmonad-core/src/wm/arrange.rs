@@ -123,6 +123,18 @@ pub struct ScreenArrangement {
     pub tab_strip: Option<TabStrip>,
 }
 
+/// A bar that is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BarPlacement {
+    /// The output the bar is on.
+    pub output: OutputId,
+    /// The bar's rectangle.
+    pub rect: Rect,
+    /// Whether this is the primary bar, the one showing the tray, battery
+    /// and clock (see [`Wm::primary_bar_output`]).
+    pub primary: bool,
+}
+
 /// The complete desired state, derived from the model by [`Wm::arrange`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Arrangement {
@@ -134,9 +146,9 @@ pub struct Arrangement {
     pub focus: Focus,
     /// Per-screen tab strips, in screen order.
     pub screens: Vec<ScreenArrangement>,
-    /// The bar's output and rectangle while it is shown. It spans the
-    /// whole usable width of the output, across all its virtual screens.
-    pub bar: Option<(OutputId, Rect)>,
+    /// The bars that are shown, in bar order. Each spans the whole usable
+    /// width of its output, across all its virtual screens.
+    pub bars: Vec<BarPlacement>,
     /// Where the prompt goes while it is open.
     pub prompt: Option<(ScreenId, Rect)>,
     /// While the layout picker is open: its screen and the area it is
@@ -164,48 +176,102 @@ struct Layers {
 }
 
 impl Wm {
-    /// The output the bar is shown on, if it is visible: the output named
-    /// by `bar.output`, else the first output. Whether it is visible
-    /// follows the workspace on that output (see [`Wm::bar_visible_on`]):
-    /// the current screen's if it is on the output, else the output's
-    /// first screen's (a split output has several).
+    /// The outputs that get a bar, in bar order, whether or not the bar is
+    /// toggled off: the connected outputs listed in `bar.output` in list
+    /// order, or every output (in output order) when it is unset.
     #[must_use]
-    pub fn bar_output(&self) -> Option<OutputId> {
+    pub fn bar_outputs(&self) -> Vec<OutputId> {
         let outputs = self.stack_set.outputs();
-        let output = self
-            .config
-            .bar
-            .output
-            .as_ref()
-            .and_then(|name| outputs.iter().find(|o| &o.name == name))
-            .or_else(|| outputs.first())?
-            .id;
-        let current = self
-            .stack_set
+        match &self.config.bar.output {
+            None => outputs.iter().map(|o| o.id).collect(),
+            Some(names) => {
+                let mut ids = Vec::new();
+                for name in names {
+                    if let Some(output) = outputs.iter().find(|o| &o.name == name)
+                        && !ids.contains(&output.id)
+                    {
+                        ids.push(output.id);
+                    }
+                }
+                ids
+            }
+        }
+    }
+
+    /// The output whose bar shows the right-hand side (tray, battery and
+    /// clock): the output named by `bar.primary` if it has a bar, else the
+    /// first of [`Wm::bar_outputs`]. Toggling a bar off does not move the
+    /// primary bar elsewhere.
+    #[must_use]
+    pub fn primary_bar_output(&self) -> Option<OutputId> {
+        let bars = self.bar_outputs();
+        let named = self.config.bar.primary.as_ref().and_then(|name| {
+            self.stack_set
+                .outputs()
+                .iter()
+                .find(|o| &o.name == name)
+                .map(|o| o.id)
+                .filter(|id| bars.contains(id))
+        });
+        named.or_else(|| bars.first().copied())
+    }
+
+    /// The screen that speaks for `output` in its bar: the current screen
+    /// if it is on the output, else the output's first screen (a split
+    /// output has several).
+    #[must_use]
+    pub fn bar_screen(&self, output: OutputId) -> Option<&Screen> {
+        self.stack_set
             .current_screen()
-            .filter(|s| s.output == output);
-        let screen =
-            current.or_else(|| self.stack_set.screens().iter().find(|s| s.output == output));
-        let tag = screen.map_or_else(
+            .filter(|s| s.output == output)
+            .or_else(|| self.stack_set.screens().iter().find(|s| s.output == output))
+    }
+
+    /// Whether `output` shows its bar right now: it has one (see
+    /// [`Wm::bar_outputs`]) and the workspace on it (see
+    /// [`Wm::bar_screen`]) has it toggled on (see [`Wm::bar_visible_on`]).
+    #[must_use]
+    pub fn bar_shown_on(&self, output: OutputId) -> bool {
+        if !self.bar_outputs().contains(&output) {
+            return false;
+        }
+        let tag = self.bar_screen(output).map_or_else(
             || self.stack_set.current_workspace().tag.as_str(),
             |s| s.workspace.tag.as_str(),
         );
-        self.bar_visible_on(tag).then_some(output)
+        self.bar_visible_on(tag)
     }
 
-    /// The bar's output and rectangle, if it is shown: a strip along the
+    /// The rectangle of `output`'s bar, if it is shown: a strip along the
     /// configured edge of the output's usable area (like xmobar's strut,
     /// it spans every virtual screen of a split output).
     #[must_use]
-    pub fn bar_rect(&self) -> Option<(OutputId, Rect)> {
-        let output = self.stack_set.output(self.bar_output()?)?;
-        let area = output.usable;
+    pub fn bar_rect(&self, output: OutputId) -> Option<Rect> {
+        if !self.bar_shown_on(output) {
+            return None;
+        }
+        let area = self.stack_set.output(output)?.usable;
         let height = self.config.bar.height.clamp(0, area.h);
-        let rect = match self.config.bar.position {
+        Some(match self.config.bar.position {
             BarPosition::Top => Rect::new(area.x, area.y, area.w, height),
             BarPosition::Bottom => Rect::new(area.x, area.y + area.h - height, area.w, height),
-        };
-        Some((output.id, rect))
+        })
+    }
+
+    /// Every bar that is shown, in bar order (see [`Wm::bar_outputs`]).
+    #[must_use]
+    pub fn bars(&self) -> Vec<BarPlacement> {
+        let primary = self.primary_bar_output();
+        self.bar_outputs()
+            .into_iter()
+            .filter_map(|output| {
+                Some(BarPlacement {
+                    output,
+                    rect: self.bar_rect(output)?,
+                    primary: Some(output) == primary,
+                })
+            })
+            .collect()
     }
 
     /// The area of `screen` the layout tiles into: the usable rectangle
@@ -214,10 +280,7 @@ impl Wm {
     pub fn tiling_area(&self, screen: ScreenId) -> Option<Rect> {
         let screen = self.stack_set.screen(screen)?;
         let area = screen.usable_rect;
-        let Some((_, bar)) = self
-            .bar_rect()
-            .filter(|&(output, _)| output == screen.output)
-        else {
+        let Some(bar) = self.bar_rect(screen.output) else {
             return Some(area);
         };
         let (top, bottom) = (area.y, area.y + area.h);
@@ -291,7 +354,7 @@ impl Wm {
             hidden,
             focus,
             screens,
-            bar: self.bar_rect(),
+            bars: self.bars(),
             prompt: self.prompt_rect(),
             layout_picker: self.layout_picker_area(),
             help: self.help_area(),

@@ -60,7 +60,7 @@ fn sink_tiles_a_floating_window() {
 #[test]
 fn layout_cycle_and_reset() {
     let mut wm = wm();
-    assert_eq!(wm.bar_model().layout, "Tall Right");
+    assert_eq!(wm.bar_model(O0).layout, "Tall Right");
     let expected = [
         "Tall",
         "Wide",
@@ -75,11 +75,11 @@ fn layout_cycle_and_reset() {
     ];
     for name in expected {
         apply(&mut wm, "next-layout");
-        assert_eq!(wm.bar_model().layout, name);
+        assert_eq!(wm.bar_model(O0).layout, name);
     }
     apply(&mut wm, "next-layout");
     apply(&mut wm, "reset-layout");
-    assert_eq!(wm.bar_model().layout, "Tall Right");
+    assert_eq!(wm.bar_model(O0).layout, "Tall Right");
 }
 
 #[test]
@@ -87,9 +87,9 @@ fn layouts_are_per_workspace() {
     let mut wm = wm();
     apply(&mut wm, "next-layout");
     apply(&mut wm, "view 2");
-    assert_eq!(wm.bar_model().layout, "Tall Right");
+    assert_eq!(wm.bar_model(O0).layout, "Tall Right");
     apply(&mut wm, "view 1");
-    assert_eq!(wm.bar_model().layout, "Tall");
+    assert_eq!(wm.bar_model(O0).layout, "Tall");
 }
 
 #[test]
@@ -187,18 +187,18 @@ fn remove_workspace_action() {
     apply(&mut wm, "remove-workspace");
     assert_eq!(wm.stack_set().current_tag(), "1");
     assert_eq!(windows(&wm), [w(2), w(1)]);
-    assert!(!wm.bar_model().workspaces.iter().any(|(t, _)| t == "5"));
+    assert!(!wm.bar_model(O0).workspaces.iter().any(|(t, _)| t == "5"));
 }
 
 #[test]
 fn toggle_bar_changes_tiling_area() {
     let mut wm = wm();
     manage_all(&mut wm, [1]);
-    assert_eq!(wm.arrange().bar, Some((O0, Rect::new(0, 0, 1920, 24))));
+    assert_eq!(bars(&wm.arrange()), [(O0, Rect::new(0, 0, 1920, 24))]);
     assert_eq!(rect_of(&wm.arrange(), 1), Some(AREA));
     apply(&mut wm, "toggle-bar");
     assert!(!wm.bar_visible());
-    assert_eq!(wm.arrange().bar, None);
+    assert_eq!(bars(&wm.arrange()), []);
     assert_eq!(rect_of(&wm.arrange(), 1), Some(SCREEN));
 }
 
@@ -210,7 +210,7 @@ fn toggle_bar_is_per_workspace() {
     // Another workspace keeps the configured default...
     apply(&mut wm, "view 2");
     assert!(wm.bar_visible());
-    assert!(wm.arrange().bar.is_some());
+    assert_eq!(bars(&wm.arrange()).len(), 1);
     // ...and can be toggled on its own.
     apply(&mut wm, "toggle-bar");
     apply(&mut wm, "toggle-bar");
@@ -218,7 +218,7 @@ fn toggle_bar_is_per_workspace() {
     // Back on 1 the bar is hidden again.
     apply(&mut wm, "view 1");
     assert!(!wm.bar_visible());
-    assert_eq!(wm.arrange().bar, None);
+    assert_eq!(bars(&wm.arrange()), []);
 }
 
 #[test]
@@ -239,17 +239,25 @@ fn bar_toggle_follows_renames_and_survives_reload() {
 }
 
 #[test]
-fn bar_follows_the_workspace_on_the_bar_output() {
+fn each_bar_follows_the_workspace_on_its_output() {
     let mut wm = wm2();
-    // Hide the bar on workspace 2, shown on the second (bar-less) screen.
+    // Hide the bar on workspace 2, shown on the second screen.
     apply(&mut wm, "focus-screen next");
     apply(&mut wm, "toggle-bar");
-    // The bar output still shows workspace 1, so the bar stays.
-    assert!(wm.bar_visible());
-    // Bring workspace 2 to the bar output: now it hides.
+    assert!(!wm.bar_visible());
+    assert!(wm.bar_shown_on(O0));
+    assert!(!wm.bar_shown_on(O1));
+    assert_eq!(bars(&wm.arrange()), [(O0, Rect::new(0, 0, 1920, 24))]);
+    // Only the second output's tiling area grows.
+    assert_eq!(wm.tiling_area(S0), Some(AREA));
+    assert_eq!(wm.tiling_area(S1), Some(Rect::new(1920, 0, 1920, 1080)));
+    // Bring workspace 2 to the first output: its bar hides there, and the
+    // second output (now showing workspace 1) gets its bar back.
     apply(&mut wm, "focus-screen prev");
     apply(&mut wm, "view 2");
     assert!(!wm.bar_visible());
+    assert_eq!(bars(&wm.arrange()), [(O1, Rect::new(1920, 0, 1920, 24))]);
+    assert_eq!(wm.tiling_area(S0), Some(SCREEN));
 }
 
 #[test]
@@ -319,5 +327,5 @@ fn every_default_binding_applies_without_panicking() {
         wm.apply(binding.action);
     }
     let _ = wm.arrange();
-    let _ = wm.bar_model();
+    let _ = wm.bar_model(O0);
 }

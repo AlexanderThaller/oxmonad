@@ -85,7 +85,7 @@ struct Normalized {
     hidden: Vec<String>,
     focus: Option<String>,
     screens: Vec<NormalizedScreen>,
-    bar: Option<Rect>,
+    bars: Vec<Rect>,
 }
 
 fn normalized(wm: &Wm) -> Normalized {
@@ -144,7 +144,7 @@ fn normalized(wm: &Wm) -> Normalized {
             Focus::None => None,
         },
         screens,
-        bar: a.bar.map(|(_, rect)| rect),
+        bars: bars(&a).into_iter().map(|(_, rect)| rect).collect(),
     }
 }
 
@@ -330,7 +330,10 @@ fn busy_dual() -> Wm {
     wm.manage(w(6), window_info(6));
     apply(&mut wm, "focus-screen next");
     apply(&mut wm, "view 2");
+    // DP-1's bar is hidden (workspace 2's toggle), DP-2's is shown.
+    apply(&mut wm, "toggle-bar");
     apply(&mut wm, "focus-screen next");
+    assert_eq!(wm.arrange().bars.len(), 1);
     wm
 }
 
@@ -712,7 +715,7 @@ fn snapshot_describes_the_state() {
     assert_eq!(s.workspaces[1].tag, "2");
     assert_eq!(s.workspaces[0].focus, Some(ident(6)));
     assert!(s.floating.contains_key(&ident(5)));
-    assert!(s.bar_overrides.is_empty());
+    assert_eq!(s.bar_overrides, BTreeMap::from([("2".to_owned(), false)]));
 }
 
 #[test]

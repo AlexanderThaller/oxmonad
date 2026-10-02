@@ -68,7 +68,10 @@ antialias = "grayscale"
 visible = true       # default for every workspace; Mod+b toggles it per workspace
 position = "top"     # "top" or "bottom"
 height = 24
-# output = "DP-1"    # show the bar on this output (default: first screen)
+# Outputs with a bar, e.g. output = ["DP-2", "DP-1"]. Unset (the default):
+# a bar on every output. Unconnected names are skipped; [] shows no bar.
+# primary = "DP-2"   # the bar with tray, battery and clock (default: the
+#                    # first bar output); the others show only the left side
 font_family = "Fira Mono"
 font_size = 12.0
 title_max_len = 100  # ppTitle = shorten 100; 0 disables shortening

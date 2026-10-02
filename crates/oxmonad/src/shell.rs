@@ -15,6 +15,7 @@ use oxmonad_core::{
     BarModel,
     HelpModel,
     LayoutPickerModel,
+    OutputId,
     PromptModel,
     Rect,
     Size,
@@ -271,7 +272,8 @@ pub struct Status {
 }
 
 /// The bar view for `model` and `status`: workspaces, layout and title on
-/// the left; battery, tray icons and clock on the right.
+/// the left; on the primary bar (see [`BarModel::primary`]) also battery,
+/// tray icons and clock on the right.
 #[must_use]
 pub fn bar_view(model: &BarModel, status: &Status, styles: &Styles) -> BarView {
     let tags: Vec<WorkspaceTag> = model
@@ -294,6 +296,7 @@ pub fn bar_view(model: &BarModel, status: &Status, styles: &Styles) -> BarView {
         .collect();
     let battery = status
         .battery
+        .filter(|_| model.primary)
         .map(|state| format_battery(state, &styles.battery))
         .unwrap_or_default();
     let clock = if status.clock.is_empty() {
@@ -311,10 +314,14 @@ pub fn bar_view(model: &BarModel, status: &Status, styles: &Styles) -> BarView {
             &model.title,
             &styles.pp,
         ),
-        segments_right: join_groups(
-            [battery, tray_ui::segments(&status.tray), clock],
-            &styles.bar.separator,
-        ),
+        segments_right: if model.primary {
+            join_groups(
+                [battery, tray_ui::segments(&status.tray), clock],
+                &styles.bar.separator,
+            )
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -715,18 +722,25 @@ impl Shells {
         Some((node, rect.x + x, rect.y + y))
     }
 
-    /// The left edge (global logical x) of tray item `id`'s icon and the
-    /// bar's rectangle, if the bar shows the item.
+    /// The output of the bar showing tray item `id` (the primary bar), the
+    /// left edge (global logical x) of the item's icon and the bar's
+    /// rectangle, if a bar shows the item.
     #[must_use]
-    pub fn tray_icon(&self, id: &str, styles: &Styles) -> Option<(i32, Rect)> {
-        let want = self.surfaces.get(&Node::Bar)?.drawn.as_ref()?;
-        let Content::Bar(view) = &want.content else {
-            return None;
-        };
-        let index = view
-            .segments_right
-            .iter()
-            .position(|segment| segment.action.as_deref() == Some(id))?;
+    pub fn tray_icon(&self, id: &str, styles: &Styles) -> Option<(OutputId, i32, Rect)> {
+        let (output, want, view, index) = self.surfaces.iter().find_map(|(node, surface)| {
+            let Node::Bar(output) = *node else {
+                return None;
+            };
+            let want = surface.drawn.as_ref()?;
+            let Content::Bar(view) = &want.content else {
+                return None;
+            };
+            let index = view
+                .segments_right
+                .iter()
+                .position(|segment| segment.action.as_deref() == Some(id))?;
+            Some((output, want, view, index))
+        })?;
         let layout = layout_bar(
             view,
             &styles.bar,
@@ -740,7 +754,7 @@ impl Shells {
         })?;
         #[expect(clippy::cast_possible_truncation, reason = "bar coordinates are small")]
         let start = start.floor() as i32;
-        Some((want.rect.x + start, want.rect))
+        Some((output, want.rect.x + start, want.rect))
     }
 }
 
@@ -885,7 +899,72 @@ mod tests {
             layout: "Tall".to_owned(),
             layout_preview: oxmonad_core::layout::Layout::Full.preview(),
             title: "title".to_owned(),
+            primary: true,
         }
+    }
+
+    /// A status with a clock, a battery and one tray item.
+    fn full_status() -> Status {
+        Status {
+            clock: "13:05".to_owned(),
+            battery: Some(BatteryState {
+                percent: 80,
+                status: oxmonad_ui::BatteryStatus::Discharging,
+                time_left: None,
+            }),
+            tray: tray_ui::bar_items(vec![item("a", ItemStatus::Active)]),
+        }
+    }
+
+    #[test]
+    fn only_the_primary_bar_shows_the_right_side() {
+        let styles = styles();
+        let status = full_status();
+        let secondary = BarModel {
+            primary: false,
+            ..model()
+        };
+        let view = bar_view(&secondary, &status, &styles);
+        assert!(view.segments_right.is_empty(), "{view:?}");
+        // The left side is the same as on the primary bar.
+        let primary = bar_view(&model(), &status, &styles);
+        assert_eq!(view.segments_left, primary.segments_left);
+        let right = right_side(&primary);
+        assert!(right.contains(&"[a]".to_owned()), "{right:?}");
+        assert!(right.contains(&"13:05".to_owned()), "{right:?}");
+    }
+
+    #[test]
+    fn tray_icons_on_the_primary_bar_are_clickable() {
+        let styles = styles();
+        let status = full_status();
+        let clicks = |model: &BarModel| -> Vec<Click> {
+            let view = bar_view(model, &status, &styles);
+            let layout = layout_bar(&view, &styles.bar, &styles.bar_fonts, 1200, 1);
+            let mut clicks = Vec::new();
+            for x in 0..1200 {
+                if let Some(click) = layout
+                    .segment_at(f64::from(x))
+                    .and_then(|id| bar_click(&view, id))
+                    && clicks.last() != Some(&click)
+                {
+                    clicks.push(click);
+                }
+            }
+            clicks
+        };
+        assert_eq!(
+            clicks(&model()),
+            [
+                Click::Workspace("1".to_owned()),
+                Click::TrayItem("a".to_owned())
+            ]
+        );
+        let secondary = BarModel {
+            primary: false,
+            ..model()
+        };
+        assert_eq!(clicks(&secondary), [Click::Workspace("1".to_owned())]);
     }
 
     #[test]

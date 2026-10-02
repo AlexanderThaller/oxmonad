@@ -61,7 +61,7 @@ fn full_layout_shows_only_focus_without_borders() {
     for _ in 0..3 {
         apply(&mut wm, "next-layout");
     }
-    assert_eq!(wm.bar_model().layout, "Full");
+    assert_eq!(wm.bar_model(O0).layout, "Full");
     let a = wm.arrange();
     assert_eq!(a.windows.len(), 1);
     let p = &a.windows[0];
@@ -76,7 +76,7 @@ fn tabbed_layout_exposes_tab_strip() {
     for _ in 0..4 {
         apply(&mut wm, "next-layout");
     }
-    assert_eq!(wm.bar_model().layout, "Tabs");
+    assert_eq!(wm.bar_model(O0).layout, "Tabs");
     let a = wm.arrange();
     assert_eq!(a.windows.len(), 1);
     // Below the 20px strip; Tabs places one window, so it has no border
@@ -203,29 +203,131 @@ fn usable_rect_and_bar_position() {
     wm.set_usable_rect(O0, Rect::new(0, 30, 1920, 1050));
     manage_all(&mut wm, [1]);
     let a = wm.arrange();
-    assert_eq!(a.bar, Some((O0, Rect::new(0, 1056, 1920, 24))));
+    assert_eq!(bars(&a), [(O0, Rect::new(0, 1056, 1920, 24))]);
     assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 30, 1920, 1026)));
     assert_eq!(rect_of(&a, 1), Some(Rect::new(0, 30, 1920, 1026)));
 }
 
-#[test]
-fn bar_goes_to_configured_output() {
-    let mut config = Config::defaults();
-    config.bar.output = Some("DP-2".into());
+/// A `Wm` with `config` and two side-by-side outputs `DP-1` and `DP-2`.
+fn wm2_with(config: Config) -> Wm {
     let mut wm = Wm::new(config);
     wm.add_output(O0, "DP-1", SCREEN);
     wm.add_output(O1, "DP-2", Rect::new(1920, 0, 1920, 1080));
-    assert_eq!(wm.bar_output(), Some(O1));
-    let a = wm.arrange();
-    assert_eq!(a.bar, Some((O1, Rect::new(1920, 0, 1920, 24))));
-    assert_eq!(wm.tiling_area(S0), Some(SCREEN));
-    // An unknown output falls back to the first screen.
+    wm
+}
+
+#[test]
+fn every_output_gets_a_bar_by_default() {
+    let wm = wm2();
+    assert_eq!(wm.bar_outputs(), [O0, O1]);
+    assert_eq!(
+        bars(&wm.arrange()),
+        [
+            (O0, Rect::new(0, 0, 1920, 24)),
+            (O1, Rect::new(1920, 0, 1920, 24))
+        ]
+    );
+    // The first output's bar is the primary one.
+    let primary: Vec<bool> = wm.arrange().bars.iter().map(|b| b.primary).collect();
+    assert_eq!(primary, [true, false]);
+    assert_eq!(wm.tiling_area(S0), Some(AREA));
+    assert_eq!(wm.tiling_area(S1), Some(Rect::new(1920, 24, 1920, 1056)));
+}
+
+#[test]
+fn bar_goes_to_configured_outputs() {
     let mut config = Config::defaults();
-    config.bar.output = Some("HDMI-9".into());
-    let mut wm = Wm::new(config);
+    config.bar.output = Some(vec!["DP-2".into()]);
+    let wm = wm2_with(config);
+    assert_eq!(wm.bar_outputs(), [O1]);
+    let a = wm.arrange();
+    assert_eq!(bars(&a), [(O1, Rect::new(1920, 0, 1920, 24))]);
+    assert!(a.bars[0].primary);
+    assert_eq!(wm.tiling_area(S0), Some(SCREEN));
+    // Listed outputs that are not connected are skipped; the list order
+    // is the bar order.
+    let mut config = Config::defaults();
+    config.bar.output = Some(vec!["HDMI-9".into(), "DP-2".into(), "DP-1".into()]);
+    let wm = wm2_with(config);
+    assert_eq!(wm.bar_outputs(), [O1, O0]);
+    assert_eq!(wm.primary_bar_output(), Some(O1));
+    // Only unknown outputs: no bar at all.
+    let mut config = Config::defaults();
+    config.bar.output = Some(vec!["HDMI-9".into()]);
+    let wm = wm2_with(config);
+    assert_eq!(wm.bar_outputs(), []);
+    assert_eq!(wm.primary_bar_output(), None);
+    assert_eq!(bars(&wm.arrange()), []);
+    assert_eq!(wm.tiling_area(S0), Some(SCREEN));
+    // An empty list shows no bar either.
+    let mut config = Config::defaults();
+    config.bar.output = Some(Vec::new());
+    let wm = wm2_with(config);
+    assert_eq!(bars(&wm.arrange()), []);
+    assert!(!wm.bar_visible());
+}
+
+#[test]
+fn primary_bar_selection_and_fallback() {
+    let mut config = Config::defaults();
+    config.bar.primary = Some("DP-2".into());
+    let wm = wm2_with(config);
+    assert_eq!(wm.primary_bar_output(), Some(O1));
+    let primary: Vec<bool> = wm.arrange().bars.iter().map(|b| b.primary).collect();
+    assert_eq!(primary, [false, true]);
+    assert!(!wm.bar_model(O0).primary);
+    assert!(wm.bar_model(O1).primary);
+    // A primary output without a bar falls back to the first bar output.
+    let mut config = Config::defaults();
+    config.bar.output = Some(vec!["DP-2".into(), "DP-1".into()]);
+    config.bar.primary = Some("HDMI-9".into());
+    assert_eq!(wm2_with(config.clone()).primary_bar_output(), Some(O1));
+    config.bar.output = Some(vec!["DP-1".into()]);
+    config.bar.primary = Some("DP-2".into());
+    assert_eq!(wm2_with(config).primary_bar_output(), Some(O0));
+    // Toggling the primary bar off does not move the right-hand side.
+    let mut config = Config::defaults();
+    config.bar.primary = Some("DP-1".into());
+    let mut wm = wm2_with(config);
+    apply(&mut wm, "toggle-bar");
+    assert_eq!(bars(&wm.arrange()), [(O1, Rect::new(1920, 0, 1920, 24))]);
+    assert!(!wm.arrange().bars[0].primary);
+    // The output order is used when `output` is unset.
+    let mut wm = Wm::new(Config::defaults());
     wm.add_output(O1, "DP-2", SCREEN);
-    wm.add_output(O0, "DP-1", SCREEN);
-    assert_eq!(wm.bar_output(), Some(O0));
+    wm.add_output(O0, "DP-1", Rect::new(1920, 0, 1920, 1080));
+    assert_eq!(wm.primary_bar_output(), wm.bar_outputs().first().copied());
+    assert_eq!(
+        wm.bar_outputs(),
+        wm.stack_set()
+            .outputs()
+            .iter()
+            .map(|o| o.id)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn bar_model_shows_the_layout_and_title_of_its_output() {
+    let mut wm = wm2();
+    manage_all(&mut wm, [1]);
+    apply(&mut wm, "focus-screen next");
+    wm.manage(w(2), info("app", "on two"));
+    apply(&mut wm, "next-layout");
+    apply(&mut wm, "focus-screen prev");
+    // The focused screen is S0 (workspace 1, window 1, Tall Right).
+    let left = wm.bar_model(O0);
+    let right = wm.bar_model(O1);
+    assert_eq!(left.title, "window 1");
+    assert_eq!(left.layout, "Tall Right");
+    assert_eq!(right.title, "on two");
+    assert_eq!(right.layout, "Tall");
+    // The workspace tags and their states are the same on both bars.
+    assert_eq!(left.workspaces, right.workspaces);
+    // An empty workspace has no title.
+    apply(&mut wm, "view 3");
+    assert_eq!(wm.bar_model(O0).title, "");
+    assert_eq!(wm.bar_model(O1).title, "on two");
 }
 
 #[test]
@@ -258,7 +360,7 @@ fn bar_model_states_and_order() {
         wm.prompt_key(crate::prompt::PromptKey::Char(c));
     }
     wm.prompt_key(crate::prompt::PromptKey::Return);
-    let model = wm.bar_model();
+    let model = wm.bar_model(O0);
     let tags: Vec<&str> = model.workspaces.iter().map(|(t, _)| t.as_str()).collect();
     assert_eq!(tags, ["1", "2", "3", "4", "5", "6", "7", "8", "9", "web"]);
     let state = |tag: &str| {
@@ -279,11 +381,11 @@ fn bar_title_is_shortened() {
     let mut wm = wm();
     let long: String = "x".repeat(150);
     wm.manage(w(1), info("app", &long));
-    let title = wm.bar_model().title;
+    let title = wm.bar_model(O0).title;
     assert_eq!(title.chars().count(), 100);
     assert!(title.ends_with("..."));
     wm.update_info(w(1), info("app", "short"));
-    assert_eq!(wm.bar_model().title, "short");
+    assert_eq!(wm.bar_model(O0).title, "short");
     assert_eq!(super::super::view::shorten("abc", 3), "...");
     assert_eq!(super::super::view::shorten("ab", 3), "ab");
 }

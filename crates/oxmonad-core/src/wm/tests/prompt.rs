@@ -111,7 +111,7 @@ fn rename_prompt() {
     wm.prompt_key(PromptKey::Return);
     assert_eq!(wm.stack_set().current_tag(), "code");
     let tags: Vec<String> = wm
-        .bar_model()
+        .bar_model(O0)
         .workspaces
         .into_iter()
         .map(|(t, _)| t)

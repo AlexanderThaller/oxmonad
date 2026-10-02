@@ -45,7 +45,7 @@ fn a_layout_showing_one_window_counts_as_lone() {
     for _ in 0..4 {
         apply(&mut wm, "next-layout");
     }
-    assert_eq!(wm.bar_model().layout, "Tabs");
+    assert_eq!(wm.bar_model(O0).layout, "Tabs");
     let a = wm.arrange();
     assert_eq!(a.windows.len(), 1);
     assert!(!has_border(&a, 3));

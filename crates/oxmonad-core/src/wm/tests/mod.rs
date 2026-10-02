@@ -73,6 +73,15 @@ fn windows(wm: &Wm) -> Vec<WindowId> {
     wm.stack_set().current_workspace().windows()
 }
 
+/// The shown bars' outputs and rectangles, in bar order.
+fn bars(arrangement: &Arrangement) -> Vec<(OutputId, Rect)> {
+    arrangement
+        .bars
+        .iter()
+        .map(|bar| (bar.output, bar.rect))
+        .collect()
+}
+
 fn rect_of(arrangement: &Arrangement, id: u64) -> Option<Rect> {
     arrangement.placement(w(id)).map(|p| p.rect)
 }

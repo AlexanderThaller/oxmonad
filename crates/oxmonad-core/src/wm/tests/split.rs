@@ -67,7 +67,7 @@ fn split_screens_tile_independently_under_one_bar() {
     manage_all(&mut wm, [3]);
     let a = wm.arrange();
     // The bar spans the whole output.
-    assert_eq!(a.bar, Some((O0, Rect::new(0, 0, 1920, 24))));
+    assert_eq!(bars(&a), [(O0, Rect::new(0, 0, 1920, 24))]);
     let right = current(&wm).id;
     assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 24, 960, 1056)));
     assert_eq!(wm.tiling_area(right), Some(Rect::new(960, 24, 960, 1056)));
@@ -248,18 +248,22 @@ fn usable_area_and_bar_apply_to_each_virtual_screen() {
         wm.stack_set().screens()[0].usable_rect,
         Rect::new(0, 30, 960, 1050)
     );
-    assert_eq!(wm.arrange().bar, Some((O0, Rect::new(0, 30, 1920, 24))));
+    assert_eq!(bars(&wm.arrange()), [(O0, Rect::new(0, 30, 1920, 24))]);
     assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 54, 960, 1026)));
     assert_eq!(wm.tiling_area(right), Some(Rect::new(960, 54, 960, 1026)));
 }
 
 #[test]
 fn bar_on_another_output_leaves_the_split_alone() {
-    let mut wm = wm2();
+    let mut config = Config::defaults();
+    config.bar.output = Some(vec!["DP-1".into()]);
+    let mut wm = Wm::new(config);
+    wm.add_output(O0, "DP-1", SCREEN);
+    wm.add_output(O1, "DP-2", Rect::new(1920, 0, 1920, 1080));
     apply(&mut wm, "focus-screen next");
     apply(&mut wm, "split-screen 2");
     let a = wm.arrange();
-    assert_eq!(a.bar, Some((O0, Rect::new(0, 0, 1920, 24))));
+    assert_eq!(bars(&a), [(O0, Rect::new(0, 0, 1920, 24))]);
     for screen in wm.stack_set().screens().iter().filter(|s| s.output == O1) {
         assert_eq!(wm.tiling_area(screen.id), Some(screen.rect));
     }
@@ -384,7 +388,7 @@ fn screen_actions_work_across_virtual_screens() {
         [("1".to_owned(), LEFT), ("2".to_owned(), RIGHT)]
     );
     // The bar shows the other half's workspace as visible.
-    let bar = wm.bar_model();
+    let bar = wm.bar_model(O0);
     assert_eq!(bar.workspaces[0], ("1".to_owned(), WorkspaceState::Current));
     assert_eq!(bar.workspaces[1], ("2".to_owned(), WorkspaceState::Visible));
 }
@@ -403,4 +407,32 @@ fn scratchpad_and_prompt_use_the_current_virtual_screen() {
     let (screen, rect) = wm.arrange().prompt.expect("prompt open");
     assert_eq!(screen, current(&wm).id);
     assert_eq!((rect.x, rect.w), (960, 960));
+}
+
+#[test]
+fn a_split_outputs_bar_speaks_for_its_current_or_first_screen() {
+    let mut wm = wm2();
+    manage_all(&mut wm, [1]);
+    apply(&mut wm, "split-screen 2");
+    let left = current(&wm).id;
+    apply(&mut wm, "focus-screen next");
+    let right = current(&wm).id;
+    assert_ne!(left, right);
+    assert_eq!(current(&wm).output, O0);
+    wm.manage(w(2), info("app", "right half"));
+    // The current screen is the right half: O0's bar shows its window.
+    assert_eq!(wm.bar_screen(O0).map(|s| s.id), Some(right));
+    assert_eq!(wm.bar_model(O0).title, "right half");
+    // Hiding the bar on the right half's workspace hides O0's bar, and
+    // both halves tile without it.
+    apply(&mut wm, "toggle-bar");
+    assert!(!wm.bar_shown_on(O0));
+    assert_eq!(wm.tiling_area(left), Some(LEFT));
+    // With focus on the other output, the left half speaks for O0 again.
+    apply(&mut wm, "focus-screen next");
+    assert_eq!(current(&wm).output, O1);
+    assert_eq!(wm.bar_screen(O0).map(|s| s.id), Some(left));
+    assert_eq!(wm.bar_model(O0).title, "window 1");
+    assert!(wm.bar_shown_on(O0));
+    assert_eq!(wm.tiling_area(right), Some(Rect::new(960, 24, 960, 1056)));
 }

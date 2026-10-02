@@ -40,6 +40,7 @@ fn defaults_parse() {
     assert!(config.bar.visible);
     assert_eq!(config.bar.position, BarPosition::Top);
     assert_eq!(config.bar.output, None);
+    assert_eq!(config.bar.primary, None);
     assert_eq!(config.bar.title_max_len, Some(100));
     assert!(config.bar.tray);
     assert_eq!(config.bar.tray_icon_size, 16);
@@ -312,13 +313,41 @@ fn nested_tables_deep_merge() {
     assert_eq!(c.bar.colors.title, Color::rgb(0xFF, 0, 0));
     assert_eq!(c.bar.colors.current, d.bar.colors.current);
     assert_eq!(c.bar.height, d.bar.height);
-    assert_eq!(c.bar.output.as_deref(), Some("DP-1"));
+    // The string form loads as a one-element list.
+    assert_eq!(c.bar.output, Some(vec!["DP-1".to_owned()]));
     assert_eq!(c.bar.title_max_len, None);
     assert!(!c.bar.tray);
     assert_eq!(c.bar.tray_icon_size, 24);
     assert!(!c.bar.layout_icon);
     assert!(c.bar.show_empty_workspaces);
     assert!(Config::from_toml("[bar]\ntray_icon_size = -1").is_err());
+}
+
+#[test]
+fn bar_output_list_and_primary() {
+    let c = load(
+        r#"
+        [bar]
+        output = ["DP-2", "DP-1"]
+        primary = "DP-1"
+        "#,
+    );
+    assert_eq!(
+        c.bar.output,
+        Some(vec!["DP-2".to_owned(), "DP-1".to_owned()])
+    );
+    assert_eq!(c.bar.primary.as_deref(), Some("DP-1"));
+    // An empty list is allowed: no bar at all.
+    assert_eq!(load("[bar]\noutput = []").bar.output, Some(Vec::new()));
+    // Anything else is rejected with a readable message.
+    let error = Config::from_toml("[bar]\noutput = 1")
+        .expect_err("not a name")
+        .to_string();
+    assert!(
+        error.contains("an output name or a list of output names"),
+        "{error}"
+    );
+    assert!(Config::from_toml("[bar]\noutput = [1]").is_err());
 }
 
 #[test]

@@ -36,6 +36,7 @@ pub use geometry::{
 pub use wm::{
     Arrangement,
     BarModel,
+    BarPlacement,
     Border,
     Focus,
     HelpModel,

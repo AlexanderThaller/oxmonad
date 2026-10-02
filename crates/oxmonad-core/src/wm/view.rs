@@ -3,6 +3,7 @@
 
 use super::Wm;
 use crate::{
+    geometry::OutputId,
     help::{
         HelpGroup,
         help_groups,
@@ -25,21 +26,26 @@ pub enum WorkspaceState {
     HiddenEmpty,
 }
 
-/// What the bar shows (xmonad's `dynamicLogString` with the default
-/// `ppOrder`: workspaces, layout, title).
+/// What one output's bar shows (xmonad's `dynamicLogString` with the
+/// default `ppOrder`: workspaces, layout, title).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BarModel {
     /// Workspaces in bar order (configured tags in configuration order,
     /// then the others sorted by tag, like `getSortByIndex`), without the
     /// scratchpad workspace.
     pub workspaces: Vec<(String, WorkspaceState)>,
-    /// Description of the current workspace's layout.
+    /// Description of the layout of the workspace on the bar's output
+    /// (see [`Wm::bar_screen`]).
     pub layout: String,
-    /// What the current layout does with a few windows (see
+    /// What that layout does with a few windows (see
     /// [`crate::layout::Layout::preview`]), for the bar's layout icon.
     pub layout_preview: LayoutOutput,
-    /// Title of the focused window, shortened like xmonad's `shorten`.
+    /// Title of that workspace's focused window, shortened like xmonad's
+    /// `shorten`. On the current screen this is the focused window.
     pub title: String,
+    /// Whether this is the primary bar, which also shows the tray, battery
+    /// and clock (see [`Wm::primary_bar_output`]).
+    pub primary: bool,
 }
 
 /// What the prompt shows.
@@ -94,9 +100,12 @@ pub struct HelpModel {
 }
 
 impl Wm {
-    /// The bar's contents.
+    /// The contents of `output`'s bar. The workspace tags are the same on
+    /// every bar; the layout and title are those of the workspace on
+    /// `output` (see [`Wm::bar_screen`]), falling back to the current
+    /// workspace for an unknown output.
     #[must_use]
-    pub fn bar_model(&self) -> BarModel {
+    pub fn bar_model(&self, output: OutputId) -> BarModel {
         let ss = &self.stack_set;
         let current = ss.current_tag();
         let workspaces = self
@@ -115,11 +124,15 @@ impl Wm {
                 (tag, state)
             })
             .collect();
-        let title = ss.peek().map(|w| self.title(w)).unwrap_or_default();
+        let workspace = self
+            .bar_screen(output)
+            .map_or_else(|| ss.current_workspace(), |s| &s.workspace);
+        let title = workspace.focus().map(|w| self.title(w)).unwrap_or_default();
         BarModel {
             workspaces,
-            layout: ss.current_workspace().layout.name(),
-            layout_preview: ss.current_workspace().layout.current().preview(),
+            layout: workspace.layout.name(),
+            layout_preview: workspace.layout.current().preview(),
+            primary: self.primary_bar_output() == Some(output),
             title: match self.config.bar.title_max_len {
                 Some(max) => shorten(&title, max),
                 None => title,
