@@ -18,7 +18,9 @@ fn open(wm: &mut Wm, kind: PromptKind) {
 #[test]
 fn prompt_takes_focus_and_exposes_model() {
     let mut wm = wm();
-    manage_all(&mut wm, [1]);
+    // Two windows, so smartBorders keeps their borders.
+    manage_all(&mut wm, [1, 2]);
+    wm.focus_window(w(1));
     open(&mut wm, PromptKind::ViewWorkspace);
     let a = wm.arrange();
     assert_eq!(a.focus, Focus::Prompt);

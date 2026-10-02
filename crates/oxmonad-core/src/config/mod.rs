@@ -147,6 +147,24 @@ pub struct BorderConfig {
     pub focused: Color,
     /// Border color of other windows (`normalBorderColor`).
     pub normal: Color,
+    /// When windows go without a border (xmonad-contrib's `smartBorders`).
+    pub smart: SmartBorders,
+}
+
+/// When windows lose their border because focus is obvious
+/// (xmonad-contrib's `XMonad.Layout.NoBorders`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SmartBorders {
+    /// Every window keeps its border (except under `noBorders Full`).
+    Off,
+    /// `smartBorders` (`lessBorders Never`): a tiled window alone on the
+    /// only screen, and a floating window covering its whole screen.
+    #[default]
+    SingleScreen,
+    /// `lessBorders Screen` plus full-screen floats: a tiled window alone
+    /// on any screen, even with several screens.
+    PerScreen,
 }
 
 /// Status bar colors (xmobar + `myPP`).

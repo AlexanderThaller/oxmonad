@@ -79,8 +79,9 @@ fn tabbed_layout_exposes_tab_strip() {
     assert_eq!(wm.bar_model().layout, "Tabs");
     let a = wm.arrange();
     assert_eq!(a.windows.len(), 1);
-    // Below the 20px strip, with the 1px border inside the slot.
-    assert_eq!(a.windows[0].rect, Rect::new(1, 45, 1918, 1034));
+    // Below the 20px strip; Tabs places one window, so it has no border
+    // (smartBorders).
+    assert_eq!(a.windows[0].rect, Rect::new(0, 44, 1920, 1036));
     let strip = a.screens[0].tab_strip.clone().expect("tabs shown");
     assert_eq!(strip.rect, Rect::new(0, 24, 1920, 20));
     assert_eq!(
@@ -123,8 +124,8 @@ fn floating_windows_stack_above_tiled_focused_on_top() {
         ]
     );
     assert_eq!(rect_of(&a, 1), Some(Rect::new(100, 100, 200, 200)));
-    // The lone tiled window gets the whole area.
-    assert_eq!(rect_of(&a, 3), Some(AREA.inset(1)));
+    // The lone tiled window gets the whole area, without a border.
+    assert_eq!(rect_of(&a, 3), Some(AREA));
     wm.focus_window(w(1));
     let a = wm.arrange();
     assert_eq!(a.windows.last().map(|p| p.window), Some(w(1)));
@@ -158,8 +159,8 @@ fn fullscreen_covers_whole_screen_on_top() {
     assert_eq!(last.rect, SCREEN);
     assert_eq!(last.layer, Layer::Fullscreen);
     assert_eq!(last.border, None);
-    // The other window tiles alone.
-    assert_eq!(rect_of(&a, 2), Some(AREA.inset(1)));
+    // The other window tiles alone, without a border.
+    assert_eq!(rect_of(&a, 2), Some(AREA));
     wm.request_fullscreen(w(1), false);
     assert_eq!(
         wm.arrange().placement(w(1)).map(|p| p.layer),
@@ -204,7 +205,7 @@ fn usable_rect_and_bar_position() {
     let a = wm.arrange();
     assert_eq!(a.bar, Some((O0, Rect::new(0, 1056, 1920, 24))));
     assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 30, 1920, 1026)));
-    assert_eq!(rect_of(&a, 1), Some(Rect::new(1, 31, 1918, 1024)));
+    assert_eq!(rect_of(&a, 1), Some(Rect::new(0, 30, 1920, 1026)));
 }
 
 #[test]

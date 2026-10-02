@@ -50,6 +50,13 @@ layouts = [
 width = 1            # myBorderWidth
 focused = "#C62828"  # myFocusedBorderColor (colorRed)
 normal = "#969694"   # myNormalBorderColor (colorLightGrey)
+# Drop the border when focus is obvious (xmonad-contrib smartBorders):
+# "single-screen": a tiled window alone on the only screen, and floating
+#   windows covering their whole screen (smartBorders);
+# "per-screen": the same, but a lone tiled window on any of several screens
+#   (lessBorders Screen);
+# "off": always draw borders.
+smart = "single-screen"
 
 # Text of the bar, prompt and tab strip.
 [font]

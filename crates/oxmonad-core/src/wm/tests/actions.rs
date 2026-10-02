@@ -195,11 +195,11 @@ fn toggle_bar_changes_tiling_area() {
     let mut wm = wm();
     manage_all(&mut wm, [1]);
     assert_eq!(wm.arrange().bar, Some((O0, Rect::new(0, 0, 1920, 24))));
-    assert_eq!(rect_of(&wm.arrange(), 1), Some(AREA.inset(1)));
+    assert_eq!(rect_of(&wm.arrange(), 1), Some(AREA));
     apply(&mut wm, "toggle-bar");
     assert!(!wm.bar_visible());
     assert_eq!(wm.arrange().bar, None);
-    assert_eq!(rect_of(&wm.arrange(), 1), Some(SCREEN.inset(1)));
+    assert_eq!(rect_of(&wm.arrange(), 1), Some(SCREEN));
 }
 
 #[test]
