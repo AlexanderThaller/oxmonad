@@ -38,6 +38,7 @@ pub use wm::{
     BarModel,
     BarPlacement,
     Border,
+    Divider,
     Focus,
     HelpModel,
     Layer,

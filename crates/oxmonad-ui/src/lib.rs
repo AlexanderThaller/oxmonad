@@ -39,7 +39,10 @@ pub use bar::{
     render_bar,
     shorten,
 };
-pub use canvas::Canvas;
+pub use canvas::{
+    Canvas,
+    render_fill,
+};
 pub use color::{
     Color,
     ParseColorError,

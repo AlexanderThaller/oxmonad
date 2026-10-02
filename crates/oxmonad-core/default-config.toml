@@ -117,6 +117,14 @@ inactive_text_color = "#BFBFBF"
 active_border_color = "#FFFFFF"
 inactive_border_color = "#BBBBBB"
 
+# Virtual screens (`split-screen <n>`): a line between neighbouring virtual
+# screens of a split output, so their tilings are easy to tell apart (e.g.
+# with smart = "per-screen" above). The screens on either side give up the
+# space, so no tiled window sits under it. Never drawn between outputs.
+[split]
+divider_width = 3            # logical pixels; 0 draws no divider
+divider_color = "#1E88E5"    # blue
+
 # Key bindings: "Modifiers+Key" = "action". Keys are xkb keysym names.
 #
 # Actions: spawn <command>, spawn-terminal, focus-next, focus-prev,

@@ -94,6 +94,17 @@ impl Canvas {
     }
 }
 
+/// A canvas of `width` × `height` logical pixels (at least 1 × 1) at
+/// `scale`, filled with `color`: e.g. the divider line between virtual
+/// screens.
+#[must_use]
+pub fn render_fill(width: u32, height: u32, scale: u32, color: Color) -> Canvas {
+    let mut painter = Painter::new(width, height, scale);
+    let (w, h) = (painter.width(), painter.height());
+    painter.fill_rect(0, 0, w, h, color);
+    painter.finish()
+}
+
 /// Draws rectangles and text into a pixmap in device pixels.
 pub(crate) struct Painter {
     pixmap: Pixmap,

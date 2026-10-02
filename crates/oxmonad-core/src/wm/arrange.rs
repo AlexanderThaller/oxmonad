@@ -2,7 +2,10 @@
 
 use std::collections::BTreeSet;
 
-use super::Wm;
+use super::{
+    Wm,
+    divider,
+};
 use crate::{
     config::{
         BarPosition,
@@ -135,6 +138,18 @@ pub struct BarPlacement {
     pub primary: bool,
 }
 
+/// A divider line between two virtual screens of a split output (see
+/// [`Wm::dividers`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Divider {
+    /// The output the screens are on.
+    pub output: OutputId,
+    /// The line's rectangle.
+    pub rect: Rect,
+    /// Its color (`split.divider_color`).
+    pub color: Color,
+}
+
 /// The complete desired state, derived from the model by [`Wm::arrange`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Arrangement {
@@ -149,6 +164,9 @@ pub struct Arrangement {
     /// The bars that are shown, in bar order. Each spans the whole usable
     /// width of its output, across all its virtual screens.
     pub bars: Vec<BarPlacement>,
+    /// The divider lines between virtual screens, by output and then in
+    /// screen order.
+    pub dividers: Vec<Divider>,
     /// Where the prompt goes while it is open.
     pub prompt: Option<(ScreenId, Rect)>,
     /// While the layout picker is open: its screen and the area it is
@@ -275,20 +293,72 @@ impl Wm {
     }
 
     /// The area of `screen` the layout tiles into: the usable rectangle
-    /// minus the bar, if the bar is on the screen's output.
+    /// minus the bar, if the bar is on the screen's output, and minus the
+    /// dividers between it and the other virtual screens of its output
+    /// (see [`Wm::dividers`]).
     #[must_use]
     pub fn tiling_area(&self, screen: ScreenId) -> Option<Rect> {
-        let screen = self.stack_set.screen(screen)?;
+        let output = self.stack_set.screen(screen)?.output;
+        let (ids, division) = self.divide_output(output);
+        let index = ids.iter().position(|&id| id == screen)?;
+        division.areas.get(index).copied()
+    }
+
+    /// The divider lines between the virtual screens of every split
+    /// output: a `split.divider_width` strip centred on each edge two
+    /// screens of the same output share, spanning their tiling areas along
+    /// it (so below the bar and inside the usable area). Outputs never get
+    /// one between them, unsplit outputs none at all.
+    #[must_use]
+    pub fn dividers(&self) -> Vec<Divider> {
+        let color = self.config.split.divider_color;
+        self.stack_set
+            .outputs()
+            .iter()
+            .filter(|o| self.stack_set.is_split(o.id))
+            .flat_map(|o| {
+                self.divide_output(o.id)
+                    .1
+                    .dividers
+                    .into_iter()
+                    .map(move |rect| Divider {
+                        output: o.id,
+                        rect,
+                        color,
+                    })
+            })
+            .collect()
+    }
+
+    /// The screens of `output` in screen order and their division by the
+    /// dividers (see [`divider::divide`]).
+    fn divide_output(&self, output: OutputId) -> (Vec<ScreenId>, divider::Division) {
+        let screens: Vec<&Screen> = self
+            .stack_set
+            .screens()
+            .iter()
+            .filter(|s| s.output == output)
+            .collect();
+        let areas: Vec<Rect> = screens.iter().map(|s| self.below_bar(s)).collect();
+        (
+            screens.iter().map(|s| s.id).collect(),
+            divider::divide(&areas, self.config.split.divider_width),
+        )
+    }
+
+    /// `screen`'s usable rectangle minus the bar, if the bar is on the
+    /// screen's output.
+    fn below_bar(&self, screen: &Screen) -> Rect {
         let area = screen.usable_rect;
         let Some(bar) = self.bar_rect(screen.output) else {
-            return Some(area);
+            return area;
         };
         let (top, bottom) = (area.y, area.y + area.h);
         let (top, bottom) = match self.config.bar.position {
             BarPosition::Top => (top.max(bar.y + bar.h), bottom),
             BarPosition::Bottom => (top, bottom.min(bar.y)),
         };
-        Some(Rect::new(area.x, top, area.w, (bottom - top).max(0)))
+        Rect::new(area.x, top, area.w, (bottom - top).max(0))
     }
 
     /// Computes the complete desired state.
@@ -355,6 +425,7 @@ impl Wm {
             focus,
             screens,
             bars: self.bars(),
+            dividers: self.dividers(),
             prompt: self.prompt_rect(),
             layout_picker: self.layout_picker_area(),
             help: self.help_area(),

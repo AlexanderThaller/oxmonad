@@ -29,6 +29,9 @@ pub enum Node {
     Bar(OutputId),
     /// The tab strip of a screen.
     Tabs(ScreenId),
+    /// A divider line between virtual screens: the output and the
+    /// divider's index among that output's dividers.
+    Divider(OutputId, usize),
     /// The workspace prompt.
     Prompt,
     /// The layout picker.
@@ -198,10 +201,10 @@ pub struct ShellPlacement {
 }
 
 /// Emits the positions and stacking of a render sequence: windows bottom
-/// to top, then the bar and tab strips, then fullscreen windows (which
-/// cover the bar, also those fullscreen on a virtual screen) and the prompt
-/// or layout picker on top of everything. `dimensions` are the window sizes
-/// river reported.
+/// to top, then the bars, tab strips and dividers, then fullscreen windows
+/// (which cover the bar, also those fullscreen on a virtual screen) and the
+/// prompt or layout picker on top of everything. `dimensions` are the window
+/// sizes river reported.
 pub fn render(
     arrangement: &Arrangement,
     dimensions: impl Fn(WindowId) -> Option<Size>,
@@ -343,6 +346,7 @@ mod tests {
                 tab_strip: None,
             }],
             bars: Vec::new(),
+            dividers: Vec::new(),
             prompt: None,
             layout_picker: None,
             help: None,
@@ -546,6 +550,10 @@ mod tests {
                 node: Node::Bar(OutputId(0)),
                 rect: Rect::new(0, 0, 1280, 24),
             },
+            ShellPlacement {
+                node: Node::Divider(OutputId(0), 0),
+                rect: Rect::new(639, 24, 3, 696),
+            },
         ];
         let mut out = Recorder::default();
         render(
@@ -563,6 +571,8 @@ mod tests {
                 "top Window(WindowId(2))",
                 "position Bar(OutputId(0)) 0,0",
                 "top Bar(OutputId(0))",
+                "position Divider(OutputId(0), 0) 639,24",
+                "top Divider(OutputId(0), 0)",
                 "top Window(WindowId(3))",
                 "position Prompt 0,692",
                 "top Prompt",
