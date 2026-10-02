@@ -124,6 +124,7 @@ inactive_border_color = "#BBBBBB"
 [split]
 divider_width = 3            # logical pixels; 0 draws no divider
 divider_color = "#1E88E5"    # blue
+divider_padding = 2          # empty pixels between the line and the windows
 
 # Key bindings: "Modifiers+Key" = "action". Keys are xkb keysym names.
 #

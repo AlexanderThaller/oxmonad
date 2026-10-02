@@ -342,7 +342,11 @@ impl Wm {
         let areas: Vec<Rect> = screens.iter().map(|s| self.below_bar(s)).collect();
         (
             screens.iter().map(|s| s.id).collect(),
-            divider::divide(&areas, self.config.split.divider_width),
+            divider::divide(
+                &areas,
+                self.config.split.divider_width,
+                self.config.split.divider_padding,
+            ),
         )
     }
 

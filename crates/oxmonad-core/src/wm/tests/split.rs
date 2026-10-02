@@ -17,8 +17,8 @@ const RIGHT: Rect = Rect::new(960, 0, 960, 1080);
 /// The tiling areas of `split-screen 2`'s halves below the default bar,
 /// either side of the default 3px divider (the left half gives up 1px, the
 /// right one 2px).
-const LEFT_AREA: Rect = Rect::new(0, 24, 959, 1056);
-const RIGHT_AREA: Rect = Rect::new(962, 24, 958, 1056);
+const LEFT_AREA: Rect = Rect::new(0, 24, 957, 1056);
+const RIGHT_AREA: Rect = Rect::new(964, 24, 956, 1056);
 /// The default divider of `split-screen 2` below the default bar.
 const DIVIDER: Rect = Rect::new(959, 24, 3, 1056);
 const NO_DIVIDERS: [Divider; 0] = [];
@@ -264,8 +264,8 @@ fn usable_area_and_bar_apply_to_each_virtual_screen() {
         Rect::new(0, 30, 960, 1050)
     );
     assert_eq!(bars(&wm.arrange()), [(O0, Rect::new(0, 30, 1920, 24))]);
-    assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 54, 959, 1026)));
-    assert_eq!(wm.tiling_area(right), Some(Rect::new(962, 54, 958, 1026)));
+    assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 54, 957, 1026)));
+    assert_eq!(wm.tiling_area(right), Some(Rect::new(964, 54, 956, 1026)));
     // The divider starts below the bar, inside the usable area.
     assert_eq!(dividers(&wm.arrange()), [(O0, Rect::new(959, 54, 3, 1026))]);
 }
@@ -293,8 +293,8 @@ fn bar_on_another_output_leaves_the_split_alone() {
     assert_eq!(
         halves,
         [
-            Some(Rect::new(1920, 0, 959, 1080)),
-            Some(Rect::new(2882, 0, 958, 1080)),
+            Some(Rect::new(1920, 0, 957, 1080)),
+            Some(Rect::new(2884, 0, 956, 1080)),
         ]
     );
     assert_eq!(dividers(&a), [(O1, Rect::new(2879, 0, 3, 1080))]);
@@ -458,7 +458,7 @@ fn a_split_outputs_bar_speaks_for_its_current_or_first_screen() {
     // both halves tile without it.
     apply(&mut wm, "toggle-bar");
     assert!(!wm.bar_shown_on(O0));
-    assert_eq!(wm.tiling_area(left), Some(Rect::new(0, 0, 959, 1080)));
+    assert_eq!(wm.tiling_area(left), Some(Rect::new(0, 0, 957, 1080)));
     // With focus on the other output, the left half speaks for O0 again.
     apply(&mut wm, "focus-screen next");
     assert_eq!(current(&wm).output, O1);
@@ -508,9 +508,9 @@ fn three_columns_get_two_dividers() {
     assert_eq!(
         tiling_areas(&wm),
         [
-            Some(Rect::new(0, 24, 639, 1056)),
-            Some(Rect::new(642, 24, 637, 1056)),
-            Some(Rect::new(1282, 24, 638, 1056)),
+            Some(Rect::new(0, 24, 637, 1056)),
+            Some(Rect::new(644, 24, 633, 1056)),
+            Some(Rect::new(1284, 24, 636, 1056)),
         ]
     );
 }
@@ -537,8 +537,8 @@ fn odd_output_and_divider_widths() {
     assert_eq!(
         tiling_areas(&wm),
         [
-            Some(Rect::new(10, 24, 958, 1056)),
-            Some(Rect::new(972, 24, 959, 1056)),
+            Some(Rect::new(10, 24, 956, 1056)),
+            Some(Rect::new(974, 24, 957, 1056)),
         ]
     );
     // An odd width gives the right side the extra pixel.
@@ -549,8 +549,8 @@ fn odd_output_and_divider_widths() {
     assert_eq!(
         tiling_areas(&wm),
         [
-            Some(Rect::new(10, 24, 958, 1056)),
-            Some(Rect::new(973, 24, 958, 1056)),
+            Some(Rect::new(10, 24, 956, 1056)),
+            Some(Rect::new(975, 24, 956, 1056)),
         ]
     );
 }
@@ -612,8 +612,8 @@ fn outputs_never_get_a_divider_between_them() {
         [
             Some(LEFT_AREA),
             Some(RIGHT_AREA),
-            Some(Rect::new(1920, 24, 959, 1056)),
-            Some(Rect::new(2882, 24, 958, 1056)),
+            Some(Rect::new(1920, 24, 957, 1056)),
+            Some(Rect::new(2884, 24, 956, 1056)),
         ]
     );
 }

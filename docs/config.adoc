@@ -518,11 +518,13 @@ apart.
 |Key |Type |Possible options |Default |Description
 |`divider_width` |integer |`0` or more |`3` |Width in logical pixels of the line between two neighbouring virtual screens of a split output; `0` draws no line.
 |`divider_color` |color |any <<_colors,color>> |`"#1E88E5"` |Color of that line (blue).
+|`divider_padding` |integer |`0` or more |`2` |Empty space in logical pixels between the line and the windows on either side, so their borders don't touch it. Ignored when `divider_width` is `0`.
 |===
 
 The line is centred on the edge the two screens share: the screen on the
 left gives up `floor(divider_width / 2)` pixels of its tiling area, the one
-on the right the rest (so an odd width puts the extra pixel on the right).
+on the right the rest (so an odd width puts the extra pixel on the right),
+and each also gives up `divider_padding` more, which stays empty.
 Tiled windows never sit under it; floating and fullscreen windows ignore it
 (fullscreen windows cover it). It runs from the bar to the bottom of the
 usable area, is drawn above tiled and floating windows and does nothing when
