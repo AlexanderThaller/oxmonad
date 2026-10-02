@@ -1898,6 +1898,16 @@ impl Requests for RiverRequests<'_> {
         }
     }
 
+    fn set_clip(&mut self, window: WindowId, clip: Option<Size>) {
+        // `set_content_clip_box` is new in version 3; older rivers just
+        // show oversized windows unclipped.
+        let Some(w) = self.window(window).filter(|w| w.version() >= 3) else {
+            return;
+        };
+        let size = clip.unwrap_or(Size { w: 0, h: 0 });
+        w.set_content_clip_box(0, 0, size.w, size.h);
+    }
+
     fn place_top(&mut self, node: Node) {
         let proxy = match node {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),

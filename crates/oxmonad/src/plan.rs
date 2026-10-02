@@ -80,6 +80,9 @@ pub trait Requests {
     fn set_borders(&mut self, window: WindowId, border: Option<Border>);
     /// `river_node_v1.set_position`.
     fn set_position(&mut self, node: Node, x: i32, y: i32);
+    /// `river_window_v1.set_content_clip_box` at the window's top-left
+    /// corner (`None` disables clipping).
+    fn set_clip(&mut self, window: WindowId, clip: Option<Size>);
     /// `river_node_v1.place_top`.
     fn place_top(&mut self, node: Node);
 }
@@ -216,9 +219,11 @@ pub fn render(
         .iter()
         .partition(|p| p.layer.is_fullscreen());
     for placement in normal {
-        let (x, y) = window_position(placement, dimensions(placement.window));
+        let actual = dimensions(placement.window);
+        let (x, y) = window_position(placement, actual);
         let node = Node::Window(placement.window);
         out.set_position(node, x, y);
+        out.set_clip(placement.window, window_clip(placement, actual));
         out.place_top(node);
     }
     let (prompt, bars): (Vec<&ShellPlacement>, Vec<&ShellPlacement>) =
@@ -253,6 +258,24 @@ pub fn window_position(placement: &Placement, actual: Option<Size>) -> (i32, i32
             rect.y + ((rect.h - size.h) / 2).max(0),
         ),
         _ => (rect.x, rect.y),
+    }
+}
+
+/// The part of a window's content to show: a tiled window larger than its
+/// slot (a client that refuses to shrink below its minimum size, like a
+/// browser in a narrow column) is cut to the slot, so it neither covers its
+/// neighbours nor crosses a screen edge, and river draws its border around
+/// what is shown. `None` (no clipping) when it fits, and for floating
+/// windows, which keep their own size.
+#[must_use]
+pub fn window_clip(placement: &Placement, actual: Option<Size>) -> Option<Size> {
+    let rect = placement.rect;
+    match (placement.layer, actual) {
+        (Layer::Tiled, Some(size)) if size.w > rect.w || size.h > rect.h => Some(Size {
+            w: size.w.min(rect.w),
+            h: size.h.min(rect.h),
+        }),
+        _ => None,
     }
 }
 
@@ -313,6 +336,14 @@ mod tests {
         }
         fn set_position(&mut self, node: Node, x: i32, y: i32) {
             self.0.push(format!("position {node:?} {x},{y}"));
+        }
+        /// Only actual clips; every unclipped window resets its clip in
+        /// each render sequence.
+        fn set_clip(&mut self, window: WindowId, clip: Option<Size>) {
+            if let Some(size) = clip {
+                self.0
+                    .push(format!("clip {} {}x{}", window.0, size.w, size.h));
+            }
         }
         fn place_top(&mut self, node: Node) {
             self.0.push(format!("top {node:?}"));
@@ -528,6 +559,63 @@ mod tests {
         let mut out = Recorder::default();
         applied.manage(&arrangement(vec![], vec![], Focus::Prompt), &mut out);
         assert_eq!(out.0, ["focus Prompt"]);
+    }
+
+    #[test]
+    fn oversized_tiled_windows_are_clipped_to_their_slot() {
+        let slot = Rect::new(960, 24, 384, 1056);
+        let tiled = placement(1, slot, Layer::Tiled);
+        // Fits, or no size yet: no clip.
+        assert_eq!(window_clip(&tiled, Some(Size::new(384, 1056))), None);
+        assert_eq!(window_clip(&tiled, Some(Size::new(380, 1050))), None);
+        assert_eq!(window_clip(&tiled, None), None);
+        // A browser that will not go below 500px wide is cut to the slot.
+        assert_eq!(
+            window_clip(&tiled, Some(Size::new(500, 1056))),
+            Some(Size::new(384, 1056))
+        );
+        // Too tall but narrow enough: only the height is cut, and the
+        // narrower window stays centred horizontally.
+        assert_eq!(
+            window_clip(&tiled, Some(Size::new(300, 1200))),
+            Some(Size::new(300, 1056))
+        );
+        assert_eq!(
+            window_position(&tiled, Some(Size::new(300, 1200))),
+            (960 + 42, 24)
+        );
+        // Floating windows keep their own size.
+        let floating = placement(2, slot, Layer::Floating);
+        assert_eq!(window_clip(&floating, Some(Size::new(500, 1200))), None);
+    }
+
+    #[test]
+    fn render_clips_oversized_tiled_windows() {
+        let arr = arrangement(
+            vec![
+                placement(1, Rect::new(0, 24, 576, 1056), Layer::Tiled),
+                placement(2, Rect::new(576, 24, 384, 1056), Layer::Tiled),
+            ],
+            vec![],
+            Focus::Window(WindowId(2)),
+        );
+        let mut out = Recorder::default();
+        render(
+            &arr,
+            |w| (w == WindowId(2)).then_some(Size::new(500, 1056)),
+            &[],
+            &mut out,
+        );
+        assert_eq!(
+            out.0,
+            [
+                "position Window(WindowId(1)) 0,24",
+                "top Window(WindowId(1))",
+                "position Window(WindowId(2)) 576,24",
+                "clip 2 384x1056",
+                "top Window(WindowId(2))",
+            ]
+        );
     }
 
     #[test]
