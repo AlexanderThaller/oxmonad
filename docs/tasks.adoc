@@ -35,6 +35,142 @@ started by hand.
 * [ ] Sticky windows shown on every workspace (`copyToAll`), e.g. a
   picture-in-picture video.
 
+== More layouts
+
+Layouts from xmonad-contrib that oxmonad does not have yet, roughly in
+order of usefulness. xmonad's own `Tall`, `Mirror Tall` and `Full`, and
+contrib's `Tabbed`, `Grid`, `ThreeColumns` and `ResizableTile`, are already
+built in (see link:keybindings.adoc#_layouts_resizing[`keybindings.adoc`]);
+`OneBig` is close to `Corner`.
+
+The pictures follow the built-in layout pictures: window `1` (blue) is the
+master and focused unless noted otherwise. They are hand-drawn sketches in
+`docs/layouts/ideas/`; once a layout is implemented, its picture is
+generated from the real code like the others.
+
+* [ ] *Three Columns Middle* (`ThreeColMid`, and `CenterMainFluid` for
+  ultrawide screens): the master column in the middle of the screen, the
+  stack split over a column on either side (alternating right, left). A
+  single window stays centred instead of stretching over the whole width.
++
+image::layouts/ideas/three-columns-middle.svg[Three Columns Middle,240]
+
+* [ ] *Spiral* (`Spiral`): each window takes half of the space the
+  previous one left, turning clockwise into the centre (a Fibonacci
+  spiral). The master gets half the screen; later windows get smaller.
++
+image::layouts/ideas/spiral.svg[Spiral,240]
+
+* [ ] *Dwindle* (`Dwindle`): like Spiral, but every split alternates
+  between "right" and "down" without turning, so the small windows end up
+  in the bottom-right corner (like Hyprland's `dwindle` layout).
++
+image::layouts/ideas/dwindle.svg[Dwindle,240]
+
+* [ ] *Binary Space Partition* (`BinarySpacePartition`): a manually
+  arranged split tree. A new window splits the focused one; keys rotate,
+  swap and resize splits and move a window to the other side of its
+  parent split. The most flexible layout, but needs its own state and
+  bindings, and the tree has to survive restarts.
++
+image::layouts/ideas/binary-space-partition.svg[Binary Space Partition,240]
+
+* [ ] *Centered Master* (`centerMaster`): the master floats centred over
+  the screen, about ⅔ of its size, above the other windows, which are
+  tiled underneath (here in columns). Good for one main window with
+  reference windows peeking out around it.
++
+image::layouts/ideas/centered-master.svg[Centered Master,240]
+
+* [ ] *Centered If Single* (`CenteredIfSingle`): a modifier for any
+  layout: a lone window is shrunk to a centred rectangle (e.g. 80 % × 80 %)
+  instead of filling a wide screen; with two or more windows the
+  underlying layout applies unchanged.
++
+image::layouts/ideas/centered-if-single.svg[Centered If Single,240]
+
+* [ ] *Two Pane* (`TwoPane`, `TwoPanePersistent`): the master on the
+  left, the focused stack window on the right, every other window hidden.
+  Focusing the next window swaps which one shows on the right.
++
+image::layouts/ideas/two-pane.svg[Two Pane,240]
+
+* [ ] *Multi Columns* (`MultiColumns`, and the newer `Columns`): columns
+  that each hold a fixed number of windows, adding a new column when they
+  are full (here one window in the first column, two in the others).
+  `Columns` lets windows be moved between columns by hand instead.
++
+image::layouts/ideas/multi-columns.svg[Multi Columns,240]
+
+* [ ] *Accordion* (`Accordion`): every window spans the full width; the
+  focused window gets nearly all the height and the others shrink to
+  title-bar-sized strips above and below it (window `2` is focused here).
++
+image::layouts/ideas/accordion.svg[Accordion,240]
+
+* [ ] *Dishes* (`Dishes`, `MultiDishes`, `StackTile`): the master on top,
+  the other windows stacked below it as thin full-width "dishes" of a
+  fixed height. `StackTile` makes the master area resizable. Mostly
+  useful on small screens.
++
+image::layouts/ideas/dishes.svg[Dishes,240]
+
+* [ ] *Binary Column* (`BinaryColumn`): one full-width column where each
+  window is half the height of the one above it, except the last two,
+  which share the rest. Adding or removing a window only resizes the last
+  pair.
++
+image::layouts/ideas/binary-column.svg[Binary Column,240]
+
+* [ ] *Split Grid* (`GridVariants.SplitGrid`): two grids, the master
+  windows (here two) in a grid on top and the rest in a second grid below,
+  with a resizable split between them and an adjustable master count.
++
+image::layouts/ideas/split-grid.svg[Split Grid,240]
+
+* [ ] *Mosaic* (`Mosaic`, `MosaicAlt`): windows are packed into rows and
+  columns according to a per-window size weight, so the important windows
+  get more area without a fixed master slot; keys grow or shrink the
+  focused window's weight.
++
+image::layouts/ideas/mosaic.svg[Mosaic,240]
+
+* [ ] *Zoom Row* (`ZoomRow`): all windows side by side in one row; the
+  focused one can be zoomed to a larger share of the width (or to the
+  whole row) and back.
++
+image::layouts/ideas/zoom-row.svg[Zoom Row,240]
+
+* [ ] *Sub-layouts* (`SubLayouts`, `Groups.Wmii`): windows grouped into
+  slots of the outer layout, each group with its own inner layout,
+  typically tabs: here window `1` is the master and windows `2`–`4` share
+  the stack slot as a tabbed group. wmii/i3-style containers.
++
+image::layouts/ideas/sub-layouts.svg[Sub-layouts,240]
+
+* [ ] *Magnifier* (`Magnifier`): a modifier for any layout that enlarges
+  the focused window (e.g. 1.5×) over its neighbours, keeping it on
+  screen; here over `Grid`. Handy for grids of many small windows.
++
+image::layouts/ideas/magnifier.svg[Magnifier,240]
+
+* [ ] *Circle* (`Circle`, `CircleEx`): the master large in the centre,
+  the other windows smaller around it on a circle (partly covered by
+  it). Rotating the stack cycles windows into the centre.
++
+image::layouts/ideas/circle.svg[Circle,240]
+
+* [ ] *Cross* (`Cross`): the focused window in the centre and its
+  neighbours in the stack peeking in from the four edges. Focusing the
+  next window rotates them through the centre.
++
+image::layouts/ideas/cross.svg[Cross,240]
+
+* [ ] *Roledex* (`Roledex`): windows cascaded diagonally like the cards of
+  a Rolodex, the focused one in front and the others offset behind it.
++
+image::layouts/ideas/roledex.svg[Roledex,240]
+
 == Beyond xmonad
 
 * [ ] Urgency without X11: highlight a workspace tag while one of its tray

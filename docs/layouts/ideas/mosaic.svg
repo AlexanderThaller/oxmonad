@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" role="img" aria-label="Mosaic layout with four windows">
+  <rect width="320" height="180" fill="#f4f4f4" stroke="#888888"/>
+  <rect x="2" y="2" width="196" height="111" rx="3" fill="#9ec5f0" stroke="#444444" stroke-width="1.5"/>
+  <text x="100" y="57" font-family="sans-serif" font-size="16" fill="#222222" text-anchor="middle" dominant-baseline="central">1</text>
+  <rect x="202" y="2" width="116" height="111" rx="3" fill="#dddddd" stroke="#444444" stroke-width="1.5"/>
+  <text x="260" y="57" font-family="sans-serif" font-size="16" fill="#222222" text-anchor="middle" dominant-baseline="central">2</text>
+  <rect x="2" y="117" width="116" height="61" rx="3" fill="#dddddd" stroke="#444444" stroke-width="1.5"/>
+  <text x="60" y="147" font-family="sans-serif" font-size="16" fill="#222222" text-anchor="middle" dominant-baseline="central">3</text>
+  <rect x="122" y="117" width="196" height="61" rx="3" fill="#dddddd" stroke="#444444" stroke-width="1.5"/>
+  <text x="220" y="147" font-family="sans-serif" font-size="16" fill="#222222" text-anchor="middle" dominant-baseline="central">4</text>
+</svg>
