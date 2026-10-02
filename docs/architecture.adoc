@@ -312,6 +312,14 @@ Where `oxmonad-core` differs from or refines the contract above:
   rectangles. `Full` and `tabbed` place only the focused window; the others
   are listed in `Arrangement.hidden`. `Arrangement` additionally carries
   `prompt: Option<(ScreenId, Rect)>`.
+* **Smart borders.** `[border] smart` ports `XMonad.Layout.NoBorders`:
+  `single-screen` (`smartBorders`, i.e. `lessBorders Never`) drops the
+  border of a tiled window its layout places alone while
+  `StackSet::screens()` has exactly one screen (a split output counts as
+  several); `per-screen` (`lessBorders Screen`) drops it on any screen. Both
+  drop the border of a float whose content covers its screen's rectangle,
+  keeping the float's content rectangle. A borderless tiled window fills its
+  whole slot.
 * **Bar model.** There is a single bar, so `bar_model()` takes no screen.
   It spans the usable width of its output (like xmobar's strut), across the
   virtual screens of a split output.

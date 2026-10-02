@@ -2,6 +2,7 @@
 
 mod actions;
 mod arrange;
+mod borders;
 mod help;
 mod layout_picker;
 mod layouts;

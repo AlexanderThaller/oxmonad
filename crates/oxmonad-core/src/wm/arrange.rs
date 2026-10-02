@@ -7,6 +7,7 @@ use crate::{
     config::{
         BarPosition,
         Color,
+        SmartBorders,
     },
     geometry::{
         OutputId,
@@ -312,9 +313,12 @@ impl Wm {
             let area = self.tiling_area(screen.id).unwrap_or(screen.usable_rect);
             let layout = &screen.workspace.layout;
             let output = layout.arrange(area, windows.len(), tiled.focus_index());
+            let lone = output.rects.len() == 1 && self.lone_tiled_unbordered();
             for (index, slot) in output.rects {
                 let window = windows[index];
-                let border = self.border(window).filter(|_| layout.has_borders());
+                let border = self
+                    .border(window)
+                    .filter(|_| layout.has_borders() && !lone);
                 layers.tiled.push(Placement {
                     window,
                     screen: screen.id,
@@ -357,11 +361,17 @@ impl Wm {
             };
             let frame = rational.scale(screen.rect);
             let border = self.border(window);
+            let rect = border.map_or(frame, |b| frame.inset(b.width));
+            // A float whose window covers its whole screen (a video player)
+            // keeps its size but loses the border, like smartBorders.
+            let covers_screen = rect.intersection(screen.rect) == screen.rect;
+            let border =
+                border.filter(|_| !covers_screen || self.config.border.smart == SmartBorders::Off);
             layers.floating.push(Placement {
                 window,
                 screen: screen.id,
                 output: screen.output,
-                rect: border.map_or(frame, |b| frame.inset(b.width)),
+                rect,
                 layer: Layer::Floating,
                 border,
             });
@@ -383,6 +393,18 @@ impl Wm {
             });
         }
         tab_strip
+    }
+
+    /// Whether a tiled window that its screen's layout places alone goes
+    /// without a border (`[border] smart`). With `single-screen` this needs
+    /// a single screen, as xmonad-contrib's `smartBorders` counts every
+    /// screen, empty ones included.
+    fn lone_tiled_unbordered(&self) -> bool {
+        match self.config.border.smart {
+            SmartBorders::Off => false,
+            SmartBorders::SingleScreen => self.stack_set.screens().len() == 1,
+            SmartBorders::PerScreen => true,
+        }
     }
 
     /// The border of `window`: focused or normal color, `None` when the

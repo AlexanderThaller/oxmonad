@@ -494,3 +494,19 @@ fn invalid_layouts_are_rejected_with_the_valid_names() {
     let duplicate = err(r#"layouts = ["Tabs", "tabs"]"#).to_string();
     assert!(duplicate.contains("`tabs`"), "{duplicate}");
 }
+
+#[test]
+fn smart_borders() {
+    use crate::config::SmartBorders;
+    for (value, smart) in [
+        ("off", SmartBorders::Off),
+        ("single-screen", SmartBorders::SingleScreen),
+        ("per-screen", SmartBorders::PerScreen),
+    ] {
+        let c = load(&format!("[border]\nsmart = \"{value}\""));
+        assert_eq!(c.border.smart, smart);
+        assert_eq!(c.border.width, Config::defaults().border.width);
+    }
+    assert!(Config::from_toml("[border]\nsmart = \"always\"").is_err());
+    assert!(Config::from_toml("[border]\nsmart = true").is_err());
+}

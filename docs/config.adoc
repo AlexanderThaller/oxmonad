@@ -303,7 +303,21 @@ Window borders.
 |`width` |integer ≥ 0 |`1` |Border width in logical pixels.
 |`focused` |color |`"#C62828"` |Border color of the focused window.
 |`normal` |color |`"#969694"` |Border color of the other windows.
+|`smart` |string |`"single-screen"` |When windows go without a border because focus is obvious (xmonad-contrib's `smartBorders`); see below.
 |===
+
+`smart` takes one of:
+
+`"single-screen"`:: xmonad's `smartBorders`. A tiled window has no border
+when its layout shows it alone (one window, or `Full`/`Tabs`, which show only
+the focused one) and there is only one screen. With several screens, or a
+split screen, borders stay, since they show which screen has focus.
+`"per-screen"`:: xmonad's `lessBorders Screen`: the same, but on every
+screen, even with several. Use the bar to tell which screen has focus.
+`"off"`:: Always draw borders (`Full` still has none: it is `noBorders Full`).
+
+In both on-modes a floating window that covers its whole screen (e.g. a video
+player) also has no border; it keeps its size.
 
 == `[font]`
 

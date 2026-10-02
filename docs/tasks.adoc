@@ -21,8 +21,6 @@ started by hand.
 
 == Common xmonad-contrib features
 
-* [ ] No border on a lone tiled window (`smartBorders`); today only
-  `noBorders Full` drops them.
 * [ ] Per-workspace layout lists (`PerWorkspace` / `onWorkspace`), e.g.
   only `Tabs` and `Full` on a browser workspace; builds on the `layouts`
   key.
