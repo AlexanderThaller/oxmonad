@@ -129,7 +129,8 @@ link:architecture.adoc#_restart_in_place[Restart in place].
 * key and pointer bindings, including a changed `modifier` (the bindings are
   recreated);
 * colors, fonts and sizes of the bar, prompt, tab strip, layout picker, help
-  overlay and tray menus, and `border`;
+  overlay and tray menus, `border` and `split` (the dividers between
+  virtual screens and the space they take apply at once);
 * `terminal`, `focus_follows_mouse`, `rules` and `scratchpads` (rules only
   affect windows that appear afterwards);
 * `layouts`: every existing workspace is reconciled with the new list. If
@@ -505,6 +506,29 @@ The tab strip of the `Tabs` layout.
 |`inactive_border_color` |color |any <<_colors,color>> |`"#BBBBBB"` |Border of the other tabs.
 |===
 
+== `[split]`
+
+Virtual screens made by `split-screen`. With `[border] smart = "per-screen"`
+a lone window on each virtual screen has no border, so the screens of a split
+output would blend into each other; a divider line between them keeps them
+apart.
+
+[cols="2,2,3,2,5",options="header"]
+|===
+|Key |Type |Possible options |Default |Description
+|`divider_width` |integer |`0` or more |`3` |Width in logical pixels of the line between two neighbouring virtual screens of a split output; `0` draws no line.
+|`divider_color` |color |any <<_colors,color>> |`"#1E88E5"` |Color of that line (blue).
+|===
+
+The line is centred on the edge the two screens share: the screen on the
+left gives up `floor(divider_width / 2)` pixels of its tiling area, the one
+on the right the rest (so an odd width puts the extra pixel on the right).
+Tiled windows never sit under it; floating and fullscreen windows ignore it
+(fullscreen windows cover it). It runs from the bar to the bottom of the
+usable area, is drawn above tiled and floating windows and does nothing when
+clicked. Only screens of the same output get one: never the outer edges of
+an output, nor the edge between two outputs, nor an unsplit output.
+
 == `[keybindings]`
 
 Each entry binds a <<_key_combinations,key combination>> to an
@@ -705,7 +729,7 @@ by whitespace and an argument. Actions without an argument reject one.
 |`shift-screen` |`next` or `prev` |Send the focused window to the workspace of the next or previous screen; focus stays.
 |`shift-screen-follow` |`next` or `prev` |Send the focused window to the next or previous screen and follow it.
 |`swap-next-screen` | |Swap the current screen's workspace with the next screen's.
-|`split-screen` |integer 2–16 |Split the current screen into this many virtual screens side by side.
+|`split-screen` |integer 2–16 |Split the current screen into this many virtual screens side by side, with a divider line between them (see <<_split>>).
 |`rescreen` | |Undo every split: one screen per output again.
 
 3+h|Bar and session
