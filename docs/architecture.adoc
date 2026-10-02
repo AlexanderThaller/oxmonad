@@ -523,8 +523,8 @@ actions `split-screen <n>` and `rescreen`.
   from the bar to the other edge of the usable area. The bar shows the
   layout and title of the current screen if it is on that output, else of
   the output's first screen, and follows that workspace's `toggle-bar`.
-* **Dividers.** `[split] divider_width` (default 3, `0` for none) and
-  `divider_color` (default `#1E88E5`). `divider::divide` (pure) takes the
+* **Dividers.** `[split] divider_width` (default 3, `0` for none),
+  `divider_color` (default `#1E88E5`) and `divider_padding` (default 2). `divider::divide` (pure) takes the
   tiling areas of one output's screens without dividers (usable rectangle
   minus the bar) and, for every pair that shares an edge (one ends exactly
   where the other starts, along x for side-by-side screens or along y for
@@ -534,7 +534,8 @@ actions `split-screen <n>` and `rescreen`.
   and stays inside the layer-shell usable area). The screen on the left
   (top) gives up `floor(w/2)` of its tiling area, the one on the right
   (below) `ceil(w/2)`: an odd width puts the extra pixel on the right
-  (lower) side. A screen with several neighbours on one side gives the
+  (lower) side. Each also gives up `divider_padding` more, left empty so
+  window borders keep clear of the line (none without a divider). A screen with several neighbours on one side gives the
   space up once. `Wm::tiling_area` is the divided area, so tiled windows
   never sit under a divider; `Screen.rect`/`usable_rect` stay unchanged,
   so floats (placed relative to `rect`), the prompt, picker and help, and

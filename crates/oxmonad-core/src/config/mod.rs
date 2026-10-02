@@ -177,6 +177,9 @@ pub struct SplitConfig {
     pub divider_width: i32,
     /// Color of the divider line.
     pub divider_color: Color,
+    /// Empty space in logical pixels between the divider and the windows
+    /// on either side, so their borders do not touch it.
+    pub divider_padding: i32,
 }
 
 /// Status bar colors (xmobar + `myPP`).
@@ -454,6 +457,7 @@ impl Config {
             ("prompt.height", raw.prompt.height),
             ("tabs.height", raw.tabs.height),
             ("split.divider_width", raw.split.divider_width),
+            ("split.divider_padding", raw.split.divider_padding),
         ] {
             if value < 0 {
                 return Err(ConfigError::NegativeSize(name));

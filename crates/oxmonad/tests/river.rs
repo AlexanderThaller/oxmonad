@@ -1406,12 +1406,13 @@ fn splits_screens() {
     // One bar across the whole output.
     assert_eq!(rect(&primary_bar(&state)["rect"]), [x, y, w, 24]);
     // The default 3px divider below the bar, centred on the shared edge:
-    // the left half gives up 1px, the right one 2px.
+    // the left half gives up 1px, the right one 2px, each plus the default
+    // 2px padding.
     let divider = [x + w / 2 - 1, y + 24, 3, h - 24];
     assert_divider_shown(&state, &screens[0]["output"], divider);
     assert_eq!(
         rect(&window_titled(&state, "left")["rect"]),
-        [x + 1, y + 25, w / 2 - 3, h - 26]
+        [x + 1, y + 25, w / 2 - 5, h - 26]
     );
 
     session.act("focus-screen next");
@@ -1425,8 +1426,8 @@ fn splits_screens() {
     });
     let state = session.state();
     assert_eq!(state["current_workspace"], "2");
-    let left_area = [left[0], left[1] + 24, left[2] - 1, left[3] - 24];
-    let right_area = [right[0] + 2, right[1] + 24, right[2] - 2, right[3] - 24];
+    let left_area = [left[0], left[1] + 24, left[2] - 3, left[3] - 24];
+    let right_area = [right[0] + 4, right[1] + 24, right[2] - 4, right[3] - 24];
     assert!(within(
         rect(&window_titled(&state, "left")["rect"]),
         left_area
