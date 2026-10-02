@@ -75,7 +75,12 @@ events; requests are only derived from core state.** Concretely:
 * On `render_start`: using the dimensions river reported, emit positions and
   stacking for every visible window and shell surface from the last
   `Arrangement`, then `render_finish`. Tiled windows are centred in their
-  slot if the client chose a smaller size than proposed.
+  slot if the client chose a smaller size than proposed; a client larger
+  than its slot (one that will not shrink below its minimum size, like a
+  browser in a narrow column) is clipped to the slot with
+  `set_content_clip_box` (river 0.4's protocol version 3), so it neither
+  covers its neighbours nor crosses a screen or divider, and river draws
+  its border around the visible part.
 
 == Core model (`oxmonad-core`)
 
