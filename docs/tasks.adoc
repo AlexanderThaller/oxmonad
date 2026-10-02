@@ -2,110 +2,78 @@
 :toc: left
 :toclevels: 2
 
-Features derived from the reference xmonad config (`resources/xmonad.hs`) and
-xmobar config (`resources/xmobarrc`), tracked for the river-based rewrite
-(oxmonad as river's window manager, see `architecture.adoc`). X11-specific
-items are marked N/A with a rationale.
+Open feature ideas, roughly in order of priority within each section.
+Autostart / startup commands are deliberately out of scope: clients are
+started by hand.
 
-== Done in the rewrite
+== Quick wins
 
-* river window-manager client (`crates/oxmonad`): manage/render sequences,
-  frame-synced shell surfaces, windows/outputs/seats mirrored into core IDs.
-* Multi-monitor with hotplug (river outputs), one workspace per screen,
-  layer-shell exclusive zones respected (`non_exclusive_area`).
-* Workspaces `1`–`9`, view (`greedyView`) / shift, `toggleWS`, dynamic
-  workspaces through the prompt (view/move/copy/rename), remove-and-merge.
-* Screens: focus / shift / shift-and-follow next/previous physical screen,
-  `swapNextScreen`, refresh, virtual split screens (`layoutSplitScreen`) and
-  `rescreen`.
-* The full `myLayout` ring with per-layout state, layout messages (master
-  ratio, `MirrorShrink`/`MirrorExpand`, `IncMasterN`), reset.
-* Window stack: focus/swap next/prev/master, close, sink.
-* Floating: `Mod+drag` move, `Mod+right-drag` resize (river pointer ops),
-  client-initiated move/resize, transients float centred.
-* Fullscreen toggle (`Mod+f`) and client fullscreen requests.
-* Named scratchpad (`Mod+grave`, hidden `NSP` workspace).
-* Manage rules (`manageZoomHook`).
-* Borders with focused/normal colors, none on `noBorders Full`.
-* Built-in bar: workspaces (`ppCurrent`/`ppVisible`/hidden), layout, title,
-  clickable workspace tags, battery (`Run Battery` thresholds and states) and
-  date (`%Y.%m.%d-%u %H:%M`) modules right-aligned with `|` separators,
-  toggle with `Mod+b`. Proper font rendering (Fira Mono embedded, system
-  fonts by family).
-* System tray left of the clock (`[bar] tray`, replacing xmobar's
-  `trayer`/`stalonetray` slot): `StatusNotifierItem` icons with
-  activate/secondary/scroll and their dbusmenu menus as cascading popups.
-* Tab strip for the tabbed layout, clickable.
-* Workspace prompt with completion, `XMonad.Prompt` editing keys and key
-  repeat.
-* Key binding help overlay (`Mod+Shift+/`, xmonad's default help): every
-  active key and pointer binding grouped into sections, scrollable, closed
-  by `Escape`/`q`/`Return`/a click.
-* Focus follows mouse (xmonad default), click to focus.
-* TOML configuration merged over embedded defaults: modifier, terminal,
-  workspaces, colors, fonts, bar/prompt/tabs, key and pointer bindings, rules,
-  scratchpads; reload with `SIGUSR1` (or the `reload` action);
-  `--check-config`.
-* In-place restart (`Mod+q`, xmonad's `restart`): the state is saved keyed
-  by river window identifiers, the binary re-executed and the state
-  restored; falls back to resuming in-process if the exec fails.
-* Spawns: terminal, launcher (tofi), locker (`contrib/oxmonad-lock`: slock look via waylock or swaylock).
-* Quit (`Mod+Shift+q`) ends the river session.
-* Control socket (`OXMONAD_CONTROL`) for scripting and tests.
-* Session integration: `contrib/lightdm` wrapper running `river -c oxmonad`.
-* Tests: core unit tests, UI golden images, arrangement → request
-  translation against a recording fake, headless-river end-to-end test with
-  virtual keyboard and pointer.
-
-== Status bar
-
-* [ ] Bar positioning/width options (xmobarrc uses `TopW L 90` — top, left,
-  90% width); the bar currently spans the whole screen.
-* [ ] Urgency hints in the bar and tabs (river has no urgency event yet).
-* [ ] Configurable clock format and battery thresholds/colors (currently the
-  xmobarrc values).
-
-== Window management
-
-* [ ] Honour `maximize_requested`/`minimize_requested` (currently ignored,
-  as in xmonad).
-* [ ] Window menu (`show_window_menu_requested`) — probably never.
-
-== Multi-monitor
-
-* [x] Split a single screen into virtual screens (`Mod+Shift+s`,
-  `split-screen 2`, `layoutSplitScreen 2 (TwoPane 0.5 0.5)`) and `rescreen`
-  (`Mod+Ctrl+Shift+s`). Screens map to output regions; see
-  `architecture.adoc`, "Virtual screens".
-* [ ] Fractional scale for the WM-drawn surfaces (integer `wl_output` scale
-  only today).
-
-== Keybindings still missing
-
-* [ ] Volume / brightness keys (common additions, not in the xmonad config).
-* [ ] xmonad default bindings not implemented yet:
-** `Mod+Tab` / `Mod+Shift+Tab`: focus next / previous window.
+* [ ] Finish xmonad's default bindings:
+** `Mod+Tab` / `Mod+Shift+Tab`: focus the next / previous window.
 ** `Mod+w`/`e`/`r` and `Mod+Shift+w`/`e`/`r`: view / shift to physical
    screen 1/2/3.
 ** `Mod+Button2`: focus the window under the pointer and `shiftMaster` it.
+* [ ] Fix the config quirks found while writing `config.adoc`:
+** `[bar.colors]` `visible`, `hidden`, `hidden_empty` and `layout` are
+   parsed but never used.
+** Binding overrides compare key names literally: `"Mod+Shift+J" = "none"`
+   does not remove the default `Mod+Shift+j`. Compare resolved
+   combinations instead.
+** `--check-config` does not check pointer bindings.
+* [ ] More bar interactions:
+** Click the layout name or miniature to open the layout picker.
+** Scroll over the workspace tags to switch workspaces.
+* [ ] Configurable clock format and battery thresholds/colors (currently
+  the xmobarrc values).
+
+== Common xmonad-contrib features
+
+* [ ] No border on a lone tiled window (`smartBorders`); today only
+  `noBorders Full` drops them.
+* [ ] Per-workspace layout lists (`PerWorkspace` / `onWorkspace`), e.g.
+  only `Tabs` and `Full` on a browser workspace; builds on the `layouts`
+  key.
+* [ ] Configurable layout parameters: master ratio, master count and
+  resize step per layout instead of the standard values.
+* [ ] Gaps between windows and at the screen edges (`Spacing`).
+* [ ] Go to or bring a window by title (`WindowGo` / `WindowBringer`): a
+  prompt over every window on every workspace, reusing the prompt's
+  completion.
+* [ ] Cycle through non-empty workspaces (`CycleWS`) and a deeper
+  workspace history than `toggle-ws`.
+* [ ] Sticky windows shown on every workspace (`copyToAll`), e.g. a
+  picture-in-picture video.
+
+== Beyond xmonad
+
+* [ ] Urgency without X11: highlight a workspace tag while one of its tray
+  items needs attention (river has no urgency event yet), and urgent tabs.
+* [ ] More bar modules over the tray's D-Bus connection: volume, MPRIS
+  now-playing, network status, notification count; plus CPU and memory.
+* [ ] Show config errors in the bar for a few seconds after a failed
+  reload instead of only logging them.
+* [ ] A bar on every output (xmobar needed one process per screen).
+* [ ] Window swallowing: a GUI app started from a terminal takes the
+  terminal's place until it exits.
+* [ ] Fractional scale for the WM-drawn surfaces (integer `wl_output`
+  scale only today).
+
+== Other open items
+
+* [ ] Bar position/width options (xmobarrc's `TopW L 90`: top, left, 90%
+  width); the bar spans its output today.
+* [ ] Volume / brightness keys in the default bindings.
+* [ ] Honour `maximize_requested` / `minimize_requested` (ignored, as in
+  xmonad).
 * [ ] Java apps: set `_JAVA_AWT_WM_NONREPARENTING=1` in the session
   environment (the Wayland/Xwayland replacement for `setWMName "LG3D"`).
-
-== Test coverage
-
-* [ ] Tests for `remove_current_workspace`'s monitor-reassignment edge cases
-  (multi-monitor removal, merge-target stealing).
+* [ ] Tests for `remove_current_workspace`'s multi-monitor reassignment
+  edge cases.
 * [ ] A multi-output end-to-end test (`WLR_HEADLESS_OUTPUTS=2`).
 
-== Not applicable (Wayland-only)
+== Not planned
 
-* `setWMName "LG3D"` — an X11 hack to fix Java AWT/Swing apps; see the
-  `_JAVA_AWT_WM_NONREPARENTING=1` open item above.
-* `dmenu_run` / X11 launchers — replaced by a layer-shell launcher (tofi).
-* `slock` — X11-only; `contrib/oxmonad-lock` recreates its look with waylock
-  (preferred, made after slock) or a styled swaylock.
-* xmobar itself — replaced by the built-in bar.
-* EWMH hooks (`XMonad.Hooks.EwmhDesktops`) — X11 protocol; river implements
-  foreign-toplevel protocols itself.
-* Autostart / startup commands — deliberately not provided; start clients
-  yourself.
+* A built-in notification daemon: mako and others already do it well.
+* A window overview with live thumbnails: river's window-management
+  protocol does not give oxmonad window contents.
+* A window menu (`show_window_menu_requested`).
