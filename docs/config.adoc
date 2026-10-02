@@ -213,29 +213,33 @@ Mono. `font_size` is in points, converted to logical pixels at 96 dpi
 
 These must come before the first table of the file.
 
-[cols="2,2,3,5",options="header"]
+[cols="2,2,3,3,5",options="header"]
 |===
-|Key |Type |Default |Description
+|Key |Type |Possible options |Default |Description
 
 |`modifier`
 |string
+|`Super`, `Alt`, `Ctrl`, `Shift` (or an alias from <<_key_combinations>>), alone or `+`-joined
 |`"Super"`
 |What `Mod` stands for in bindings: one modifier name or a `+`-joined
 combination such as `"Ctrl+Alt"`. `"Alt"` gives xmonad's classic `mod1Mask`.
 
 |`terminal`
 |string
+|any shell command
 |`"alacritty"`
 |The command `spawn-terminal` runs (through `sh -c`).
 
 |`focus_follows_mouse`
 |boolean
+|`true`, `false`
 |`true`
 |Focus the window under the pointer when the pointer moves onto it. Clicking
 always focuses.
 
 |`workspaces`
 |array of strings
+|any non-empty, unique tags; at least one
 |`["1", "2", "3", "4", "5", "6", "7", "8", "9"]`
 |The initial workspace tags, in order. Must not be empty; tags must be
 non-empty and unique. More workspaces can be created at runtime from the
@@ -243,6 +247,7 @@ prompt (`prompt view`, `prompt move`).
 
 |`layouts`
 |array of strings
+|`"Tall Right"`, `"Tall"`, `"Wide"`, `"Full"`, `"Tabs"`, `"Grid Rows"`, `"Grid"`, `"Three Columns"`, `"Three Columns Right"`, `"Corner"` (see <<layouts>>); at least one, each once
 |all ten layouts, see <<layouts>>
 |The layout ring of every workspace, in ring order.
 |===
@@ -297,13 +302,13 @@ link:keybindings.adoc#_layouts_resizing[`keybindings.adoc`].
 
 Window borders.
 
-[cols="2,2,2,5",options="header"]
+[cols="2,2,3,2,5",options="header"]
 |===
-|Key |Type |Default |Description
-|`width` |integer ≥ 0 |`1` |Border width in logical pixels.
-|`focused` |color |`"#C62828"` |Border color of the focused window.
-|`normal` |color |`"#969694"` |Border color of the other windows.
-|`smart` |string |`"single-screen"` |When windows go without a border because focus is obvious (xmonad-contrib's `smartBorders`); see below.
+|Key |Type |Possible options |Default |Description
+|`width` |integer |`0` or more |`1` |Border width in logical pixels.
+|`focused` |color |any <<_colors,color>> |`"#C62828"` |Border color of the focused window.
+|`normal` |color |any <<_colors,color>> |`"#969694"` |Border color of the other windows.
+|`smart` |string |`"single-screen"`, `"per-screen"`, `"off"` |`"single-screen"` |When windows go without a border because focus is obvious (xmonad-contrib's `smartBorders`); see below.
 |===
 
 `smart` takes one of:
@@ -325,11 +330,12 @@ Text rendering of the bar, prompt, tab strip, layout picker, help overlay and
 tray menus. The font families and sizes are set per surface in `[bar]`,
 `[prompt]` and `[tabs]`.
 
-[cols="2,2,2,5",options="header"]
+[cols="2,2,3,2,5",options="header"]
 |===
-|Key |Type |Default |Description
+|Key |Type |Possible options |Default |Description
 |`antialias`
-|`"grayscale"`, `"rgb"` or `"bgr"`
+|string
+|`"grayscale"`, `"rgb"`, `"bgr"`
 |`"grayscale"`
 |Glyph edge antialiasing: grayscale, or subpixel antialiasing for the
 screen's subpixel order. Subpixel text is only drawn in opaque colors over
@@ -341,67 +347,78 @@ opaque backgrounds; elsewhere it falls back to grayscale.
 The status bar: workspaces, the layout name, the focused window's title, and
 on the right the system tray, battery and clock.
 
-[cols="2,2,2,5",options="header"]
+[cols="2,2,3,2,5",options="header"]
 |===
-|Key |Type |Default |Description
+|Key |Type |Possible options |Default |Description
 
 |`visible`
 |boolean
+|`true`, `false`
 |`true`
 |Whether the bar is shown, for every workspace. `toggle-bar` (`Mod+b`)
 overrides it per workspace.
 
 |`position`
-|`"top"` or `"bottom"`
+|string
+|`"top"`, `"bottom"`
 |`"top"`
 |The screen edge the bar sits on.
 
 |`height`
-|integer ≥ 0
+|integer
+|`0` or more
 |`24`
 |Height in logical pixels.
 
 |`output`
 |string
+|any output name
 |unset
 |The name of the output (e.g. `"DP-1"`) to show the bar on. When unset, or
 when no output has that name, the bar is on the first output.
 
 |`font_family`
 |string
+|any installed font family, or `"Fira Mono"` (embedded); see <<_fonts>>
 |`"Fira Mono"`
 |Font family of the bar. The tray menus use it too.
 
 |`font_size`
 |float (points)
+|any size, e.g. `11.0`
 |`12.0`
 |Font size of the bar. The layout picker, help overlay and tray menus use it
 too.
 
 |`title_max_len`
-|integer ≥ 0
+|integer
+|`0` (no limit) or more
 |`100`
 |Shorten the window title to this many characters, ending in `...`
 (xmonad's `shorten`). `0` disables shortening.
 
 |`tray`
 |boolean
+|`true`, `false`
 |`true`
 |Show a system tray (`StatusNotifierItem` icons) left of the clock. A reload
 starts or stops it.
 
 |`tray_icon_size`
-|integer ≥ 0
+|integer
+|`0` or more
 |`16`
 |Tray icon size in logical pixels (`0` is treated as `1`).
 
 |`layout_icon`
 |boolean
+|`true`, `false`
 |`true`
 |Draw a miniature of the current layout before its name.
 
 |`show_empty_workspaces`
 |boolean
+|`true`, `false`
 |`false`
 |Also list hidden workspaces without windows, in `colors.hidden_empty`
 (xmonad's `ppHiddenNoWindows`; `myPP` drops them).
@@ -409,17 +426,17 @@ starts or stops it.
 
 === `[bar.colors]`
 
-[cols="2,2,2,5",options="header"]
+[cols="2,2,3,2,5",options="header"]
 |===
-|Key |Type |Default |Description
-|`background` |color |`"#161616"` |Bar background.
-|`foreground` |color |`"#F2F2F2"` |Default text color.
-|`current` |color |`"#F8E63A"` |The current workspace (shown as `<tag>`). The headings of the help overlay use it too.
-|`visible` |color |`"#F2F2F2"` |Workspaces visible on other screens (shown as `(tag)`).
-|`hidden` |color |`"#F2F2F2"` |Hidden workspaces with windows.
-|`hidden_empty` |color |`"#969694"` |Hidden workspaces without windows, when `show_empty_workspaces` is on.
-|`title` |color |`"#86BD47"` |The focused window's title.
-|`layout` |color |`"#F2F2F2"` |The layout name and its miniature.
+|Key |Type |Possible options |Default |Description
+|`background` |color |any <<_colors,color>> |`"#161616"` |Bar background.
+|`foreground` |color |any <<_colors,color>> |`"#F2F2F2"` |Default text color.
+|`current` |color |any <<_colors,color>> |`"#F8E63A"` |The current workspace (shown as `<tag>`). The headings of the help overlay use it too.
+|`visible` |color |any <<_colors,color>> |`"#F2F2F2"` |Workspaces visible on other screens (shown as `(tag)`).
+|`hidden` |color |any <<_colors,color>> |`"#F2F2F2"` |Hidden workspaces with windows.
+|`hidden_empty` |color |any <<_colors,color>> |`"#969694"` |Hidden workspaces without windows, when `show_empty_workspaces` is on.
+|`title` |color |any <<_colors,color>> |`"#86BD47"` |The focused window's title.
+|`layout` |color |any <<_colors,color>> |`"#F2F2F2"` |The layout name and its miniature.
 |===
 
 == `[prompt]`
@@ -427,43 +444,43 @@ starts or stops it.
 The workspace prompt (`prompt view|move|copy|rename`). Its colors are also
 used by the layout picker, the help overlay and the tray menus.
 
-[cols="2,2,2,5",options="header"]
+[cols="2,2,3,2,5",options="header"]
 |===
-|Key |Type |Default |Description
-|`position` |`"top"` or `"bottom"` |`"bottom"` |The screen edge the prompt sits on.
-|`height` |integer ≥ 0 |`28` |Height in logical pixels.
-|`font_family` |string |`"Fira Mono"` |Font family of the prompt.
-|`font_size` |float (points) |`16.0` |Font size of the prompt.
+|Key |Type |Possible options |Default |Description
+|`position` |string |`"top"`, `"bottom"` |`"bottom"` |The screen edge the prompt sits on.
+|`height` |integer |`0` or more |`28` |Height in logical pixels.
+|`font_family` |string |any font family; see <<_fonts>> |`"Fira Mono"` |Font family of the prompt.
+|`font_size` |float (points) |any size |`16.0` |Font size of the prompt.
 |===
 
 === `[prompt.colors]`
 
-[cols="2,2,2,5",options="header"]
+[cols="2,2,3,2,5",options="header"]
 |===
-|Key |Type |Default |Description
-|`background` |color |`"#161616"` |Background.
-|`foreground` |color |`"#F2F2F2"` |Text.
-|`border` |color |`"#F2F2F2"` |Border.
-|`highlight_background` |color |`"#1565C1"` |Background of the highlighted completion (and the selection in the layout picker and tray menus).
-|`highlight_foreground` |color |`"#F2F2F2"` |Text of the highlighted completion (and the selection in the layout picker and tray menus).
+|Key |Type |Possible options |Default |Description
+|`background` |color |any <<_colors,color>> |`"#161616"` |Background.
+|`foreground` |color |any <<_colors,color>> |`"#F2F2F2"` |Text.
+|`border` |color |any <<_colors,color>> |`"#F2F2F2"` |Border.
+|`highlight_background` |color |any <<_colors,color>> |`"#1565C1"` |Background of the highlighted completion (and the selection in the layout picker and tray menus).
+|`highlight_foreground` |color |any <<_colors,color>> |`"#F2F2F2"` |Text of the highlighted completion (and the selection in the layout picker and tray menus).
 |===
 
 == `[tabs]`
 
 The tab strip of the `Tabs` layout.
 
-[cols="2,2,2,5",options="header"]
+[cols="2,2,3,2,5",options="header"]
 |===
-|Key |Type |Default |Description
-|`height` |integer ≥ 0 |`20` |Tab strip height in logical pixels.
-|`font_family` |string |`"Fira Mono"` |Font family of the tab titles.
-|`font_size` |float (points) |`12.0` |Font size of the tab titles.
-|`active_color` |color |`"#999999"` |Background of the focused window's tab.
-|`inactive_color` |color |`"#666666"` |Background of the other tabs.
-|`active_text_color` |color |`"#FFFFFF"` |Text of the focused window's tab.
-|`inactive_text_color` |color |`"#BFBFBF"` |Text of the other tabs.
-|`active_border_color` |color |`"#FFFFFF"` |Border of the focused window's tab.
-|`inactive_border_color` |color |`"#BBBBBB"` |Border of the other tabs.
+|Key |Type |Possible options |Default |Description
+|`height` |integer |`0` or more |`20` |Tab strip height in logical pixels.
+|`font_family` |string |any font family; see <<_fonts>> |`"Fira Mono"` |Font family of the tab titles.
+|`font_size` |float (points) |any size |`12.0` |Font size of the tab titles.
+|`active_color` |color |any <<_colors,color>> |`"#999999"` |Background of the focused window's tab.
+|`inactive_color` |color |any <<_colors,color>> |`"#666666"` |Background of the other tabs.
+|`active_text_color` |color |any <<_colors,color>> |`"#FFFFFF"` |Text of the focused window's tab.
+|`inactive_text_color` |color |any <<_colors,color>> |`"#BFBFBF"` |Text of the other tabs.
+|`active_border_color` |color |any <<_colors,color>> |`"#FFFFFF"` |Border of the focused window's tab.
+|`inactive_border_color` |color |any <<_colors,color>> |`"#BBBBBB"` |Border of the other tabs.
 |===
 
 == `[keybindings]`
@@ -554,14 +571,14 @@ conditions matches every window.
 Independently of the rules, windows with a parent (dialogs, transients) float;
 a matching rule with an `action` overrides that.
 
-[cols="2,3,5",options="header"]
+[cols="2,2,3,5",options="header"]
 |===
-|Key |Type |Description
-|`app_id` |pattern |Condition: the window's app id (the X11 class under Xwayland).
-|`title` |pattern |Condition: the window's title when it appears.
-|`has_parent` |boolean |Condition: the window has (`true`) or has no (`false`) parent.
-|`action` |`"float"`, `"tile"` or `"tile-below-master"` |`float`: float it, centred on its screen. `tile`: tile it even if it would float. `tile-below-master`: tile it and move it one position down, out of the master slot.
-|`workspace` |string |Put the window on this workspace instead of the current one, creating the workspace if it does not exist.
+|Key |Type |Possible options |Description
+|`app_id` |pattern |a glob or an array of globs |Condition: the window's app id (the X11 class under Xwayland).
+|`title` |pattern |a glob or an array of globs |Condition: the window's title when it appears.
+|`has_parent` |boolean |`true`, `false` |Condition: the window has (`true`) or has no (`false`) parent.
+|`action` |string |`"float"`, `"tile"`, `"tile-below-master"` |`float`: float it, centred on its screen. `tile`: tile it even if it would float. `tile-below-master`: tile it and move it one position down, out of the master slot.
+|`workspace` |string |any workspace tag |Put the window on this workspace instead of the current one, creating the workspace if it does not exist.
 |===
 
 Every key is optional. A pattern is a string glob (`*` matches any run of
@@ -592,13 +609,13 @@ Named scratchpads (xmonad-contrib's `NamedScratchpad`). `toggle-scratchpad
 otherwise it moves that window between the current workspace and the hidden
 `NSP` workspace. A window with a scratchpad's `app_id` floats at its `rect`.
 
-[cols="2,2,6",options="header"]
+[cols="2,2,3,5",options="header"]
 |===
-|Key |Type |Description
-|`name` |string |Name used by `toggle-scratchpad`. Non-empty and unique.
-|`command` |string |Command to spawn (through `sh -c`) when the window does not exist.
-|`app_id` |string |App id identifying the scratchpad's window (matched exactly).
-|`rect` |array of 4 floats |`[x, y, width, height]` as fractions of the screen, each in `0`–`1`; width and height must be greater than 0.
+|Key |Type |Possible options |Description
+|`name` |string |any non-empty, unique name |Name used by `toggle-scratchpad`. Non-empty and unique.
+|`command` |string |any shell command |Command to spawn (through `sh -c`) when the window does not exist.
+|`app_id` |string |any app id |App id identifying the scratchpad's window (matched exactly).
+|`rect` |array of 4 floats |`[x, y, width, height]`, each `0.0`–`1.0`; width, height > 0 |`[x, y, width, height]` as fractions of the screen, each in `0`–`1`; width and height must be greater than 0.
 |===
 
 All keys are required. Default (replaced as a whole by any `+[[scratchpads]]+`
