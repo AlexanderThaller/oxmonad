@@ -2,6 +2,11 @@
 
 use super::*;
 use crate::{
+    config::{
+        BarPosition,
+        Color,
+        SmartBorders,
+    },
     prompt::PromptKind,
     stack_set::Screen,
     wm::WorkspaceState,
@@ -9,6 +14,14 @@ use crate::{
 
 const LEFT: Rect = Rect::new(0, 0, 960, 1080);
 const RIGHT: Rect = Rect::new(960, 0, 960, 1080);
+/// The tiling areas of `split-screen 2`'s halves below the default bar,
+/// either side of the default 3px divider (the left half gives up 1px, the
+/// right one 2px).
+const LEFT_AREA: Rect = Rect::new(0, 24, 959, 1056);
+const RIGHT_AREA: Rect = Rect::new(962, 24, 958, 1056);
+/// The default divider of `split-screen 2` below the default bar.
+const DIVIDER: Rect = Rect::new(959, 24, 3, 1056);
+const NO_DIVIDERS: [Divider; 0] = [];
 
 /// `(workspace, rect)` of every screen in screen order.
 fn layout(wm: &Wm) -> Vec<(String, Rect)> {
@@ -69,14 +82,16 @@ fn split_screens_tile_independently_under_one_bar() {
     // The bar spans the whole output.
     assert_eq!(bars(&a), [(O0, Rect::new(0, 0, 1920, 24))]);
     let right = current(&wm).id;
-    assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 24, 960, 1056)));
-    assert_eq!(wm.tiling_area(right), Some(Rect::new(960, 24, 960, 1056)));
-    // Window 3 alone fills the right half; 1 and 2 share the left.
-    assert_eq!(rect_of(&a, 3), Some(Rect::new(960, 24, 960, 1056).inset(1)));
+    assert_eq!(wm.tiling_area(S0), Some(LEFT_AREA));
+    assert_eq!(wm.tiling_area(right), Some(RIGHT_AREA));
+    assert_eq!(dividers(&a), [(O0, DIVIDER)]);
+    // Window 3 alone fills the right half; 1 and 2 share the left. None
+    // reaches under the divider.
+    assert_eq!(rect_of(&a, 3), Some(RIGHT_AREA.inset(1)));
     let one = a.placement(w(1)).expect("1 visible");
     let two = a.placement(w(2)).expect("2 visible");
     assert_eq!((one.screen, two.screen), (S0, S0));
-    assert!(one.rect.x + one.rect.w <= 960 && two.rect.x + two.rect.w <= 960);
+    assert!(one.rect.x + one.rect.w < 959 && two.rect.x + two.rect.w < 959);
     assert_eq!(a.focus, Focus::Window(w(3)));
     assert_eq!(a.screens.len(), 2);
     assert!(a.screens.iter().all(|s| s.output == O0));
@@ -249,8 +264,10 @@ fn usable_area_and_bar_apply_to_each_virtual_screen() {
         Rect::new(0, 30, 960, 1050)
     );
     assert_eq!(bars(&wm.arrange()), [(O0, Rect::new(0, 30, 1920, 24))]);
-    assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 54, 960, 1026)));
-    assert_eq!(wm.tiling_area(right), Some(Rect::new(960, 54, 960, 1026)));
+    assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 54, 959, 1026)));
+    assert_eq!(wm.tiling_area(right), Some(Rect::new(962, 54, 958, 1026)));
+    // The divider starts below the bar, inside the usable area.
+    assert_eq!(dividers(&wm.arrange()), [(O0, Rect::new(959, 54, 3, 1026))]);
 }
 
 #[test]
@@ -264,9 +281,23 @@ fn bar_on_another_output_leaves_the_split_alone() {
     apply(&mut wm, "split-screen 2");
     let a = wm.arrange();
     assert_eq!(bars(&a), [(O0, Rect::new(0, 0, 1920, 24))]);
-    for screen in wm.stack_set().screens().iter().filter(|s| s.output == O1) {
-        assert_eq!(wm.tiling_area(screen.id), Some(screen.rect));
-    }
+    // The halves of O1 only give up the divider, which spans the whole
+    // height.
+    let halves: Vec<Option<Rect>> = wm
+        .stack_set()
+        .screens()
+        .iter()
+        .filter(|s| s.output == O1)
+        .map(|s| wm.tiling_area(s.id))
+        .collect();
+    assert_eq!(
+        halves,
+        [
+            Some(Rect::new(1920, 0, 959, 1080)),
+            Some(Rect::new(2882, 0, 958, 1080)),
+        ]
+    );
+    assert_eq!(dividers(&a), [(O1, Rect::new(2879, 0, 3, 1080))]);
 }
 
 #[test]
@@ -427,12 +458,228 @@ fn a_split_outputs_bar_speaks_for_its_current_or_first_screen() {
     // both halves tile without it.
     apply(&mut wm, "toggle-bar");
     assert!(!wm.bar_shown_on(O0));
-    assert_eq!(wm.tiling_area(left), Some(LEFT));
+    assert_eq!(wm.tiling_area(left), Some(Rect::new(0, 0, 959, 1080)));
     // With focus on the other output, the left half speaks for O0 again.
     apply(&mut wm, "focus-screen next");
     assert_eq!(current(&wm).output, O1);
     assert_eq!(wm.bar_screen(O0).map(|s| s.id), Some(left));
     assert_eq!(wm.bar_model(O0).title, "window 1");
     assert!(wm.bar_shown_on(O0));
-    assert_eq!(wm.tiling_area(right), Some(Rect::new(960, 24, 960, 1056)));
+    assert_eq!(wm.tiling_area(right), Some(RIGHT_AREA));
+}
+
+#[test]
+fn a_divider_separates_the_halves_of_a_split() {
+    let mut wm = wm();
+    assert_eq!(wm.arrange().dividers, NO_DIVIDERS);
+    apply(&mut wm, "split-screen 2");
+    let a = wm.arrange();
+    assert_eq!(
+        a.dividers,
+        [Divider {
+            output: O0,
+            rect: DIVIDER,
+            color: Config::defaults().split.divider_color,
+        }]
+    );
+    // The bar still spans the whole output, above the divider.
+    assert_eq!(bars(&a), [(O0, Rect::new(0, 0, 1920, 24))]);
+    let right = wm.stack_set().screens()[1].id;
+    assert_eq!(wm.tiling_area(S0), Some(LEFT_AREA));
+    assert_eq!(wm.tiling_area(right), Some(RIGHT_AREA));
+    // The screens themselves keep their halves.
+    assert_eq!(
+        layout(&wm),
+        [("1".to_owned(), LEFT), ("2".to_owned(), RIGHT)]
+    );
+}
+
+#[test]
+fn three_columns_get_two_dividers() {
+    let mut wm = wm();
+    apply(&mut wm, "split-screen 3");
+    assert_eq!(
+        dividers(&wm.arrange()),
+        [
+            (O0, Rect::new(639, 24, 3, 1056)),
+            (O0, Rect::new(1279, 24, 3, 1056)),
+        ]
+    );
+    assert_eq!(
+        tiling_areas(&wm),
+        [
+            Some(Rect::new(0, 24, 639, 1056)),
+            Some(Rect::new(642, 24, 637, 1056)),
+            Some(Rect::new(1282, 24, 638, 1056)),
+        ]
+    );
+}
+
+/// The tiling area of every screen in screen order.
+fn tiling_areas(wm: &Wm) -> Vec<Option<Rect>> {
+    wm.stack_set()
+        .screens()
+        .iter()
+        .map(|s| wm.tiling_area(s.id))
+        .collect()
+}
+
+#[test]
+fn odd_output_and_divider_widths() {
+    let mut config = Config::defaults();
+    config.split.divider_width = 4;
+    let mut wm = Wm::new(config);
+    wm.add_output(O0, "DP-1", Rect::new(10, 0, 1921, 1080));
+    apply(&mut wm, "split-screen 2");
+    // Halves 960 | 961 wide meeting at x = 970; an even width splits
+    // evenly.
+    assert_eq!(dividers(&wm.arrange()), [(O0, Rect::new(968, 24, 4, 1056))]);
+    assert_eq!(
+        tiling_areas(&wm),
+        [
+            Some(Rect::new(10, 24, 958, 1056)),
+            Some(Rect::new(972, 24, 959, 1056)),
+        ]
+    );
+    // An odd width gives the right side the extra pixel.
+    let mut config = Config::defaults();
+    config.split.divider_width = 5;
+    wm.reconfigure(config);
+    assert_eq!(dividers(&wm.arrange()), [(O0, Rect::new(968, 24, 5, 1056))]);
+    assert_eq!(
+        tiling_areas(&wm),
+        [
+            Some(Rect::new(10, 24, 958, 1056)),
+            Some(Rect::new(973, 24, 958, 1056)),
+        ]
+    );
+}
+
+#[test]
+fn a_zero_divider_width_keeps_the_halves_touching() {
+    let mut config = Config::defaults();
+    config.split.divider_width = 0;
+    let mut wm = Wm::new(config);
+    wm.add_output(O0, "DP-1", SCREEN);
+    manage_all(&mut wm, [1]);
+    apply(&mut wm, "split-screen 2");
+    let a = wm.arrange();
+    assert_eq!(a.dividers, NO_DIVIDERS);
+    assert_eq!(
+        tiling_areas(&wm),
+        [
+            Some(Rect::new(0, 24, 960, 1056)),
+            Some(Rect::new(960, 24, 960, 1056)),
+        ]
+    );
+    assert_eq!(rect_of(&a, 1), Some(Rect::new(0, 24, 960, 1056).inset(1)));
+}
+
+#[test]
+fn reload_applies_the_divider_settings() {
+    let mut wm = wm();
+    apply(&mut wm, "split-screen 2");
+    let mut config = Config::defaults();
+    config.split.divider_width = 0;
+    wm.reconfigure(config.clone());
+    assert_eq!(wm.arrange().dividers, NO_DIVIDERS);
+    assert_eq!(wm.tiling_area(S0), Some(Rect::new(0, 24, 960, 1056)));
+    config.split.divider_width = 2;
+    config.split.divider_color = Color::rgb(1, 2, 3);
+    wm.reconfigure(config);
+    let a = wm.arrange();
+    assert_eq!(dividers(&a), [(O0, Rect::new(959, 24, 2, 1056))]);
+    assert_eq!(a.dividers[0].color, Color::rgb(1, 2, 3));
+}
+
+#[test]
+fn outputs_never_get_a_divider_between_them() {
+    let mut wm = wm2();
+    assert_eq!(wm.arrange().dividers, NO_DIVIDERS);
+    // Splitting both outputs gives each its own divider, none on x = 1920
+    // where the outputs meet.
+    apply(&mut wm, "split-screen 2");
+    apply(&mut wm, "focus-screen prev");
+    assert_eq!(current(&wm).output, O1);
+    apply(&mut wm, "split-screen 2");
+    assert_eq!(
+        dividers(&wm.arrange()),
+        [(O0, DIVIDER), (O1, Rect::new(2879, 24, 3, 1056))]
+    );
+    // The outer edges keep their space.
+    assert_eq!(
+        tiling_areas(&wm),
+        [
+            Some(LEFT_AREA),
+            Some(RIGHT_AREA),
+            Some(Rect::new(1920, 24, 959, 1056)),
+            Some(Rect::new(2882, 24, 958, 1056)),
+        ]
+    );
+}
+
+#[test]
+fn rescreen_removes_the_divider() {
+    let mut wm = wm();
+    manage_all(&mut wm, [1]);
+    apply(&mut wm, "split-screen 2");
+    assert_eq!(wm.arrange().dividers.len(), 1);
+    apply(&mut wm, "rescreen");
+    let a = wm.arrange();
+    assert_eq!(a.dividers, NO_DIVIDERS);
+    assert_eq!(wm.tiling_area(S0), Some(AREA));
+    assert_eq!(rect_of(&a, 1), Some(AREA));
+}
+
+#[test]
+fn per_screen_smart_borders_keep_the_divider() {
+    let mut config = Config::defaults();
+    config.border.smart = SmartBorders::PerScreen;
+    let mut wm = Wm::new(config);
+    wm.add_output(O0, "DP-1", SCREEN);
+    manage_all(&mut wm, [1]);
+    apply(&mut wm, "split-screen 2");
+    apply(&mut wm, "focus-screen next");
+    manage_all(&mut wm, [2]);
+    let a = wm.arrange();
+    // Each lone window is borderless and fills its half up to the divider.
+    for (id, area) in [(1, LEFT_AREA), (2, RIGHT_AREA)] {
+        let p = a.placement(w(id)).expect("visible");
+        assert_eq!((p.rect, p.border), (area, None));
+    }
+    assert_eq!(dividers(&a), [(O0, DIVIDER)]);
+}
+
+#[test]
+fn a_bottom_bar_ends_the_divider_above_it() {
+    let mut config = Config::defaults();
+    config.bar.position = BarPosition::Bottom;
+    let mut wm = Wm::new(config);
+    wm.add_output(O0, "DP-1", SCREEN);
+    apply(&mut wm, "split-screen 2");
+    assert_eq!(dividers(&wm.arrange()), [(O0, Rect::new(959, 0, 3, 1056))]);
+    // Without a bar it spans the whole height.
+    apply(&mut wm, "toggle-bar");
+    assert_eq!(dividers(&wm.arrange()), [(O0, Rect::new(959, 0, 3, 1080))]);
+}
+
+#[test]
+fn floats_and_fullscreen_windows_ignore_the_divider() {
+    let mut wm = wm();
+    apply(&mut wm, "split-screen 2");
+    wm.manage(w(9), info("scratchpad", "term"));
+    // A float is placed in the whole screen: rect = [0.1, 0.1, 0.8, 0.8]
+    // of the left half.
+    let pad = wm.arrange().placement(w(9)).cloned().expect("visible");
+    assert_eq!(pad.rect, Rect::new(96, 108, 768, 864).inset(1));
+    // It may cover the divider.
+    wm.float_at(w(9), Rect::new(800, 100, 400, 300));
+    let pad = wm.arrange().placement(w(9)).cloned().expect("visible");
+    assert_eq!(pad.rect, Rect::new(800, 100, 400, 300));
+    // A virtual-screen fullscreen window covers the whole half (the
+    // right one: the float's move made it current).
+    manage_all(&mut wm, [1]);
+    apply(&mut wm, "toggle-fullscreen");
+    let p = wm.arrange().placement(w(1)).cloned().expect("visible");
+    assert_eq!((p.layer, p.rect), (Layer::VirtualFullscreen, RIGHT));
 }

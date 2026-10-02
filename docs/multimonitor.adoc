@@ -125,6 +125,19 @@ title of the workspace on its own output, and follows that workspace's
 output) shows the tray, battery and clock. `[bar] output = [...]` limits the
 bars to the listed outputs. See link:config.adoc[`config.adoc`] (`[bar]`).
 
+[[Split screens today]]
+== Split screens today
+
+`split-screen <n>` (`mod + Shift + s` splits in two) divides an output into
+virtual screens side by side, as xmonad's `layoutSplitScreen` does, and
+`rescreen` undoes it. A divider line (3 px of blue by default, `[split]
+divider_width` / `divider_color`, `0` to turn it off) is drawn between
+neighbouring virtual screens, which give that space up, so the screens stay
+apart even when `[border] smart = "per-screen"` leaves their lone windows
+without borders. Separate outputs never get one. See
+link:config.adoc[`config.adoc`] (`[split]`) and
+link:architecture.adoc#_virtual_screens[Virtual screens].
+
 == Mapping xmonad actions onto oxmonad
 
 [cols="2,3,2",options="header"]

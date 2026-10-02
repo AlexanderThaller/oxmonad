@@ -47,6 +47,7 @@ use oxmonad_ui::{
     layout_picker_size,
     pp_segments,
     render_bar,
+    render_fill,
     render_help,
     render_layout_picker,
     render_menu,
@@ -344,6 +345,19 @@ fn tab_strips() {
         "tabs_scale_2",
         &render_tabs(&tabs(&["alacritty", "emacs"], 0), &style, &fonts, 300, 2),
     );
+}
+
+/// The divider line between virtual screens: a solid fill at the device
+/// scale (the default 3px wide `#1E88E5` line, and a translucent one).
+#[test]
+fn divider_fills() {
+    let blue = oxmonad_ui::Color::rgba(0x1E, 0x88, 0xE5, 0xFF);
+    let canvas = render_fill(3, 40, 2, blue);
+    assert_eq!((canvas.width(), canvas.height()), (6, 80));
+    assert_eq!(canvas.pixel(5, 79), Some([0xE5, 0x88, 0x1E, 0xFF]));
+    assert_snapshot("divider_scale_2", &canvas);
+    let translucent = oxmonad_ui::Color::rgba(0xFF, 0, 0, 0x80);
+    assert_snapshot("divider_translucent", &render_fill(4, 20, 1, translucent));
 }
 
 /// The standard ring's previews (`Layout::preview` in oxmonad-core), so the

@@ -9,6 +9,7 @@
 
 mod apply;
 mod arrange;
+mod divider;
 mod snapshot;
 mod view;
 
@@ -24,6 +25,7 @@ pub use arrange::{
     Arrangement,
     BarPlacement,
     Border,
+    Divider,
     Focus,
     Layer,
     Placement,

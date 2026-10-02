@@ -100,7 +100,8 @@ pub enum ConfigError {
     /// `layouts` is empty or names an unknown or duplicate layout.
     #[error("invalid `layouts`: {0}")]
     InvalidLayouts(#[from] LayoutOrderError),
-    /// A size (border width, bar/prompt/tab height) is negative.
+    /// A size (border width, bar/prompt/tab height, divider width) is
+    /// negative.
     #[error("`{0}` must not be negative")]
     NegativeSize(&'static str),
 }
@@ -165,6 +166,17 @@ pub enum SmartBorders {
     /// `lessBorders Screen` plus full-screen floats: a tiled window alone
     /// on any screen, even with several screens.
     PerScreen,
+}
+
+/// Virtual screen settings (`split-screen`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SplitConfig {
+    /// Width in logical pixels of the divider line drawn between two
+    /// virtual screens of a split output; `0` draws none.
+    pub divider_width: i32,
+    /// Color of the divider line.
+    pub divider_color: Color,
 }
 
 /// Status bar colors (xmobar + `myPP`).
@@ -347,6 +359,8 @@ pub struct Config {
     pub prompt: PromptConfig,
     /// Tab strip.
     pub tabs: TabConfig,
+    /// Virtual screens.
+    pub split: SplitConfig,
     /// Keyboard bindings, sorted by combination.
     pub keybindings: Vec<KeyBinding>,
     /// Pointer bindings, sorted by combination.
@@ -371,6 +385,7 @@ struct RawConfig {
     bar: BarConfig,
     prompt: PromptConfig,
     tabs: TabConfig,
+    split: SplitConfig,
     #[serde(default)]
     rules: Vec<Rule>,
     #[serde(default)]
@@ -438,6 +453,7 @@ impl Config {
             ("bar.height", raw.bar.height),
             ("prompt.height", raw.prompt.height),
             ("tabs.height", raw.tabs.height),
+            ("split.divider_width", raw.split.divider_width),
         ] {
             if value < 0 {
                 return Err(ConfigError::NegativeSize(name));
@@ -457,6 +473,7 @@ impl Config {
             bar: raw.bar,
             prompt: raw.prompt,
             tabs: raw.tabs,
+            split: raw.split,
             keybindings,
             pointer_bindings,
             rules: raw.rules,

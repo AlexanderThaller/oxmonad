@@ -27,7 +27,7 @@ dependency, packaged on Arch as `river`.
 
 | `crates/oxmonad-ui`
 | Pure software drawing of the WM-owned surfaces (bar, prompt, layout picker,
-  key binding help, tab strip) into
+  key binding help, tab strip, the solid divider between virtual screens) into
   pixel buffers with `tiny-skia`, `skrifa` and `zeno`. Knows nothing about
   windows or Wayland; takes plain view structs. Golden-image tests live here.
 
@@ -183,7 +183,9 @@ prompt. The binary talks to core only through `Wm`:
 * `screens`: per screen its output and its tab strip (rect + tabs) when the
   layout is `tabbed`;
 * `bars`: every bar that is shown, in bar order, as `BarPlacement { output,
-  rect, primary }` (`primary`: the bar with the tray, battery and clock).
+  rect, primary }` (`primary`: the bar with the tray, battery and clock);
+* `dividers`: the lines between virtual screens, `Divider { output, rect,
+  color }`, by output and then in screen order (see <<Virtual screens>>).
 
 === Layout picker
 
@@ -289,7 +291,9 @@ is link:config.adoc[`config.adoc`].
   the arrangement, pids and open descriptors are unchanged; a multi-output
   test (`WLR_HEADLESS_OUTPUTS=2`) checks a bar per output, the primary
   bar, workspace clicks on the other output's bar, per-output toggles and
-  `[bar] output`/`primary` on reload. Every session
+  `[bar] output`/`primary` on reload; a split test checks the virtual
+  screens, the divider between them (in `dump-state`, clear of tiled
+  windows and, with `grim`, drawn in blue) and `rescreen`. Every session
   gets a private `dbus-daemon` (when installed), and a tray test registers
   a fake `StatusNotifierItem` with a dbusmenu there and drives its icon and
   menu with the virtual pointer and keyboard. The tray backend has its own
@@ -320,7 +324,9 @@ Where `oxmonad-core` differs from or refines the contract above:
   `single-screen` (`smartBorders`, i.e. `lessBorders Never`) drops the
   border of a tiled window its layout places alone while
   `StackSet::screens()` has exactly one screen (a split output counts as
-  several); `per-screen` (`lessBorders Screen`) drops it on any screen. Both
+  several); `per-screen` (`lessBorders Screen`) drops it on any screen,
+  so the divider between virtual screens (see <<Virtual screens>>) is what
+  keeps their borderless lone windows apart. Both
   drop the border of a float whose content covers its screen's rectangle,
   keeping the float's content rectangle. A borderless tiled window fills its
   whole slot.
@@ -337,7 +343,8 @@ Where `oxmonad-core` differs from or refines the contract above:
   the bar's `toggle-bar` visibility (`Wm::bar_shown_on`) and supplies the
   layout and title of `bar_model(output)`; the workspace tags and their
   states are the same on every bar. `tiling_area` only subtracts the bar of
-  the screen's own output. A workspace click on a bar first makes that
+  the screen's own output (and the dividers between it and the other virtual
+  screens of that output). A workspace click on a bar first makes that
   bar's screen current (`Wm::focus_bar_screen`), so the workspace is viewed
   on that output.
   Workspace order follows `getSortByIndex`: configured tags in config order,
@@ -358,7 +365,7 @@ How `crates/oxmonad` realises the protocol loop above:
 * **Modules.** `state` (the mirror of river's objects and the two
   sequences; `state/dispatch.rs` records events), `plan` (pure
   `Arrangement` → request translation behind the `Requests` trait, diffed
-  against what river was last told), `shell` + `shm` (bar, tab strips,
+  against what river was last told), `shell` + `shm` (bar, tab strips, dividers,
   prompt, layout picker, help and tray menu as `river_shell_surface_v1`s in memfd-backed `wl_shm` buffers),
   `keys` / `keyboard` (keysym resolution and the prompt's keyboard via the
   pure-Rust `kbvm`), `status` (clock and battery), `tray` (the
@@ -371,10 +378,13 @@ How `crates/oxmonad` realises the protocol loop above:
   (with `sync_next_commit`) during the manage sequence maps the prompt before
   river applies `focus_shell_surface`. The render sequence repositions and
   restacks them with the windows.
-* **Stacking.** Tiled and floating windows bottom to top, then tab strips and
-  the bars (one shell surface per output, `Node::Bar(output)`, drawn at that
-  output's scale), then fullscreen windows (which therefore cover the bars),
-  then the
+* **Stacking.** Tiled and floating windows bottom to top, then the bars (one
+  shell surface per output, `Node::Bar(output)`, drawn at that output's
+  scale), tab strips and the dividers between virtual screens
+  (`Node::Divider(output, index)`, a `wl_shm` buffer filled with
+  `split.divider_color` by `oxmonad_ui::render_fill` at the output's scale;
+  clicks on them do nothing), then fullscreen windows (which therefore cover
+  the bars and dividers), then the
   prompt, layout picker or help, then the tray menu and its submenus.
 * **Input ordering.** Key/pointer binding presses, clicks, pointer enters and
   control commands are queued and applied in order at `manage_start`.
@@ -509,9 +519,31 @@ actions `split-screen <n>` and `rescreen`.
   screens, their workspaces becoming the most recently hidden in screen
   order; a new output gets one screen.
 * **Bar.** A split output has one bar spanning its usable width; every
-  screen on it tiles below (or above) the bar strip. The bar shows the
+  screen on it tiles below (or above) the bar strip, and the dividers run
+  from the bar to the other edge of the usable area. The bar shows the
   layout and title of the current screen if it is on that output, else of
   the output's first screen, and follows that workspace's `toggle-bar`.
+* **Dividers.** `[split] divider_width` (default 3, `0` for none) and
+  `divider_color` (default `#1E88E5`). `divider::divide` (pure) takes the
+  tiling areas of one output's screens without dividers (usable rectangle
+  minus the bar) and, for every pair that shares an edge (one ends exactly
+  where the other starts, along x for side-by-side screens or along y for
+  stacked ones; `split-screen` only makes columns, but the rule is
+  general) and overlaps along it, puts a strip `divider_width` wide
+  centred on the edge, spanning that overlap (so it starts below the bar
+  and stays inside the layer-shell usable area). The screen on the left
+  (top) gives up `floor(w/2)` of its tiling area, the one on the right
+  (below) `ceil(w/2)`: an odd width puts the extra pixel on the right
+  (lower) side. A screen with several neighbours on one side gives the
+  space up once. `Wm::tiling_area` is the divided area, so tiled windows
+  never sit under a divider; `Screen.rect`/`usable_rect` stay unchanged,
+  so floats (placed relative to `rect`), the prompt, picker and help, and
+  a `VirtualFullscreen` window (the full `rect`) ignore the dividers.
+  Only screens of the same output are paired: no divider on an output's
+  outer edges, between two outputs or on an unsplit output, and
+  `rescreen` removes them. A reload applies new values at once.
+  `dump-state` lists them under `dividers` (`{"output": id, "rect":
+  [x, y, w, h]}`) and their surfaces under `shells`.
 * **Fullscreen.** river's `fullscreen(output)` covers the whole output, so a
   window fullscreen on a virtual screen gets `Layer::VirtualFullscreen`:
   the binary proposes the screen's rectangle, places it like a float

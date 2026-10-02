@@ -1432,6 +1432,19 @@ impl State {
                 });
             }
         }
+        let mut index = BTreeMap::<OutputId, usize>::new();
+        for divider in &arrangement.dividers {
+            let n = index.entry(divider.output).or_default();
+            if divider.rect.w > 0 && divider.rect.h > 0 {
+                wanted.push(Wanted {
+                    node: Node::Divider(divider.output, *n),
+                    rect: divider.rect,
+                    scale: self.scale_of(divider.output),
+                    content: shell::divider_content(divider),
+                });
+            }
+            *n += 1;
+        }
         if let (Some((screen, rect)), Some(model)) = (arrangement.prompt, self.wm.prompt_model()) {
             let screen = self.wm.stack_set().screen(screen);
             let max_height = screen.map_or(rect.h, |s| s.usable_rect.h);
@@ -1660,6 +1673,10 @@ impl State {
                     "clicks": self.bar_clicks(bar.output),
                 })
             }).collect()),
+            "dividers": arrangement.map_or_else(Vec::new, |a| a.dividers.iter().map(|d| json!({
+                "output": d.output.0,
+                "rect": rect(d.rect),
+            })).collect()),
             "windows": windows,
             "hidden": arrangement.map(|a| a.hidden.iter().map(|w| w.0).collect::<Vec<_>>()),
             "focus": focus,
@@ -1870,6 +1887,7 @@ impl Requests for RiverRequests<'_> {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
             Node::Bar(_)
             | Node::Tabs(_)
+            | Node::Divider(..)
             | Node::Prompt
             | Node::LayoutPicker
             | Node::Help
@@ -1885,6 +1903,7 @@ impl Requests for RiverRequests<'_> {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
             Node::Bar(_)
             | Node::Tabs(_)
+            | Node::Divider(..)
             | Node::Prompt
             | Node::LayoutPicker
             | Node::Help

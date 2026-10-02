@@ -539,3 +539,38 @@ fn smart_borders() {
     assert!(Config::from_toml("[border]\nsmart = \"always\"").is_err());
     assert!(Config::from_toml("[border]\nsmart = true").is_err());
 }
+
+#[test]
+fn split_divider() {
+    let defaults = Config::defaults();
+    assert_eq!(defaults.split.divider_width, 3);
+    assert_eq!(defaults.split.divider_color, Color::rgb(0x1E, 0x88, 0xE5));
+
+    let c = load("[split]\ndivider_width = 0");
+    assert_eq!(c.split.divider_width, 0);
+    assert_eq!(c.split.divider_color, defaults.split.divider_color);
+    let c = load("[split]\ndivider_width = 8\ndivider_color = \"#ff000080\"");
+    assert_eq!(c.split.divider_width, 8);
+    assert_eq!(
+        c.split.divider_color,
+        Color {
+            a: 0x80,
+            ..Color::rgb(0xFF, 0, 0)
+        }
+    );
+
+    let err = |user: &str| Config::from_toml(user).expect_err("config must be rejected");
+    assert!(matches!(
+        err("[split]\ndivider_width = -1"),
+        ConfigError::NegativeSize("split.divider_width")
+    ));
+    assert!(matches!(
+        err("[split]\ndivider_width = 1.5"),
+        ConfigError::Toml(_)
+    ));
+    assert!(matches!(
+        err("[split]\ndivider_color = \"blue\""),
+        ConfigError::Toml(_)
+    ));
+    assert!(matches!(err("[split]\ngap = 2"), ConfigError::Toml(_)));
+}

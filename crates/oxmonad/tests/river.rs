@@ -1309,6 +1309,69 @@ fn screenshot(session: &Session, name: &str) {
     assert!(status.success(), "grim {}", path.display());
 }
 
+/// The default divider color, `#1E88E5`.
+const DIVIDER_BLUE: [u8; 3] = [0x1E, 0x88, 0xE5];
+
+/// `state` has exactly one divider, on `output` at `divider`, shown as a
+/// shell surface.
+fn assert_divider_shown(state: &Value, output: &Value, divider: [i64; 4]) {
+    assert_eq!(
+        state["dividers"],
+        serde_json::json!([{ "output": output, "rect": divider }]),
+        "{state}"
+    );
+    let node = format!("Divider(OutputId({output}), 0)");
+    assert!(
+        state["shells"].as_array().is_some_and(|shells| shells
+            .iter()
+            .any(|s| s["node"] == node && rect(&s["rect"]) == divider)),
+        "{state}"
+    );
+}
+
+/// `state` has no divider, and no divider shell surface.
+fn assert_no_divider(state: &Value) {
+    assert_eq!(state["dividers"], serde_json::json!([]), "{state}");
+    let shells = state["shells"].as_array().cloned().unwrap_or_default();
+    assert!(
+        shells.iter().all(|s| !s["node"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("Divider")),
+        "{state}"
+    );
+}
+
+/// No window of `state`, border included, reaches under `divider`, and
+/// (with `grim`) the divider is drawn in the default blue down its whole
+/// length while the pixels either side of it are not.
+fn assert_divider_clear(session: &Session, state: &Value, divider: [i64; 4]) {
+    let [dx, dy, dw, dh] = divider;
+    for window in windows(state) {
+        let [wx, _, ww, _] = rect(&window["rect"]);
+        let border = window["border"].as_i64().unwrap_or(0);
+        assert!(wx + ww + border <= dx || wx - border >= dx + dw, "{window}");
+    }
+    if !have("grim") {
+        return;
+    }
+    wait_for("the divider to be drawn", || {
+        let Some((width, pixels)) = screen_pixels(session) else {
+            return false;
+        };
+        let at = |px: i64, py: i64| {
+            let index = usize::try_from(py * width + px).expect("on screen");
+            pixels.get(index).copied()
+        };
+        let middle = dy + dh / 2;
+        [dy, middle, dy + dh - 1]
+            .iter()
+            .all(|&py| (dx..dx + dw).all(|px| at(px, py) == Some(DIVIDER_BLUE)))
+            && at(dx - 1, middle) != Some(DIVIDER_BLUE)
+            && at(dx + dw, middle) != Some(DIVIDER_BLUE)
+    });
+}
+
 /// `split-screen 2`: two tilings side by side under one bar spanning the
 /// output, a fullscreen window covering only its half, a restart keeping
 /// the split, and `rescreen` merging back without losing a window.
@@ -1342,9 +1405,13 @@ fn splits_screens() {
     );
     // One bar across the whole output.
     assert_eq!(rect(&primary_bar(&state)["rect"]), [x, y, w, 24]);
+    // The default 3px divider below the bar, centred on the shared edge:
+    // the left half gives up 1px, the right one 2px.
+    let divider = [x + w / 2 - 1, y + 24, 3, h - 24];
+    assert_divider_shown(&state, &screens[0]["output"], divider);
     assert_eq!(
         rect(&window_titled(&state, "left")["rect"]),
-        [x + 1, y + 25, w / 2 - 2, h - 26]
+        [x + 1, y + 25, w / 2 - 3, h - 26]
     );
 
     session.act("focus-screen next");
@@ -1358,8 +1425,8 @@ fn splits_screens() {
     });
     let state = session.state();
     assert_eq!(state["current_workspace"], "2");
-    let left_area = [left[0], left[1] + 24, left[2], left[3] - 24];
-    let right_area = [right[0], right[1] + 24, right[2], right[3] - 24];
+    let left_area = [left[0], left[1] + 24, left[2] - 1, left[3] - 24];
+    let right_area = [right[0] + 2, right[1] + 24, right[2] - 2, right[3] - 24];
     assert!(within(
         rect(&window_titled(&state, "left")["rect"]),
         left_area
@@ -1369,6 +1436,7 @@ fn splits_screens() {
         assert!(within(rect(&window["rect"]), right_area), "{window}");
         assert_eq!(window["layer"], "tiled");
     }
+    assert_divider_clear(&session, &state, divider);
     screenshot(&session, "split");
 
     // Fullscreen covers the right half only, over the bar.
@@ -1393,10 +1461,13 @@ fn splits_screens() {
 
     // rescreen: one screen again, the current workspace keeps the output,
     // the left half's workspace is hidden, no window is lost.
+    // The divider survives the restart; rescreen removes it.
+    assert_divider_shown(&session.state(), &screens[0]["output"], divider);
     session.act("rescreen");
     let state = session.state();
     let screens = state["screens"].as_array().cloned().unwrap_or_default();
     assert_eq!(screens.len(), 1, "{state}");
+    assert_no_divider(&state);
     assert_eq!(rect(&screens[0]["rect"]), output);
     assert_eq!(screens[0]["split"], false);
     assert_eq!(state["current_workspace"], "2");
@@ -1646,6 +1717,14 @@ fn shows_key_help() {
 
 /// The screen's single color if every pixel has it (read via `grim -t ppm`).
 fn uniform_color(session: &Session) -> Option<[u8; 3]> {
+    let (_, pixels) = screen_pixels(session)?;
+    let first = *pixels.first()?;
+    pixels.iter().all(|&p| p == first).then_some(first)
+}
+
+/// A screenshot (via `grim -t ppm`): its width and its RGB pixels, row by
+/// row.
+fn screen_pixels(session: &Session) -> Option<(i64, Vec<[u8; 3]>)> {
     let output = Command::new("grim")
         .args(["-t", "ppm", "-"])
         .env("XDG_RUNTIME_DIR", &session.dir)
@@ -1654,26 +1733,26 @@ fn uniform_color(session: &Session) -> Option<[u8; 3]> {
         .ok()?;
     // P6 header: magic, width, height, maxval, then RGB triples.
     let data = output.stdout;
-    let mut fields = 0;
+    let mut fields = Vec::new();
+    let mut token = Vec::new();
     let mut start = 0;
-    let mut in_token = false;
     for (i, &b) in data.iter().enumerate() {
         if b.is_ascii_whitespace() {
-            if in_token {
-                fields += 1;
-                in_token = false;
-                if fields == 4 {
+            if !token.is_empty() {
+                fields.push(String::from_utf8_lossy(&token).into_owned());
+                token.clear();
+                if fields.len() == 4 {
                     start = i + 1;
                     break;
                 }
             }
         } else {
-            in_token = true;
+            token.push(b);
         }
     }
+    let width = fields.get(1)?.parse().ok()?;
     let (pixels, _) = data.get(start..)?.as_chunks::<3>();
-    let first = *pixels.first()?;
-    pixels.iter().all(|&p| p == first).then_some(first)
+    Some((width, pixels.to_vec()))
 }
 
 /// `contrib/oxmonad-lock` locks like slock: black while idle, slock's

@@ -1,5 +1,6 @@
-//! The WM-drawn shell surfaces: the bar, the tab strips, the prompt, the
-//! layout picker, the key binding help and the tray menu.
+//! The WM-drawn shell surfaces: the bar, the tab strips, the dividers
+//! between virtual screens, the prompt, the layout picker, the key binding
+//! help and the tray menu.
 //!
 //! Their content is derived from core state in each manage sequence and
 //! committed with `sync_next_commit`, so it changes in the same frame as
@@ -13,6 +14,7 @@ use std::{
 use crate::font_cache::FontCache;
 use oxmonad_core::{
     BarModel,
+    Divider,
     HelpModel,
     LayoutPickerModel,
     OutputId,
@@ -79,6 +81,7 @@ use oxmonad_ui::{
     pp_segments,
     prompt_size,
     render_bar,
+    render_fill,
     render_help,
     render_layout_picker,
     render_menu,
@@ -436,6 +439,9 @@ pub enum Content {
     Bar(BarView),
     /// A tab strip; the windows are in tab order.
     Tabs(TabsView, Vec<WindowId>),
+    /// A divider line between virtual screens, filling [`Wanted::rect`]
+    /// with this color.
+    Divider(Color),
     /// The prompt, drawn on a screen of the given logical height.
     Prompt(PromptView, u32),
     /// The layout picker, centred in [`Wanted::rect`].
@@ -476,6 +482,12 @@ pub fn tabs_content(strip: &TabStrip) -> Content {
             .collect(),
     };
     Content::Tabs(view, strip.tabs.iter().map(|tab| tab.window).collect())
+}
+
+/// The divider surface content for a core divider.
+#[must_use]
+pub fn divider_content(divider: &Divider) -> Content {
+    Content::Divider(color(divider.color))
 }
 
 /// One live shell surface.
@@ -698,7 +710,8 @@ impl Shells {
                 )
                 .map(|row| Click::MenuEntry(level, row))
             }
-            Content::Prompt(..) => None,
+            // Dividers only separate virtual screens.
+            Content::Prompt(..) | Content::Divider(_) => None,
         }
     }
 
@@ -831,7 +844,9 @@ fn surface_rect(want: &Wanted, styles: &Styles) -> Rect {
             );
             want.rect.centered(size)
         }
-        Content::Bar(_) | Content::Tabs(..) | Content::TrayMenu(_) => want.rect,
+        Content::Bar(_) | Content::Tabs(..) | Content::Divider(_) | Content::TrayMenu(_) => {
+            want.rect
+        }
     }
 }
 
@@ -872,6 +887,9 @@ fn draw(want: &Wanted, styles: &Styles) -> Canvas {
             want.scale,
         ),
         Content::TrayMenu(view) => render_menu(view, &styles.menu, &styles.bar_fonts, want.scale),
+        Content::Divider(fill) => {
+            render_fill(width, want.rect.h.max(1).unsigned_abs(), want.scale, *fill)
+        }
     }
 }
 

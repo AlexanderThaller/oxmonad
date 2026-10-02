@@ -82,6 +82,15 @@ fn bars(arrangement: &Arrangement) -> Vec<(OutputId, Rect)> {
         .collect()
 }
 
+/// The dividers' outputs and rectangles.
+fn dividers(arrangement: &Arrangement) -> Vec<(OutputId, Rect)> {
+    arrangement
+        .dividers
+        .iter()
+        .map(|d| (d.output, d.rect))
+        .collect()
+}
+
 fn rect_of(arrangement: &Arrangement, id: u64) -> Option<Rect> {
     arrangement.placement(w(id)).map(|p| p.rect)
 }
