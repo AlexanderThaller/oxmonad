@@ -160,8 +160,8 @@ prompt. The binary talks to core only through `Wm`:
   (to the prompt, the layout picker or the help, whichever is open:
   `grabs_keyboard()`); `pick_layout(index)` (a clicked picker card),
   `close_help()` (a click on the help), `set_help_viewport(page, max)`
-* output: `arrange() -> Arrangement`, plus view models for the bar
-  (`bar_model(screen)`), prompt (`prompt_model()`), layout picker
+* output: `arrange() -> Arrangement`, plus view models for each output's
+  bar (`bar_model(output)`), prompt (`prompt_model()`), layout picker
   (`layout_picker_model()`), help (`help_model()`) and tab strips.
 * restart: `snapshot(id_of) -> Snapshot`, `restore(Snapshot)`,
   `manage_as(id, identifier, info)`, `finish_restore()` (see
@@ -182,7 +182,8 @@ prompt. The binary talks to core only through `Wm`:
   Focus::Help | Focus::None`;
 * `screens`: per screen its output and its tab strip (rect + tabs) when the
   layout is `tabbed`;
-* `bar`: the bar's output and rectangle while it is shown.
+* `bars`: every bar that is shown, in bar order, as `BarPlacement { output,
+  rect, primary }` (`primary`: the bar with the tray, battery and clock).
 
 === Layout picker
 
@@ -285,7 +286,10 @@ is link:config.adoc[`config.adoc`].
   (`WLR_BACKENDS=headless WLR_RENDERER=pixman river -c <oxmonad>`) when
   `river` is installed; another one restarts a copy of the binary in place
   (after replacing it, with it missing, and with `exec` failing) and checks
-  the arrangement, pids and open descriptors are unchanged. Every session
+  the arrangement, pids and open descriptors are unchanged; a multi-output
+  test (`WLR_HEADLESS_OUTPUTS=2`) checks a bar per output, the primary
+  bar, workspace clicks on the other output's bar, per-output toggles and
+  `[bar] output`/`primary` on reload. Every session
   gets a private `dbus-daemon` (when installed), and a tray test registers
   a fake `StatusNotifierItem` with a dbusmenu there and drives its icon and
   menu with the virtual pointer and keyboard. The tray backend has its own
@@ -300,8 +304,8 @@ Where `oxmonad-core` differs from or refines the contract above:
   Until the first output appears (and after the last one disappears) the
   `StackSet` keeps its current workspace on a placeholder screen that
   `screens()` never reports, so every operation behaves uniformly.
-  Outputs carry their `name` (`add_output(id, name, rect)`), used to place
-  the bar (`bar.output`).
+  Outputs carry their `name` (`add_output(id, name, rect)`), used to pick
+  the bars (`bar.output`, `bar.primary`).
 * **View semantics.** `view <tag>` (`Mod+1..9`, the prompt) is xmonad's
   `greedyView`, as in xmonad's default keys and `selectWorkspace`;
   `focus-screen` / `toggle-ws` use plain `view`. `view` never creates
@@ -320,9 +324,22 @@ Where `oxmonad-core` differs from or refines the contract above:
   drop the border of a float whose content covers its screen's rectangle,
   keeping the float's content rectangle. A borderless tiled window fills its
   whole slot.
-* **Bar model.** There is a single bar, so `bar_model()` takes no screen.
-  It spans the usable width of its output (like xmobar's strut), across the
-  virtual screens of a split output.
+* **Bar model.** Every output gets a bar (where xmobar needs one process
+  per screen); `bar.output` (a list of names, unconnected ones skipped, `[]`
+  for none) restricts them, and `Wm::bar_outputs` lists them in bar order:
+  the list order, else `StackSet::outputs()` order. The primary bar
+  (`Wm::primary_bar_output`) is the `bar.primary` output if it has a bar,
+  else the first bar output; toggling it off does not move the primary
+  role. Each bar spans the usable width of its output (like xmobar's
+  strut), across the virtual screens of a split output. The screen that
+  speaks for an output's bar (`Wm::bar_screen`) is the current screen if it
+  is on that output, else the output's first screen: its workspace decides
+  the bar's `toggle-bar` visibility (`Wm::bar_shown_on`) and supplies the
+  layout and title of `bar_model(output)`; the workspace tags and their
+  states are the same on every bar. `tiling_area` only subtracts the bar of
+  the screen's own output. A workspace click on a bar first makes that
+  bar's screen current (`Wm::focus_bar_screen`), so the workspace is viewed
+  on that output.
   Workspace order follows `getSortByIndex`: configured tags in config order,
   then the rest sorted by tag. The scratchpad workspace (`NSP`) is excluded
   from the bar, prompt completion, `toggle-ws`, screen assignment and
@@ -355,7 +372,9 @@ How `crates/oxmonad` realises the protocol loop above:
   river applies `focus_shell_surface`. The render sequence repositions and
   restacks them with the windows.
 * **Stacking.** Tiled and floating windows bottom to top, then tab strips and
-  the bar, then fullscreen windows (which therefore cover the bar), then the
+  the bars (one shell surface per output, `Node::Bar(output)`, drawn at that
+  output's scale), then fullscreen windows (which therefore cover the bars),
+  then the
   prompt, layout picker or help, then the tray menu and its submenus.
 * **Input ordering.** Key/pointer binding presses, clicks, pointer enters and
   control commands are queued and applied in order at `manage_start`.
@@ -400,9 +419,13 @@ the battery and the clock: `Batt: 80% | ▣ ▣ | 2026.10.01-4 13:05`.
   a changed list asks for a manage sequence like the clock does. Passive
   items and items without an icon are not shown (the latter logged at
   debug). Each icon segment's action is the item id, so a click on the
-  right side of the bar maps to `Click::TrayItem(id)`, and `dump-state`
-  lists the icons in `bar_clicks` (`{"tray": id, "x": [start, end]}`) and the
-  items, connection and open menu under `tray`.
+  right side of the bar maps to `Click::TrayItem(id)`. Only the primary bar
+  has a right side (`BarModel::primary`), so the tray, its clicks and its
+  menu live there. `dump-state` lists every shown bar under `bars` (output
+  id and name, rectangle, `primary`, layout, title and `clicks`, the
+  workspace tags `{"workspace": tag, "x": [start, end]}` and tray icons
+  `{"tray": id, "x": [start, end]}`) and the items, connection and open
+  menu under `tray`.
 * **Input mapping.** Left click: `Activate(x, y)`, or the menu for
   `ItemIsMenu` items (`ContextMenu(x, y)` if they export no dbusmenu);
   middle: `SecondaryActivate(x, y)`; right: our menu popup, or
@@ -419,7 +442,7 @@ the battery and the clock: `Batt: 80% | ▣ ▣ | 2026.10.01-4 13:05`.
   entry vanished closed, menus taller than the output's usable area
   truncated), places it and shows it as shell surface `Node::TrayMenu(level)`
   with `Content::TrayMenu`. The root hangs below the icon (above it for a
-  bottom bar), clamped into the bar output's usable area; a submenu
+  bottom bar), clamped into the primary bar output's usable area; a submenu
   cascades to the right of its entry, or to the left when it does not fit.
   Opening sends `AboutToShow(0)`, opening a submenu `AboutToShow(id)`; a
   changed layout arrives as a new item list and refreshes the menu in
@@ -430,7 +453,8 @@ the battery and the clock: `Batt: 80% | ▣ ▣ | 2026.10.01-4 13:05`.
   navigation keys reach it. The menu closes on `Escape`, a click outside it
   (a window interaction, any other shell surface; clicking its own icon
   only closes it), any key or pointer binding, when an overlay takes the
-  keyboard, when the bar is hidden and when its item or menu disappears.
+  keyboard, when the primary bar is hidden and when its item or menu
+  disappears.
   A click on the empty desktop reaches no client and leaves it open.
 * **Reload and restart.** `SIGUSR1` starts or stops the tray thread to match
   `[bar] tray` and restarts it when `tray_icon_size` changed. A restart in
@@ -484,8 +508,10 @@ actions `split-screen <n>` and `rescreen`.
   regions (a split keeps its proportions); a removed output removes all its
   screens, their workspaces becoming the most recently hidden in screen
   order; a new output gets one screen.
-* **Bar.** `bar.output` names an output. The bar spans that output's usable
-  width; every screen on it tiles below (or above) the bar strip.
+* **Bar.** A split output has one bar spanning its usable width; every
+  screen on it tiles below (or above) the bar strip. The bar shows the
+  layout and title of the current screen if it is on that output, else of
+  the output's first screen, and follows that workspace's `toggle-bar`.
 * **Fullscreen.** river's `fullscreen(output)` covers the whole output, so a
   window fullscreen on a virtual screen gets `Layer::VirtualFullscreen`:
   the binary proposes the screen's rectangle, places it like a float
@@ -528,8 +554,8 @@ The sequence:
   workspaces in xmonad order with their layout rings (each layout's state),
   window order and focus, which workspace each screen (by output name)
   shows and the region of its output it covers (so splits survive), the
-  current workspace, floating rectangles, fullscreen windows and the bar
-  toggle, naming windows by river identifier — and sends `stop`. Snapshots
+  current workspace, floating rectangles, fullscreen windows and the
+  per-workspace bar toggles (which then decide every output's bar), naming windows by river identifier — and sends `stop`. Snapshots
   without regions (written before splits existed) load as unsplit, so the
   format version stayed 1.
 . On `finished` it answers pending control commands, destroys every

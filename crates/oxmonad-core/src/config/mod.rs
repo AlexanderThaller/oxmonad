@@ -203,9 +203,17 @@ pub struct BarConfig {
     pub position: BarPosition,
     /// Height in logical pixels.
     pub height: i32,
-    /// Output name to show the bar on; the first screen when unset.
+    /// Names of the outputs that get a bar, in priority order (the first
+    /// connected one is the fallback primary bar). `None` (unset) puts a
+    /// bar on every output; an empty list shows no bar. A plain string is
+    /// accepted as a one-element list.
+    #[serde(default, deserialize_with = "string_or_list")]
+    pub output: Option<Vec<String>>,
+    /// Name of the output whose bar shows the right-hand side (tray,
+    /// battery, clock). When unset or without a bar, the first bar output
+    /// is the primary one.
     #[serde(default)]
-    pub output: Option<String>,
+    pub primary: Option<String>,
     /// Font family.
     pub font_family: String,
     /// Font size in points.
@@ -537,4 +545,24 @@ fn convert_scratchpads(raw: Vec<RawScratchpad>) -> Result<Vec<ScratchpadConfig>,
 
 fn zero_is_none<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<usize>, D::Error> {
     Ok(Some(usize::deserialize(deserializer)?).filter(|&n| n > 0))
+}
+
+/// Deserializes `bar.output`: a list of output names, or a single name as
+/// a one-element list.
+fn string_or_list<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<String>>, D::Error> {
+    /// Either accepted form.
+    #[derive(Deserialize)]
+    #[serde(untagged, expecting = "an output name or a list of output names")]
+    enum OneOrMany {
+        /// `output = "DP-1"`.
+        One(String),
+        /// `output = ["DP-2", "DP-1"]`.
+        Many(Vec<String>),
+    }
+    Ok(Some(match OneOrMany::deserialize(deserializer)? {
+        OneOrMany::One(name) => vec![name],
+        OneOrMany::Many(names) => names,
+    }))
 }

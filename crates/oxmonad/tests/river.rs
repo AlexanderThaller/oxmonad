@@ -175,6 +175,11 @@ impl Session {
     /// Starts river in `dir` (see [`Self::dir`]) with `binary` as its
     /// window manager.
     fn start_in(dir: PathBuf, binary: &Path) -> Self {
+        Self::start_with_outputs(dir, binary, 1)
+    }
+
+    /// Like [`Self::start_in`] with `outputs` headless outputs.
+    fn start_with_outputs(dir: PathBuf, binary: &Path, outputs: u32) -> Self {
         let log = File::create(dir.join("river.log")).expect("log file");
         let (bus, bus_address) = match start_bus(&dir) {
             Some((bus, address)) => (Some(bus), address),
@@ -190,7 +195,7 @@ impl Session {
             .env("XDG_CONFIG_HOME", dir.join("config"))
             .env("WLR_BACKENDS", "headless")
             .env("WLR_RENDERER", "pixman")
-            .env("WLR_HEADLESS_OUTPUTS", "1")
+            .env("WLR_HEADLESS_OUTPUTS", outputs.to_string())
             .env("OXMONAD_CONTROL", dir.join("ctl"))
             .env("DBUS_SESSION_BUS_ADDRESS", &bus_address)
             .env("RUST_LOG", "oxmonad=debug")
@@ -295,6 +300,15 @@ fn rect(value: &Value) -> [i64; 4] {
         .map(|n| n.as_i64().expect("int"))
         .collect();
     [v[0], v[1], v[2], v[3]]
+}
+
+/// The primary bar in `dump-state` (the only one on a single output), or
+/// `null` while it is hidden.
+fn primary_bar(state: &Value) -> &Value {
+    state["bars"]
+        .as_array()
+        .and_then(|bars| bars.iter().find(|bar| bar["primary"] == true))
+        .unwrap_or(&Value::Null)
 }
 
 fn overlap(a: [i64; 4], b: [i64; 4]) -> bool {
@@ -477,8 +491,12 @@ fn tiles_three_terminals(session: &mut Session) {
     let state = session.state();
     let screen = &state["screens"][0];
     let area = rect(&screen["rect"]);
-    assert_eq!(rect(&state["bar"]["rect"]), [area[0], area[1], area[2], 24]);
-    assert_eq!(state["bar"]["name"], screen["name"]);
+    assert_eq!(
+        rect(&primary_bar(&state)["rect"]),
+        [area[0], area[1], area[2], 24]
+    );
+    assert_eq!(primary_bar(&state)["name"], screen["name"]);
+    assert_eq!(state["bars"].as_array().map(Vec::len), Some(1), "{state}");
     assert_eq!(state["current_workspace"], "1");
 
     for title in ["one", "two", "three"] {
@@ -546,7 +564,7 @@ fn switches_workspaces(session: &Session, input: &mut Input) {
     assert_eq!(windows(&state)[0]["id"], master);
 
     // Clicking workspace 1 in the bar views it.
-    let target = state["bar_clicks"]
+    let target = primary_bar(&state)["clicks"]
         .as_array()
         .and_then(|targets| targets.iter().find(|t| t["workspace"] == "1"))
         .cloned()
@@ -779,7 +797,11 @@ fn arrangement(state: &Value) -> Value {
     serde_json::json!({
         "current_workspace": state["current_workspace"],
         "screens": screens,
-        "bar": state["bar"]["rect"],
+        "bars": state["bars"].as_array().map(|bars| {
+            bars.iter()
+                .map(|bar| (bar["name"].clone(), bar["rect"].clone(), bar["primary"].clone()))
+                .collect::<Vec<_>>()
+        }),
         "windows": placed_now,
         "hidden": state["hidden"].as_array().map(Vec::len),
         "focus": name(&state["focus"]),
@@ -1072,6 +1094,187 @@ fn restarts_in_place() {
 }
 
 // --------------------------------------------------------------------
+// Multiple outputs
+
+/// The bars in `dump-state`, in bar order.
+fn bars(state: &Value) -> Vec<Value> {
+    state["bars"].as_array().cloned().unwrap_or_default()
+}
+
+/// The middle of workspace `tag`'s span in `bar`'s clicks.
+fn tag_x(bar: &Value, tag: &str) -> i64 {
+    let span = bar["clicks"]
+        .as_array()
+        .and_then(|clicks| clicks.iter().find(|c| c["workspace"] == tag))
+        .map_or_else(
+            || panic!("workspace {tag} in {bar}"),
+            |click| click["x"].clone(),
+        );
+    i64::midpoint(span[0].as_i64().unwrap_or(0), span[1].as_i64().unwrap_or(0))
+}
+
+/// Writes `config` as the session's `config.toml` and reloads it.
+fn reload_with(session: &Session, config: &str) {
+    let dir = session.dir.join("config/oxmonad");
+    fs::create_dir_all(&dir).expect("config dir");
+    fs::write(dir.join("config.toml"), config).expect("config");
+    session.act("reload");
+}
+
+/// Two outputs: a bar on each by default, the right-hand side only on
+/// the primary (first) one, each bar with its own workspace's title, a
+/// workspace click on the other output's bar, per-workspace toggles, and
+/// `[bar] primary` / `output` taking effect on reload.
+#[test]
+#[ignore = "needs river and alacritty; run with --ignored"]
+fn shows_a_bar_on_every_output() {
+    if !have("river") || !have("alacritty") {
+        eprintln!("skipping: river or alacritty is not installed");
+        return;
+    }
+    let mut session = Session::start_with_outputs(
+        Session::dir("outputs"),
+        Path::new(env!("CARGO_BIN_EXE_oxmonad")),
+        2,
+    );
+    wait_for("two screens", || {
+        session.state()["screens"].as_array().map(Vec::len) == Some(2)
+    });
+    let state = session.state();
+    let screens = state["screens"].as_array().cloned().unwrap_or_default();
+    let output_rect = |output: &Value| {
+        let screen = screens
+            .iter()
+            .find(|s| &s["output"] == output)
+            .unwrap_or_else(|| panic!("a screen on {output}: {state}"));
+        rect(&screen["rect"])
+    };
+    // A bar on top of each output; the first one is the primary bar.
+    let all = bars(&state);
+    assert_eq!(all.len(), 2, "{state}");
+    assert_eq!(
+        (&all[0]["primary"], &all[1]["primary"]),
+        (&true.into(), &false.into())
+    );
+    for bar in &all {
+        let [x, y, w, _] = output_rect(&bar["output"]);
+        assert_eq!(rect(&bar["rect"]), [x, y, w, 24], "{state}");
+    }
+    let (first, second) = (
+        output_rect(&all[0]["output"]),
+        output_rect(&all[1]["output"]),
+    );
+    let second_name = all[1]["name"].as_str().expect("output name").to_owned();
+    assert_ne!(first, second);
+    let extent = [first, second]
+        .iter()
+        .fold((0, 0), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
+    let mut input = Input::connect(
+        &session,
+        (
+            u32::try_from(extent.0).expect("width"),
+            u32::try_from(extent.1).expect("height"),
+        ),
+    );
+
+    // Each output tiles below its own bar and its bar names its window.
+    let first_screen = state["current_workspace"].clone();
+    spawn_and_wait(&mut session, "left");
+    session.act("focus-screen next");
+    spawn_and_wait(&mut session, "right");
+    // A window on hidden workspace 5, for the bar to list it.
+    session.act("view 5");
+    spawn_and_wait(&mut session, "five");
+    session.act("toggle-ws");
+    let state = session.state();
+    let below = |r: [i64; 4]| [r[0], r[1] + 24, r[2], r[3] - 24];
+    assert!(
+        within(rect(&window_titled(&state, "left")["rect"]), below(first)),
+        "{state}"
+    );
+    assert!(
+        within(rect(&window_titled(&state, "right")["rect"]), below(second)),
+        "{state}"
+    );
+    let titles: Vec<Value> = bars(&state).iter().map(|b| b["title"].clone()).collect();
+    assert_eq!(
+        titles,
+        [Value::from("left"), Value::from("right")],
+        "{state}"
+    );
+    screenshot(&session, "two-bars");
+
+    // A workspace clicked on the second bar is viewed on the second output,
+    // even with focus on the first.
+    session.act("focus-screen prev");
+    assert_eq!(session.state()["current_workspace"], first_screen);
+    let x = tag_x(&bars(&state)[1], "5");
+    input.click_at(x, second[1] + 12);
+    wait_for("a click on the second bar to view 5 there", || {
+        let state = session.state();
+        state["current_workspace"] == "5"
+            && bars(&state)[1]["title"] == "five"
+            && bars(&state)[0]["title"] == "left"
+    });
+    session.act("toggle-ws");
+    wait_for("the right window to come back", || {
+        bars(&session.state())[1]["title"] == "right"
+    });
+
+    // toggle-bar hides only the bar of the current workspace's output.
+    session.act("toggle-bar");
+    let state = session.state();
+    assert_eq!(state["bar_visible"], false, "{state}");
+    let shown: Vec<Value> = bars(&state).iter().map(|b| b["output"].clone()).collect();
+    assert_eq!(shown, [all[0]["output"].clone()], "{state}");
+    let right = rect(&window_titled(&state, "right")["rect"]);
+    assert!(right[1] < second[1] + 24, "the right window grows: {state}");
+
+    bar_options_apply_on_reload(&session, &second_name, first);
+
+    session.act("quit");
+    wait_for("river to exit", || {
+        session.river.try_wait().ok().flatten().is_some()
+    });
+    let log = session.log();
+    assert!(!log.contains("protocol error"), "{log}");
+    assert!(!log.contains("panicked"), "{log}");
+}
+
+/// With the second output's bar toggled off and focus on it: `[bar]
+/// primary` and `output` take effect on reload. `second_name` is the
+/// second output's name, `first` the first output's rectangle.
+fn bar_options_apply_on_reload(session: &Session, second_name: &str, first: [i64; 4]) {
+    // Naming the second output primary moves the right-hand side there,
+    // shown once its bar is back; the toggle survives the reload.
+    reload_with(session, &format!("[bar]\nprimary = \"{second_name}\"\n"));
+    let state = session.state();
+    assert_eq!(bars(&state).len(), 1, "{state}");
+    assert_eq!(bars(&state)[0]["primary"], false, "{state}");
+    session.act("toggle-bar");
+    let state = session.state();
+    let primary: Vec<Value> = bars(&state).iter().map(|b| b["primary"].clone()).collect();
+    assert_eq!(primary, [Value::from(false), Value::from(true)], "{state}");
+
+    // `output` limits the bars to the listed outputs.
+    reload_with(
+        session,
+        &format!("[bar]\noutput = [\"{second_name}\", \"HDMI-9\"]\n"),
+    );
+    let state = session.state();
+    let all = bars(&state);
+    assert_eq!(all.len(), 1, "{state}");
+    assert_eq!(
+        (&all[0]["name"], &all[0]["primary"]),
+        (&Value::from(second_name), &true.into())
+    );
+    wait_for("the left window to grow", || {
+        let state = session.state();
+        rect(&window_titled(&state, "left")["rect"])[1] < first[1] + 24
+    });
+}
+
+// --------------------------------------------------------------------
 // Virtual screens
 
 /// The windows titled `title` in `state`.
@@ -1138,7 +1341,7 @@ fn splits_screens() {
         (&Value::from("1"), &Value::from("2"))
     );
     // One bar across the whole output.
-    assert_eq!(rect(&state["bar"]["rect"]), [x, y, w, 24]);
+    assert_eq!(rect(&primary_bar(&state)["rect"]), [x, y, w, 24]);
     assert_eq!(
         rect(&window_titled(&state, "left")["rect"]),
         [x + 1, y + 25, w / 2 - 2, h - 26]
@@ -1836,7 +2039,7 @@ fn shows_tray_items() {
     wait_for("the tray", || session.state()["tray"]["running"] == true);
     let state = session.state();
     let area = rect(&state["screens"][0]["rect"]);
-    let bar = rect(&state["bar"]["rect"]);
+    let bar = rect(&primary_bar(&state)["rect"]);
     let extent = (
         u32::try_from(area[2]).expect("width"),
         u32::try_from(area[3]).expect("height"),
@@ -1847,7 +2050,7 @@ fn shows_tray_items() {
     let item = fake_item(&session.bus_address, &calls);
     let mut icon = None;
     wait_for("the tray icon in the bar", || {
-        icon = session.state()["bar_clicks"]
+        icon = primary_bar(&session.state())["clicks"]
             .as_array()
             .and_then(|targets| targets.iter().find(|t| !t["tray"].is_null()))
             .cloned();
@@ -1887,7 +2090,7 @@ fn shows_tray_items() {
             && state["tray"]["menu"].is_null()
     });
     let state = session.state();
-    let tray_clicks = state["bar_clicks"]
+    let tray_clicks = primary_bar(&state)["clicks"]
         .as_array()
         .map(|targets| targets.iter().filter(|t| !t["tray"].is_null()).count());
     assert_eq!(tray_clicks, Some(0), "{state}");

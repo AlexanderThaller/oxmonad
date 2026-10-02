@@ -25,8 +25,8 @@ use oxmonad_core::{
 pub enum Node {
     /// A window.
     Window(WindowId),
-    /// The status bar.
-    Bar,
+    /// The status bar of an output.
+    Bar(OutputId),
     /// The tab strip of a screen.
     Tabs(ScreenId),
     /// The workspace prompt.
@@ -342,7 +342,7 @@ mod tests {
                 output: OutputId(1),
                 tab_strip: None,
             }],
-            bar: None,
+            bars: Vec::new(),
             prompt: None,
             layout_picker: None,
             help: None,
@@ -543,7 +543,7 @@ mod tests {
                 rect: Rect::new(0, 692, 1280, 28),
             },
             ShellPlacement {
-                node: Node::Bar,
+                node: Node::Bar(OutputId(0)),
                 rect: Rect::new(0, 0, 1280, 24),
             },
         ];
@@ -561,8 +561,8 @@ mod tests {
                 "top Window(WindowId(1))",
                 "position Window(WindowId(2)) 100,100",
                 "top Window(WindowId(2))",
-                "position Bar 0,0",
-                "top Bar",
+                "position Bar(OutputId(0)) 0,0",
+                "top Bar(OutputId(0))",
                 "top Window(WindowId(3))",
                 "position Prompt 0,692",
                 "top Prompt",

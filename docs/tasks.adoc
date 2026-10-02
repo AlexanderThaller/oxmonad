@@ -179,7 +179,6 @@ image::layouts/ideas/roledex.svg[Roledex,240]
   now-playing, network status, notification count; plus CPU and memory.
 * [ ] Show config errors in the bar for a few seconds after a failed
   reload instead of only logging them.
-* [ ] A bar on every output (xmobar needed one process per screen).
 * [ ] Window swallowing: a GUI app started from a terminal takes the
   terminal's place until it exits.
 * [ ] Fractional scale for the WM-drawn surfaces (integer `wl_output`
@@ -196,7 +195,6 @@ image::layouts/ideas/roledex.svg[Roledex,240]
   environment (the Wayland/Xwayland replacement for `setWMName "LG3D"`).
 * [ ] Tests for `remove_current_workspace`'s multi-monitor reassignment
   edge cases.
-* [ ] A multi-output end-to-end test (`WLR_HEADLESS_OUTPUTS=2`).
 
 == Not planned
 

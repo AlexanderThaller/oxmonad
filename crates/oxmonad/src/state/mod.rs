@@ -1005,7 +1005,13 @@ impl State {
         };
         let left = button == Button::Left;
         match click {
-            Some(Click::Workspace(tag)) if left => self.apply(Action::View(tag), Some(seat)),
+            Some(Click::Workspace(tag)) if left => {
+                // View it on the screen this bar speaks for.
+                if let Node::Bar(output) = node {
+                    self.wm.focus_bar_screen(output);
+                }
+                self.apply(Action::View(tag), Some(seat));
+            }
             Some(Click::Window(window)) if left => self.wm.focus_window(window),
             Some(Click::Layout(index)) if left => self.wm.pick_layout(index),
             Some(Click::Dismiss) => self.wm.close_help(),
@@ -1047,8 +1053,7 @@ impl State {
     /// Where the menu of tray item `id` hangs: under (or above) its icon,
     /// inside the bar output's usable area.
     fn menu_anchor(&self, id: &str) -> Option<Anchor> {
-        let (x, bar) = self.shells.tray_icon(id, &self.styles)?;
-        let (output, _) = self.arrangement.as_ref()?.bar?;
+        let (output, x, bar) = self.shells.tray_icon(id, &self.styles)?;
         let area = self.wm.stack_set().output(output)?.usable;
         Some(Anchor {
             x,
@@ -1087,7 +1092,7 @@ impl State {
             .iter()
             .find(|item| item.id == menu.item)
             .and_then(|item| item.menu.as_ref());
-        let keep = arrangement.bar.is_some()
+        let keep = arrangement.bars.iter().any(|bar| bar.primary)
             && !self.wm.grabs_keyboard()
             && root.is_some_and(|root| {
                 menu.refresh(root, self.styles.menu(), self.styles.menu_fonts())
@@ -1401,13 +1406,13 @@ impl State {
 
     fn wanted_shells(&self, arrangement: &Arrangement) -> Vec<Wanted> {
         let mut wanted = Vec::new();
-        if let Some((output, rect)) = arrangement.bar {
+        for bar in &arrangement.bars {
             wanted.push(Wanted {
-                node: Node::Bar,
-                rect,
-                scale: self.scale_of(output),
+                node: Node::Bar(bar.output),
+                rect: bar.rect,
+                scale: self.scale_of(bar.output),
                 content: Content::Bar(shell::bar_view(
-                    &self.wm.bar_model(),
+                    &self.wm.bar_model(bar.output),
                     &self.status,
                     &self.styles,
                 )),
@@ -1460,8 +1465,11 @@ impl State {
                 content: Content::Help(shell::help_view(&model)),
             });
         }
-        if let (Some(menu), Some((output, _))) = (&self.tray.menu, arrangement.bar) {
-            let scale = self.scale_of(output);
+        if let (Some(menu), Some(bar)) = (
+            &self.tray.menu,
+            arrangement.bars.iter().find(|bar| bar.primary),
+        ) {
+            let scale = self.scale_of(bar.output);
             wanted.extend(menu.levels.iter().enumerate().map(|(index, level)| Wanted {
                 node: Node::TrayMenu(index),
                 rect: level.rect,
@@ -1519,13 +1527,13 @@ impl State {
         })
     }
 
-    /// The bar's clickable spans for `dump-state`: workspace tags and tray
-    /// icons with their global x range.
-    fn bar_clicks(&self) -> Vec<serde_json::Value> {
+    /// The clickable spans of `output`'s bar for `dump-state`: workspace
+    /// tags and tray icons with their global x range.
+    fn bar_clicks(&self, output: OutputId) -> Vec<serde_json::Value> {
         use serde_json::json;
 
         self.shells
-            .click_targets(Node::Bar, &self.styles)
+            .click_targets(Node::Bar(output), &self.styles)
             .into_iter()
             .filter_map(|(start, end, click)| match click {
                 Click::Workspace(tag) => Some(json!({ "workspace": tag, "x": [start, end] })),
@@ -1640,11 +1648,18 @@ impl State {
         json!({
             "current_workspace": ss.current_tag(),
             "screens": screens,
-            "bar": arrangement.and_then(|a| a.bar).map(|(output, r)| json!({
-                "output": output.0,
-                "name": ss.output(output).map(|o| o.name.clone()),
-                "rect": rect(r),
-            })),
+            "bars": arrangement.map_or_else(Vec::new, |a| a.bars.iter().map(|bar| {
+                let model = self.wm.bar_model(bar.output);
+                json!({
+                    "output": bar.output.0,
+                    "name": ss.output(bar.output).map(|o| o.name.clone()),
+                    "rect": rect(bar.rect),
+                    "primary": bar.primary,
+                    "layout": model.layout,
+                    "title": model.title,
+                    "clicks": self.bar_clicks(bar.output),
+                })
+            }).collect()),
             "windows": windows,
             "hidden": arrangement.map(|a| a.hidden.iter().map(|w| w.0).collect::<Vec<_>>()),
             "focus": focus,
@@ -1664,7 +1679,6 @@ impl State {
                 "node": format!("{:?}", s.node),
                 "rect": rect(s.rect),
             })).collect::<Vec<_>>(),
-            "bar_clicks": self.bar_clicks(),
             "tray": self.tray_state(),
             "bar_visible": self.wm.bar_visible(),
             "managed": self.windows.len(),
@@ -1854,7 +1868,7 @@ impl Requests for RiverRequests<'_> {
     fn set_position(&mut self, node: Node, x: i32, y: i32) {
         let proxy = match node {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
-            Node::Bar
+            Node::Bar(_)
             | Node::Tabs(_)
             | Node::Prompt
             | Node::LayoutPicker
@@ -1869,7 +1883,7 @@ impl Requests for RiverRequests<'_> {
     fn place_top(&mut self, node: Node) {
         let proxy = match node {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
-            Node::Bar
+            Node::Bar(_)
             | Node::Tabs(_)
             | Node::Prompt
             | Node::LayoutPicker

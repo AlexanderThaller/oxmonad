@@ -22,6 +22,7 @@ use std::collections::{
 
 pub use arrange::{
     Arrangement,
+    BarPlacement,
     Border,
     Focus,
     Layer,
@@ -159,13 +160,15 @@ impl Wm {
         &self.stack_set
     }
 
-    /// Whether the bar is currently shown.
+    /// Whether the bar of the current screen's output is shown.
     #[must_use]
     pub fn bar_visible(&self) -> bool {
-        self.bar_output().is_some()
+        self.stack_set
+            .current_screen()
+            .is_some_and(|s| self.bar_shown_on(s.output))
     }
 
-    /// Whether the bar should show while workspace `tag` is on its output:
+    /// Whether a bar should show while workspace `tag` is on its output:
     /// the workspace's `toggle-bar` state, else `bar.visible`.
     #[must_use]
     pub fn bar_visible_on(&self, tag: &str) -> bool {
@@ -332,6 +335,19 @@ impl Wm {
             .map(|s| s.id);
         let current = self.stack_set.current_screen().map(|s| s.id);
         if let Some(id) = target.filter(|&id| Some(id) != current) {
+            self.stack_set.focus_screen(id);
+        }
+    }
+
+    /// Makes the screen that `output`'s bar speaks for (see
+    /// [`Wm::bar_screen`]) current, so a workspace clicked on that bar is
+    /// viewed there. Nothing changes when that screen is already current
+    /// or while an overlay grabs the keyboard.
+    pub fn focus_bar_screen(&mut self, output: OutputId) {
+        if self.grabs_keyboard() {
+            return;
+        }
+        if let Some(id) = self.bar_screen(output).map(|s| s.id) {
             self.stack_set.focus_screen(id);
         }
     }

@@ -143,7 +143,8 @@ link:architecture.adoc#_restart_in_place[Restart in place].
   restarted when the icon size changed.
 
 A workspace whose bar was toggled with `toggle-bar` keeps that choice across
-reloads; `bar.visible` applies to the others.
+reloads; `bar.visible` applies to the others. `[bar] output` and `primary`
+apply at once: bars appear and disappear and the right-hand side moves.
 
 == Value syntax
 
@@ -347,6 +348,14 @@ opaque backgrounds; elsewhere it falls back to grayscale.
 The status bar: workspaces, the layout name, the focused window's title, and
 on the right the system tray, battery and clock.
 
+By default every output has its own bar. Every bar lists the same workspace
+tags; the layout and title are those of the workspace shown on that bar's
+output (on a split output: the current screen if it is there, else the
+output's first screen). Only the *primary* bar shows the right-hand side
+(tray, battery and clock); the others show only workspaces, layout and title.
+Clicking a workspace on any bar views it on that bar's output. Each bar
+follows the `toggle-bar` state of the workspace on its output.
+
 [cols="2,2,3,2,5",options="header"]
 |===
 |Key |Type |Possible options |Default |Description
@@ -355,8 +364,9 @@ on the right the system tray, battery and clock.
 |boolean
 |`true`, `false`
 |`true`
-|Whether the bar is shown, for every workspace. `toggle-bar` (`Mod+b`)
-overrides it per workspace.
+|Whether the bars are shown, for every workspace. `toggle-bar` (`Mod+b`)
+overrides it per workspace: a bar is hidden while its output shows a
+workspace whose bar is toggled off.
 
 |`position`
 |string
@@ -371,11 +381,23 @@ overrides it per workspace.
 |Height in logical pixels.
 
 |`output`
-|string
-|any output name
+|list of strings (or a string)
+|a list of output names, e.g. `["DP-2", "DP-1"]`; a single name such as
+`"DP-1"` means a one-element list; `[]`
 |unset
-|The name of the output (e.g. `"DP-1"`) to show the bar on. When unset, or
-when no output has that name, the bar is on the first output.
+|The outputs that get a bar. Unset: every output has a bar. Listed outputs
+that are not connected are skipped; `[]` (or only unconnected names) shows no
+bar at all. The list order decides the fallback primary bar.
+
+|`primary`
+|string
+|an output name
+|unset
+|The output whose bar shows the tray, battery and clock. When unset, or when
+that output has no bar (not connected or not in `output`), the first bar
+output is the primary one: the first connected name in `output`, or the
+first output when `output` is unset. Hiding the primary bar with
+`toggle-bar` does not move the right-hand side to another bar.
 
 |`font_family`
 |string
@@ -722,7 +744,8 @@ antialias = "rgb"
 [bar]
 position = "bottom"
 font_size = 11.0
-output = "DP-1"
+output = ["DP-1", "HDMI-A-1"]
+primary = "DP-1"
 
 [bar.colors]
 title = "#F2F2F2"

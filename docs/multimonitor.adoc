@@ -108,11 +108,22 @@ direct (`w`/`e`/`r`), relative (`Left`/`Right`), and swap (`z`).
 * `move_focused_to_next_monitor()` — currently bound to `mod + o`; moves the
   focused window to the next monitor (wrapping) and follows it.
 * The primary monitor (by name in `config::PRIMARY_OUTPUT`, else the first
-  detected) draws the bar; others do not.
+  detected) draws the bar; others do not. (Since superseded: oxmonad now
+  draws a bar on every output, see <<Bars today>>.)
 
 There are *no workspaces*. A monitor is effectively a single, fixed workspace
 that is permanently pinned to one output. This is the central difference from
 xmonad and it shapes how each binding can be translated.
+
+[[Bars today]]
+== Bars today
+
+oxmonad now shows a bar on every output (xmobar needed one process per
+screen). Each bar lists the same workspace tags, with the layout and window
+title of the workspace on its own output, and follows that workspace's
+`toggle-bar`. Only the primary bar (`[bar] primary`, else the first bar
+output) shows the tray, battery and clock. `[bar] output = [...]` limits the
+bars to the listed outputs. See link:config.adoc[`config.adoc`] (`[bar]`).
 
 == Mapping xmonad actions onto oxmonad
 

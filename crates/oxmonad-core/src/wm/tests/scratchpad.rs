@@ -45,7 +45,7 @@ fn toggle_hides_and_summons() {
     assert!(wm.arrange().hidden.contains(&w(2)));
     // NSP is not in the bar.
     assert!(
-        !wm.bar_model()
+        !wm.bar_model(O0)
             .workspaces
             .iter()
             .any(|(t, _)| t == SCRATCHPAD_TAG)

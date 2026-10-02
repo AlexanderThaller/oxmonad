@@ -16,7 +16,13 @@ fn second_screen_shows_next_workspace() {
     // Each screen tiles its own workspace.
     let a = wm.arrange();
     assert_eq!(a.screens.len(), 2);
-    assert_eq!(a.bar.map(|(output, _)| output), Some(O0));
+    assert_eq!(
+        bars(&a)
+            .iter()
+            .map(|&(output, _)| output)
+            .collect::<Vec<_>>(),
+        [O0, O1]
+    );
 }
 
 #[test]
@@ -27,8 +33,8 @@ fn windows_tile_on_their_screen() {
     manage_all(&mut wm, [2]);
     let a = wm.arrange();
     assert_eq!(rect_of(&a, 1), Some(AREA.inset(1)));
-    // No bar on the second screen.
-    assert_eq!(rect_of(&a, 2), Some(Rect::new(1921, 1, 1918, 1078)));
+    // The second screen has its own bar.
+    assert_eq!(rect_of(&a, 2), Some(Rect::new(1921, 25, 1918, 1054)));
     assert_eq!(a.focus, Focus::Window(w(2)));
 }
 
@@ -168,12 +174,29 @@ fn more_screens_than_workspaces_creates_workspaces() {
     wm.add_output(O1, "DP-2", Rect::new(1920, 0, 1920, 1080));
     assert_eq!(screen_of(&wm, "1"), Some(S1));
     let tags: Vec<String> = wm
-        .bar_model()
+        .bar_model(O0)
         .workspaces
         .into_iter()
         .map(|(t, _)| t)
         .collect();
     assert_eq!(tags, ["a", "1"]);
+}
+
+#[test]
+fn a_click_on_another_outputs_bar_views_there() {
+    let mut wm = wm2();
+    // A workspace clicked on DP-2's bar is viewed on DP-2's screen.
+    wm.focus_bar_screen(O1);
+    apply(&mut wm, "view 5");
+    assert_eq!(screen_of(&wm, "5"), Some(S1));
+    assert_eq!(screen_of(&wm, "1"), Some(S0));
+    // On the current screen's own bar nothing moves.
+    wm.focus_bar_screen(O1);
+    assert_eq!(current_screen(&wm), Some(S1));
+    // Not while an overlay has the keyboard.
+    apply(&mut wm, "help");
+    wm.focus_bar_screen(O0);
+    assert_eq!(current_screen(&wm), Some(S1));
 }
 
 #[test]
