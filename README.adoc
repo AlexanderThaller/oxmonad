@@ -44,6 +44,29 @@ and river. On NixOS, the module installs oxmonad and river and registers the
 }
 ----
 
+The home-manager module writes `~/.config/oxmonad/config.toml` from Nix.
+`settings` is merged over the built-in defaults like a hand-written file, so
+it only needs what you change (see link:docs/config.adoc[`docs/config.adoc`]).
+The file is checked with `oxmonad --check-config` at build time, and a running
+oxmonad reloads it (SIGUSR1) when it changes; `checkConfig` and
+`reloadOnChange` turn either off.
+
+[source,nix]
+----
+{
+  imports = [ oxmonad.homeManagerModules.default ];
+
+  programs.oxmonad = {
+    enable = true;
+    settings = {
+      modifier = "Super";
+      border.focused = "#FF8C00";
+      keybindings."Mod+p" = "spawn fuzzel";
+    };
+  };
+}
+----
+
 == Running
 
 river starts its window manager itself with `-c`:

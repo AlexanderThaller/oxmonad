@@ -150,6 +150,74 @@
           };
         };
 
+      # Manages ~/.config/oxmonad/config.toml. Use it next to the NixOS module,
+      # which provides the river session.
+      homeManagerModules.default =
+        {
+          config,
+          lib,
+          pkgs,
+          ...
+        }:
+        let
+          cfg = config.programs.oxmonad;
+          toml = pkgs.formats.toml { };
+          configFile = toml.generate "oxmonad-config.toml" cfg.settings;
+          # Fails the build when oxmonad rejects the file, instead of the
+          # running oxmonad keeping the old config after a reload.
+          checkedConfigFile = pkgs.runCommand "oxmonad-config.toml" { } ''
+            ${lib.getExe cfg.package} --config ${configFile} --check-config
+            cp ${configFile} $out
+          '';
+        in
+        {
+          options.programs.oxmonad = {
+            enable = lib.mkEnableOption "oxmonad, an xmonad-style window manager for river";
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${pkgs.stdenv.hostPlatform.system}.oxmonad;
+              defaultText = lib.literalExpression "oxmonad.packages.\${system}.oxmonad";
+              description = "The oxmonad package to install and to check the configuration with.";
+            };
+            settings = lib.mkOption {
+              inherit (toml) type;
+              default = { };
+              example = lib.literalExpression ''
+                {
+                  modifier = "Super";
+                  border.focused = "#FF8C00";
+                  keybindings."Mod+p" = "spawn fuzzel";
+                }
+              '';
+              description = ''
+                Written to {file}`$XDG_CONFIG_HOME/oxmonad/config.toml` and merged
+                over the built-in defaults by oxmonad, so only set what you change.
+                See docs/config.adoc for every setting. No file is written when empty.
+              '';
+            };
+            checkConfig = lib.mkOption {
+              type = lib.types.bool;
+              default = true;
+              description = "Validate the configuration with `oxmonad --check-config` at build time.";
+            };
+            reloadOnChange = lib.mkOption {
+              type = lib.types.bool;
+              default = true;
+              description = "Send SIGUSR1 to a running oxmonad when the configuration changes, so it reloads the file.";
+            };
+          };
+
+          config = lib.mkIf cfg.enable {
+            home.packages = [ cfg.package ];
+            xdg.configFile."oxmonad/config.toml" = lib.mkIf (cfg.settings != { }) {
+              source = if cfg.checkConfig then checkedConfigFile else configFile;
+              onChange = lib.mkIf cfg.reloadOnChange ''
+                ${pkgs.procps}/bin/pkill -USR1 -x oxmonad || true
+              '';
+            };
+          };
+        };
+
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = [
