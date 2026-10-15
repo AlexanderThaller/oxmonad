@@ -44,8 +44,10 @@
         pkgs.callPackage (
           {
             lib,
+            dbus,
             river,
             swaylock,
+            systemd,
           }:
           rustPlatform.buildRustPackage {
             pname = "oxmonad";
@@ -79,9 +81,19 @@
                 --suffix PATH : ${lib.makeBinPath [ swaylock ]}
 
               substitute contrib/lightdm/oxmonad-session $out/bin/oxmonad-session \
-                --replace-fail "exec river -c /usr/local/bin/oxmonad" \
-                  "exec ${lib.getExe river} -c $out/bin/oxmonad"
+                --replace-fail "oxmonad=/usr/local/bin/oxmonad" "oxmonad=$out/bin/oxmonad"
               chmod 755 $out/bin/oxmonad-session
+              wrapProgram $out/bin/oxmonad-session \
+                --prefix PATH : ${
+                  lib.makeBinPath [
+                    river
+                    dbus
+                    systemd
+                  ]
+                }
+
+              install -Dm644 contrib/systemd/oxmonad-session.target \
+                $out/lib/systemd/user/oxmonad-session.target
 
               substitute contrib/lightdm/oxmonad.desktop \
                 $out/share/wayland-sessions/oxmonad.desktop \
@@ -142,6 +154,8 @@
               pkgs.river
             ];
             services.displayManager.sessionPackages = [ cfg.package ];
+            # oxmonad-session.target, started by the session wrapper.
+            systemd.packages = [ cfg.package ];
             # river needs a seat and a GPU; swaylock (used by oxmonad-lock)
             # needs a PAM service.
             hardware.graphics.enable = lib.mkDefault true;

@@ -10,6 +10,7 @@ session in a display manager such as LightDM.
 |File |Installs to |Purpose
 |`oxmonad-session` |`/usr/local/bin/oxmonad-session` |Session wrapper; runs `river -c oxmonad`.
 |`oxmonad.desktop` |`/usr/share/wayland-sessions/oxmonad.desktop` |The session entry shown by the greeter.
+|`../systemd/oxmonad-session.target` |`/usr/local/lib/systemd/user/oxmonad-session.target` |Optional: started by the wrapper so `graphical-session.target` user services run in the session.
 |===
 
 == Install
@@ -39,6 +40,10 @@ sudo install -Dm755 target/release/oxmonad /usr/local/bin/oxmonad
 sudo install -Dm755 contrib/lightdm/oxmonad-session /usr/local/bin/oxmonad-session
 sudo install -Dm644 contrib/lightdm/oxmonad.desktop \
     /usr/share/wayland-sessions/oxmonad.desktop
+
+# Optional: the session target for systemd user services (see below).
+sudo install -Dm644 contrib/systemd/oxmonad-session.target \
+    /usr/local/lib/systemd/user/oxmonad-session.target
 ----
 
 Log out and pick *oxmonad* from the greeter's session menu.
@@ -52,6 +57,12 @@ Without logind, enable `seatd` and add yourself to the `seat` group.
 with the bar. Press *Super + Shift + Return* for a terminal (`alacritty` by
 default) or *Super + p* for the launcher (`tofi`). Install them first, or
 change `terminal` / the bindings in `~/.config/oxmonad/config.toml`.
+* *systemd user services*: with `oxmonad-session.target` installed, the
+wrapper passes `WAYLAND_DISPLAY` and friends to the systemd user manager and
+D-Bus once river is up and starts the target, which binds
+`graphical-session.target`. User services wanted by that target (kanshi,
+mako, a polkit agent, ...) then start with the session and stop when river
+exits. oxmonad itself still starts no clients.
 * *Quitting*: *Super + Shift + q* ends the river session and returns to the
 greeter.
 * *Logs*: oxmonad logs to stderr, which river passes on; check `journalctl`

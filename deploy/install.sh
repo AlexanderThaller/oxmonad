@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build oxmonad with the deploy profile and install it, together with the
-# LightDM session wrapper and greeter entry (see contrib/lightdm/README.adoc).
+# LightDM session wrapper, greeter entry and the oxmonad-session.target user
+# unit (see contrib/lightdm/README.adoc).
 #
 # Run as your normal user; only the install steps use sudo. Safe while
 # oxmonad is running: `install` replaces the file instead of writing into it,
@@ -31,6 +32,7 @@ sudo install -Dm755 target/deploy/oxmonad "$prefix/bin/oxmonad"
 sudo install -Dm755 "$tmp/oxmonad-session" "$prefix/bin/oxmonad-session"
 sudo install -Dm755 contrib/oxmonad-lock "$prefix/bin/oxmonad-lock"
 sudo install -Dm644 "$tmp/oxmonad.desktop" /usr/share/wayland-sessions/oxmonad.desktop
+sudo install -Dm644 contrib/systemd/oxmonad-session.target "$prefix/lib/systemd/user/oxmonad-session.target"
 
 echo "installed oxmonad to $prefix/bin"
 

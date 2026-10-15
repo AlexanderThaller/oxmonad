@@ -1,0 +1,9 @@
+# Started by oxmonad-session once river is up, stopped when river exits.
+# Binding graphical-session.target lets user services that belong to the
+# graphical session (kanshi, mako, ...) start and stop with it.
+[Unit]
+Description=oxmonad session
+Documentation=https://github.com/AlexanderThaller/oxmonad
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target

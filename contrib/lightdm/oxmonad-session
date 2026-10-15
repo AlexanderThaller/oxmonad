@@ -8,4 +8,20 @@ unset DISPLAY WAYLAND_DISPLAY
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=oxmonad
 
-exec river -c /usr/local/bin/oxmonad
+oxmonad=/usr/local/bin/oxmonad
+
+# With oxmonad-session.target installed (contrib/systemd), hand river's
+# environment to the systemd user manager and D-Bus once river is up and start
+# the target, so user services bound to graphical-session.target run in this
+# session; stop it again when river exits. A restart (Mod+q) re-executes only
+# oxmonad, so this runs once per session.
+vars="WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE"
+if systemctl --user cat oxmonad-session.target >/dev/null 2>&1; then
+    river -c "dbus-update-activation-environment --systemd $vars; systemctl --user --no-block start oxmonad-session.target; exec $oxmonad"
+    status=$?
+    systemctl --user stop oxmonad-session.target
+    systemctl --user unset-environment $vars
+    exit $status
+fi
+
+exec river -c "$oxmonad"
