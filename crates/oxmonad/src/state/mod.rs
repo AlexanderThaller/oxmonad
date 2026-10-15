@@ -10,6 +10,7 @@ use std::{
         BTreeMap,
         VecDeque,
     },
+    io,
     path::PathBuf,
     process::ExitCode,
     sync::atomic::{
@@ -79,6 +80,7 @@ use wayland_client::{
     Connection,
     Proxy,
     QueueHandle,
+    backend::WaylandError,
     globals::GlobalList,
     protocol::{
         wl_compositor::WlCompositor,
@@ -478,7 +480,8 @@ pub struct State {
     reload: bool,
     /// How to start this binary again, for `restart`.
     exe: Option<Exe>,
-    /// `restart` was applied in the running manage sequence.
+    /// `restart` was applied in the running manage sequence; it begins
+    /// once that sequence's render sequence has finished.
     restart_requested: bool,
     /// The state to restore after restarting.
     restart: Option<Snapshot>,
@@ -552,10 +555,22 @@ impl State {
         }
     }
 
-    /// Flushes requests; called whenever the event loop goes idle.
-    pub fn flush(&self) {
-        if let Err(err) = self.conn.flush() {
-            tracing::debug!(%err, "flush failed");
+    /// Flushes requests; called whenever the event loop goes idle. Any
+    /// error but a full socket buffer means river dropped the connection
+    /// (e.g. a protocol error): ends the event loop instead of polling the
+    /// dead socket forever.
+    pub fn flush(&mut self) {
+        let err = match self.conn.flush() {
+            Err(WaylandError::Io(err)) if err.kind() == io::ErrorKind::WouldBlock => return,
+            Err(err) if self.exit.is_none() => err,
+            _ => return,
+        };
+        if self.is_quitting() {
+            tracing::debug!(%err, "river is gone");
+            self.exit = Some(ExitCode::SUCCESS);
+        } else {
+            tracing::error!(%err, "lost the connection to river");
+            self.exit = Some(ExitCode::FAILURE);
         }
     }
 
@@ -785,9 +800,6 @@ impl State {
             seat.pointer_before = seat.pointer;
         }
         self.globals.wm.manage_finish();
-        if std::mem::take(&mut self.restart_requested) {
-            self.begin_restart();
-        }
     }
 
     /// Makes the screen under a moved pointer current (focus follows
@@ -1516,6 +1528,13 @@ impl State {
         }
         self.globals.wm.render_finish();
         self.send_answers();
+        // Not right after manage_finish: river (0.4.5) answers that with
+        // render_start, and a `stop` arriving during the render sequence
+        // leaves it waiting for a render_finish it then ignores, so the
+        // restarted window manager is disconnected as unresponsive.
+        if std::mem::take(&mut self.restart_requested) {
+            self.begin_restart();
+        }
     }
 
     /// The open layout picker for `dump-state`: entries, selection and the
