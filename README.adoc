@@ -21,6 +21,29 @@ sudo pacman -S --needed river   # Arch Linux; river 0.4 or later
 cargo build --release
 ----
 
+=== Nix / NixOS
+
+The flake builds oxmonad with a https://github.com/oxalica/rust-overlay[rust-overlay]
+toolchain (`nix build`), and `nix develop` opens a shell with cargo, rust-analyzer
+and river. On NixOS, the module installs oxmonad and river and registers the
+*oxmonad* session with the display manager:
+
+[source,nix]
+----
+{
+  inputs.oxmonad.url = "github:AlexanderThaller/oxmonad";
+
+  outputs = { nixpkgs, oxmonad, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        oxmonad.nixosModules.default
+        { programs.oxmonad.enable = true; }
+      ];
+    };
+  };
+}
+----
+
 == Running
 
 river starts its window manager itself with `-c`:
