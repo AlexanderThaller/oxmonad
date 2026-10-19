@@ -176,6 +176,7 @@ impl Styles {
                 show_hidden_empty: bar.show_empty_workspaces,
                 hidden_empty_fg: Some(color(bar.colors.hidden_empty)),
                 layout_fg: Some(color(bar.colors.layout)),
+                show_layout_name: bar.layout_name,
                 title_fg: color(bar.colors.title),
                 // Core already shortened the title.
                 title_max_chars: usize::MAX,
@@ -1017,6 +1018,13 @@ mod tests {
         let view = bar_view(&model(), &status, &styles);
         assert_eq!(glyph(&view), None);
         assert!(name(&view).is_some());
+
+        let mut config = Config::defaults();
+        config.bar.layout_name = false;
+        let styles = Styles::new(&config, &mut FontCache::new(None));
+        let view = bar_view(&model(), &status, &styles);
+        assert!(glyph(&view).is_some());
+        assert_eq!(name(&view), None);
     }
 
     fn item(id: &str, status: ItemStatus) -> TrayItem {

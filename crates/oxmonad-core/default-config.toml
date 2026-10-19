@@ -79,6 +79,7 @@ title_max_len = 100  # ppTitle = shorten 100; 0 disables shortening
 tray = true          # system tray (StatusNotifierItem icons) left of the clock
 tray_icon_size = 16  # tray icon size in logical pixels
 layout_icon = true   # a miniature of the current layout next to its name
+layout_name = true   # the current layout's name (false: only the miniature)
 show_empty_workspaces = false  # list empty hidden workspaces too
 
 [bar.colors]

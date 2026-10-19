@@ -244,6 +244,8 @@ pub struct BarConfig {
     pub tray_icon_size: u32,
     /// Whether to draw a miniature of the current layout next to its name.
     pub layout_icon: bool,
+    /// Whether to show the current layout's name.
+    pub layout_name: bool,
     /// Whether hidden workspaces without windows are shown (in
     /// `colors.hidden_empty`); `myPP` drops them.
     pub show_empty_workspaces: bool,

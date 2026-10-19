@@ -549,6 +549,9 @@ pub struct PpStyle {
     /// `ppLayout`'s color, also the layout miniature's; `None` uses
     /// [`BarStyle::fg`].
     pub layout_fg: Option<Color>,
+    /// Whether the layout's name is shown; without it only the layout
+    /// miniature (if any) represents the layout.
+    pub show_layout_name: bool,
     pub urgent_fg: Color,
     pub urgent_bg: Color,
     pub title_fg: Color,
@@ -572,6 +575,7 @@ impl Default for PpStyle {
             show_hidden_empty: false,
             hidden_empty_fg: None,
             layout_fg: None,
+            show_layout_name: true,
             urgent_fg: Color::hex("#FF0000"),
             urgent_bg: Color::hex("#FFFF00"),
             title_fg: Color::hex("#86BD47"),
@@ -588,7 +592,8 @@ impl Default for PpStyle {
 /// [`PpStyle::show_hidden_empty`] is set; urgency takes precedence over
 /// every other state. Each tag segment's
 /// [`Segment::action`] is the workspace name. A `layout_glyph` is drawn
-/// right before the layout name.
+/// right before the layout name, or alone without
+/// [`PpStyle::show_layout_name`].
 #[must_use]
 pub fn pp_segments(
     tags: &[WorkspaceTag],
@@ -629,24 +634,28 @@ pub fn pp_segments(
         workspaces.push(segment.action(&tag.name));
     }
 
+    let mut layout_section = Vec::new();
+    if let Some(glyph) = layout_glyph {
+        layout_section.push(with_fg(Segment::with_layout(glyph), pp.layout_fg));
+        if pp.show_layout_name {
+            layout_section.push(Segment::new(" "));
+        }
+    }
+    if pp.show_layout_name {
+        layout_section.push(with_fg(Segment::new(layout), pp.layout_fg));
+    }
+
     let title = shorten(title, pp.title_max_chars);
     let sections = [
         workspaces,
-        layout_glyph
-            .into_iter()
-            .flat_map(|glyph| {
-                [
-                    with_fg(Segment::with_layout(glyph), pp.layout_fg),
-                    Segment::new(" "),
-                ]
-            })
-            .chain([with_fg(Segment::new(layout), pp.layout_fg)])
-            .collect(),
+        layout_section,
         vec![Segment::new(title).fg(pp.title_fg)],
     ];
-    let non_empty = sections
-        .into_iter()
-        .filter(|section| section.iter().any(|segment| !segment.text.is_empty()));
+    let non_empty = sections.into_iter().filter(|section| {
+        section
+            .iter()
+            .any(|segment| segment.is_graphic() || !segment.text.is_empty())
+    });
     join_groups(non_empty, &pp.sep)
 }
 
@@ -818,6 +827,25 @@ mod tests {
         assert_eq!(texts(&segments), "<1> :  Tall");
         assert_eq!(segments[2].layout.as_ref(), Some(&glyph));
         assert_eq!(segments[3].text, " ");
+    }
+
+    #[test]
+    fn pp_without_the_layout_name_shows_only_the_glyph() {
+        let tags = [tag("1", WorkspaceState::Current, false)];
+        let glyph = LayoutGlyph {
+            area: (320, 180),
+            ..LayoutGlyph::default()
+        };
+        let pp = PpStyle {
+            show_layout_name: false,
+            ..PpStyle::default()
+        };
+        let segments = pp_segments(&tags, "Tall", Some(glyph.clone()), "x", &pp);
+        assert_eq!(texts(&segments), "<1> :  : x");
+        assert_eq!(segments[2].layout.as_ref(), Some(&glyph));
+        // Neither glyph nor name: the layout section is dropped.
+        let segments = pp_segments(&tags, "Tall", None, "x", &pp);
+        assert_eq!(texts(&segments), "<1> : x");
     }
 
     #[test]
