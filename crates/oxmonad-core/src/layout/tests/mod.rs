@@ -77,6 +77,7 @@ fn names_describe_where_the_master_goes() {
             "Three Columns",
             "Three Columns Right",
             "Corner",
+            "Corner Right",
         ]
     );
 }
@@ -91,7 +92,9 @@ fn only_no_borders_full_drops_borders() {
     }
     assert_eq!(
         borders,
-        [true, true, true, false, true, true, true, true, true, true]
+        [
+            true, true, true, false, true, true, true, true, true, true, true
+        ]
     );
     assert!(!Layout::Reflect(Box::new(Layout::NoBorders(Box::new(Layout::Grid)))).has_borders());
 }
@@ -107,7 +110,7 @@ fn empty_ring_falls_back_to_full() {
 #[test]
 fn standard_names_are_unique() {
     let names = standard_names();
-    assert_eq!(names.len(), 10);
+    assert_eq!(names.len(), 11);
     for (i, name) in names.iter().enumerate() {
         assert!(!names[..i].contains(name), "{name} is listed twice");
     }
@@ -734,6 +737,22 @@ fn corner_puts_the_others_in_an_l_around_the_master() {
     assert_eq!(
         &six[4..],
         [Rect::new(0, 960, 853, 480), Rect::new(853, 960, 853, 480)]
+    );
+}
+
+#[test]
+fn corner_right_puts_the_master_in_the_top_right_corner() {
+    let layout = Layout::Reflect(Box::new(Layout::Corner(corner())));
+    assert_eq!(layout.name(), "Corner Right");
+    assert_eq!(
+        layout.arrange(QHD, 5, 0).rects,
+        [
+            (0, Rect::new(854, 0, 1706, 960)),
+            (1, Rect::new(0, 0, 854, 480)),
+            (2, Rect::new(0, 480, 854, 480)),
+            (3, Rect::new(0, 960, 854, 480)),
+            (4, Rect::new(854, 960, 1706, 480)),
+        ]
     );
 }
 

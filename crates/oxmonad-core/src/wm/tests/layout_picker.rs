@@ -57,12 +57,12 @@ fn keys_cycle_wrap_and_apply() {
     keys(&mut wm, &[PromptKey::Char('k')]);
     assert_eq!(selected(&wm), 1);
     keys(&mut wm, &[PromptKey::Up, PromptKey::Up]);
-    assert_eq!(selected(&wm), 9);
+    assert_eq!(selected(&wm), 10);
     // Nothing changes until Return.
     assert_eq!(layout(&wm), "Tall Right");
     keys(&mut wm, &[PromptKey::Return]);
     assert!(!wm.is_layout_picker_open());
-    assert_eq!(layout(&wm), "Corner");
+    assert_eq!(layout(&wm), "Corner Right");
     assert_eq!(wm.arrange().focus, Focus::None);
 }
 

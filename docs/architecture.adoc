@@ -116,12 +116,13 @@ Layouts are pure functions `arrange(&self, area: Rect, n: usize, focus: usize)
 `resources/xmonad.hs`:
 
 `reflectHoriz tiled ||| tiled ||| Mirror tiled ||| noBorders Full |||
-tabbed ||| Mirror Grid ||| Grid ||| ThreeCol ||| reflectHoriz ThreeCol` with
+tabbed ||| Mirror Grid ||| Grid ||| ThreeCol ||| reflectHoriz ThreeCol`,
+followed by oxmonad's own `Corner` and `reflectHoriz Corner`, with
 `tiled = ResizableTall 1 (3/100) (3/5) []` and `ThreeCol 1 (3/100) (1/2)`.
 
 In code these are the `standard_layouts` (`LayoutRing::standard`): `Tall
 Right`, `Tall`, `Wide`, `Full`, `Tabs`, `Grid Rows`, `Grid`, `Three
-Columns`, `Three Columns Right`, `Corner`, built from the `Layout` variants
+Columns`, `Three Columns Right`, `Corner`, `Corner Right`, built from the `Layout` variants
 `Tall`, `ThreeColumns`, `Corner`, `Grid`, `Full`, `Tabbed` and the
 modifiers `Mirror`, `Reflect` and `NoBorders`. `Layout::name` is both the
 bar text and the identity used when restoring a saved ring; a saved ring

@@ -252,13 +252,20 @@ fn tabbed(area: Rect, n: usize, focus: usize, tab_height: i32) -> LayoutOutput {
 /// The reference config's `myLayout` followed by `Corner`, in ring order:
 /// `reflectHoriz tiled ||| tiled ||| Mirror tiled ||| noBorders Full |||
 /// tabbed ||| Mirror Grid ||| Grid ||| ThreeCol ||| reflectHoriz ThreeCol
-/// ||| Corner` with
+/// ||| Corner ||| reflectHoriz Corner` with
 /// `tiled = ResizableTall 1 (3/100) (3/5) []` and
 /// `ThreeCol 1 (3/100) (1/2)`. Their [names](Layout::name) are unique.
 #[must_use]
 pub fn standard_layouts(tab_height: i32) -> Vec<Layout> {
     let tiled = || Layout::Tall(Tall::new(1, Ratio::new(3, 100), Ratio::new(3, 5)));
     let three = || Layout::ThreeColumns(ThreeColumns::new(1, Ratio::new(3, 100), Ratio::new(1, 2)));
+    let corner = || {
+        Layout::Corner(Corner::new(
+            Ratio::new(3, 100),
+            Ratio::new(2, 3),
+            Ratio::new(2, 3),
+        ))
+    };
     vec![
         Layout::Reflect(Box::new(tiled())),
         tiled(),
@@ -269,11 +276,8 @@ pub fn standard_layouts(tab_height: i32) -> Vec<Layout> {
         Layout::Grid,
         three(),
         Layout::Reflect(Box::new(three())),
-        Layout::Corner(Corner::new(
-            Ratio::new(3, 100),
-            Ratio::new(2, 3),
-            Ratio::new(2, 3),
-        )),
+        corner(),
+        Layout::Reflect(Box::new(corner())),
     ]
 }
 

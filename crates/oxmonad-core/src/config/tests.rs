@@ -479,6 +479,7 @@ fn default_layouts_are_the_standard_ring() {
             "Three Columns",
             "Three Columns Right",
             "Corner",
+            "Corner Right",
         ]
     );
 }

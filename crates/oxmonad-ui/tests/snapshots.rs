@@ -459,6 +459,16 @@ const LAYOUTS: &[(
         ],
         &[],
     ),
+    (
+        "Corner Right",
+        &[
+            (0, 107, 0, 213, 120),
+            (1, 0, 0, 107, 90),
+            (2, 0, 90, 107, 90),
+            (3, 107, 120, 213, 60),
+        ],
+        &[],
+    ),
 ];
 
 fn picker(selected: usize, active: usize) -> LayoutPickerView {
