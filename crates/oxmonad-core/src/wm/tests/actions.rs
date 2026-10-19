@@ -71,6 +71,7 @@ fn layout_cycle_and_reset() {
         "Three Columns",
         "Three Columns Right",
         "Corner",
+        "Corner Right",
         "Tall Right",
     ];
     for name in expected {

@@ -32,7 +32,7 @@ workspaces = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 # what `reset-layout` returns to; leave a layout out to remove it from the
 # ring. Names are matched ignoring case; each may appear once. Valid names:
 # "Tall Right", "Tall", "Wide", "Full", "Tabs", "Grid Rows", "Grid",
-# "Three Columns", "Three Columns Right", "Corner".
+# "Three Columns", "Three Columns Right", "Corner", "Corner Right".
 layouts = [
   "Tall Right",
   "Tall",
@@ -44,6 +44,7 @@ layouts = [
   "Three Columns",
   "Three Columns Right",
   "Corner",
+  "Corner Right",
 ]
 
 [border]
