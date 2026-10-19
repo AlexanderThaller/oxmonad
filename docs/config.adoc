@@ -441,6 +441,13 @@ starts or stops it.
 |`true`
 |Draw a miniature of the current layout before its name.
 
+|`layout_name`
+|boolean
+|`true`, `false`
+|`true`
+|Show the current layout's name; with `false` and `layout_icon` on, only
+the miniature is shown.
+
 |`show_empty_workspaces`
 |boolean
 |`true`, `false`

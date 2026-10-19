@@ -244,7 +244,8 @@ bicubic when enlarging) and vertically centered. `BarLayout::segment_at`
 hit-tests icon segments like text ones and `BarLayout::segment_span` reports
 where a segment landed, to anchor a popup under it. A segment can also be
 a `LayoutGlyph`, a miniature of the current layout drawn before its name
-(`[bar] layout_icon`): the layout's `preview()` rectangles (the same ones
+(`[bar] layout_icon`; `[bar] layout_name = false` leaves it alone, without
+the name): the layout's `preview()` rectangles (the same ones
 the layout picker and `docs/layouts/*.svg` draw) scaled to
 `BarStyle::layout_icon_size` (14) high at the preview's 16:9 ratio, snapped
 to device pixels with a pixel gap per scale step between windows, the

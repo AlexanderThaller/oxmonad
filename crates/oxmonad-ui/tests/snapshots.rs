@@ -856,6 +856,26 @@ fn bar_layout_icons() {
         ],
     );
     let full = glyph(&[(0, 0, 0, 320, 180)], &[]);
+    let icon_only = BarView {
+        segments_left: pp_segments(
+            &[
+                tag("1", WorkspaceState::Current, true, false),
+                tag("2", WorkspaceState::Hidden, true, false),
+            ],
+            "Tall",
+            Some(tall.clone()),
+            "alacritty",
+            &PpStyle {
+                show_layout_name: false,
+                ..PpStyle::default()
+            },
+        ),
+        segments_right: vec![Segment::new("2026.10.01-4 13:05")],
+    };
+    assert_snapshot(
+        "bar_layout_icon_only",
+        &render_bar(&icon_only, &style, &fonts, 500, 1),
+    );
     for (name, layout, preview) in [
         ("tall", "Tall", tall),
         ("grid", "Grid", grid),
