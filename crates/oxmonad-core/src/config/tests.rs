@@ -47,6 +47,7 @@ fn defaults_parse() {
     assert!(config.bar.layout_icon);
     assert!(config.bar.layout_name);
     assert!(!config.bar.show_empty_workspaces);
+    assert!(config.bar.clickable_workspaces);
     assert_eq!(config.bar.colors.current, Color::rgb(0xF8, 0xE6, 0x3A));
     assert_eq!(config.bar.colors.title, Color::rgb(0x86, 0xBD, 0x47));
     assert_eq!(config.prompt.position, BarPosition::Bottom);
@@ -309,6 +310,7 @@ fn nested_tables_deep_merge() {
         layout_icon = false
         layout_name = false
         show_empty_workspaces = true
+        clickable_workspaces = false
         "##,
     );
     let d = Config::defaults();
@@ -323,6 +325,7 @@ fn nested_tables_deep_merge() {
     assert!(!c.bar.layout_icon);
     assert!(!c.bar.layout_name);
     assert!(c.bar.show_empty_workspaces);
+    assert!(!c.bar.clickable_workspaces);
     assert!(Config::from_toml("[bar]\ntray_icon_size = -1").is_err());
 }
 

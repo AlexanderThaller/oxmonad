@@ -81,6 +81,7 @@ tray_icon_size = 16  # tray icon size in logical pixels
 layout_icon = true   # a miniature of the current layout next to its name
 layout_name = true   # the current layout's name (false: only the miniature)
 show_empty_workspaces = false  # list empty hidden workspaces too
+clickable_workspaces = true    # clicking a workspace name views it
 
 [bar.colors]
 background = "#161616"    # xmobar bgColor
