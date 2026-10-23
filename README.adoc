@@ -129,7 +129,9 @@ link:docs/keybindings.adoc[`docs/keybindings.adoc`].
 `Super+q` restarts oxmonad in place, like xmonad's: it re-executes the
 oxmonad binary at the path it was started from, so a freshly built or
 installed version takes over, and the new process reads the configuration
-again. river and your windows keep running; workspaces, window order,
+again. A binary started from the Nix store is looked up in `PATH` instead,
+so after `nixos-rebuild switch` (or `home-manager switch`) the restart runs
+the new version. river and your windows keep running; workspaces, window order,
 focus, floating and fullscreen windows, layouts, split screens and the bar
 toggle are restored. If the binary is missing or `--check-config` fails, oxmonad logs
 the error and keeps running.

@@ -483,8 +483,9 @@ pub struct State {
     /// `restart` was applied in the running manage sequence; it begins
     /// once that sequence's render sequence has finished.
     restart_requested: bool,
-    /// The state to restore after restarting.
-    restart: Option<Snapshot>,
+    /// The state to restore after restarting and the checked binary to
+    /// restart into.
+    restart: Option<(Snapshot, PathBuf)>,
     lifecycle: Lifecycle,
     exit: Option<ExitCode>,
 }
@@ -1178,16 +1179,19 @@ impl State {
             tracing::error!("restart: the oxmonad binary is unknown");
             return;
         };
-        if let Err(err) = exe.check() {
-            tracing::error!("restart: {err}; keeping this oxmonad");
-            return;
-        }
+        let binary = match exe.check() {
+            Ok(binary) => binary,
+            Err(err) => {
+                tracing::error!("restart: {err}; keeping this oxmonad");
+                return;
+            }
+        };
         let windows = &self.windows;
         let snapshot = self
             .wm
             .snapshot(|id| windows.get(&id).and_then(|w| w.identifier.clone()));
-        tracing::info!("restarting");
-        self.restart = Some(snapshot);
+        tracing::info!(binary = %binary.display(), "restarting");
+        self.restart = Some((snapshot, binary));
         self.lifecycle = Lifecycle::Restarting;
         self.globals.wm.stop();
     }
@@ -1202,7 +1206,7 @@ impl State {
     /// fails, binds the window manager again and restores the snapshot in
     /// this process.
     fn finish_restart(&mut self) {
-        let Some(snapshot) = self.restart.take() else {
+        let Some((snapshot, binary)) = self.restart.take() else {
             return;
         };
         self.send_answers();
@@ -1212,7 +1216,7 @@ impl State {
         let saved = restart::save(&snapshot);
         match (&self.exe, saved) {
             (Some(exe), Ok(path)) => {
-                let err = exe.exec(&path);
+                let err = exe.exec(&binary, &path);
                 tracing::error!(%err, "restart: cannot execute the oxmonad binary");
                 restart::discard(&path);
             }
