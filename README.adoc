@@ -24,8 +24,10 @@ cargo build --release
 === Nix / NixOS
 
 The flake builds oxmonad with a https://github.com/oxalica/rust-overlay[rust-overlay]
-toolchain (`nix build`), and `nix develop` opens a shell with cargo, rust-analyzer
-and river. On NixOS, the module installs oxmonad and river and registers the
+toolchain (`nix build`) using https://github.com/ipetkov/crane[crane]: the
+dependencies are built and cached separately, so after a change to oxmonad only
+its own crates are rebuilt. `nix develop` opens a shell with cargo,
+rust-analyzer and river. On NixOS, the module installs oxmonad and river and registers the
 *oxmonad* session with the display manager:
 
 [source,nix]
