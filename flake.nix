@@ -7,6 +7,7 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    crane.url = "github:ipetkov/crane";
   };
 
   outputs =
@@ -14,6 +15,7 @@
       self,
       nixpkgs,
       rust-overlay,
+      crane,
     }:
     let
       systems = [
@@ -35,11 +37,7 @@
       oxmonadFor =
         pkgs:
         let
-          toolchain = pkgs.rust-bin.stable.latest.minimal;
-          rustPlatform = pkgs.makeRustPlatform {
-            cargo = toolchain;
-            rustc = toolchain;
-          };
+          craneLib = (crane.mkLib pkgs).overrideToolchain (p: p.rust-bin.stable.latest.minimal);
         in
         pkgs.callPackage (
           {
@@ -49,72 +47,89 @@
             swaylock,
             systemd,
           }:
-          rustPlatform.buildRustPackage {
-            pname = "oxmonad";
-            version = (lib.importTOML ./Cargo.toml).workspace.package.version;
+          let
+            commonArgs = {
+              pname = "oxmonad";
+              version = (lib.importTOML ./Cargo.toml).workspace.package.version;
 
-            src = lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions [
-                ./Cargo.toml
-                ./Cargo.lock
-                ./crates
-                ./assets
-                ./contrib
-              ];
+              src = lib.fileset.toSource {
+                root = ./.;
+                fileset = lib.fileset.unions [
+                  ./Cargo.toml
+                  ./Cargo.lock
+                  ./crates
+                  ./assets
+                  ./contrib
+                ];
+              };
+
+              strictDeps = true;
+              CARGO_PROFILE = "deploy";
+              cargoExtraArgs = "--locked -p oxmonad";
+
+              # The test suite needs system fonts and a dbus-daemon, which the
+              # build sandbox does not provide; run `cargo test` in the dev shell.
+              doCheck = false;
             };
 
-            cargoLock.lockFile = ./Cargo.lock;
-            buildType = "deploy";
-            cargoBuildFlags = [
-              "-p"
-              "oxmonad"
-            ];
+            # The dependencies on their own, so a change to oxmonad's sources
+            # only rebuilds the workspace crates. Rebuilt when Cargo.lock or
+            # the toolchain changes.
+            cargoArtifacts = craneLib.buildDepsOnly (
+              commonArgs
+              // {
+                # Only `cargo build`: the default extra `cargo check` adds
+                # nothing to the release build.
+                buildPhaseCargoCommand = "cargoWithProfile build ${commonArgs.cargoExtraArgs}";
+              }
+            );
+          in
+          craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
 
-            # The test suite needs system fonts and a dbus-daemon, which the
-            # build sandbox does not provide; run `cargo test` in the dev shell.
-            doCheck = false;
+              postInstall = ''
+                install -Dm755 contrib/oxmonad-lock $out/bin/oxmonad-lock
+                wrapProgram $out/bin/oxmonad-lock \
+                  --suffix PATH : ${lib.makeBinPath [ swaylock ]}
 
-            postInstall = ''
-              install -Dm755 contrib/oxmonad-lock $out/bin/oxmonad-lock
-              wrapProgram $out/bin/oxmonad-lock \
-                --suffix PATH : ${lib.makeBinPath [ swaylock ]}
+                substitute contrib/lightdm/oxmonad-session $out/bin/oxmonad-session \
+                  --replace-fail "oxmonad=/usr/local/bin/oxmonad" "oxmonad=$out/bin/oxmonad"
+                chmod 755 $out/bin/oxmonad-session
+                wrapProgram $out/bin/oxmonad-session \
+                  --prefix PATH : ${
+                    lib.makeBinPath [
+                      river
+                      dbus
+                      systemd
+                    ]
+                  }
 
-              substitute contrib/lightdm/oxmonad-session $out/bin/oxmonad-session \
-                --replace-fail "oxmonad=/usr/local/bin/oxmonad" "oxmonad=$out/bin/oxmonad"
-              chmod 755 $out/bin/oxmonad-session
-              wrapProgram $out/bin/oxmonad-session \
-                --prefix PATH : ${
-                  lib.makeBinPath [
-                    river
-                    dbus
-                    systemd
-                  ]
-                }
+                install -Dm644 contrib/systemd/oxmonad-session.target \
+                  $out/lib/systemd/user/oxmonad-session.target
 
-              install -Dm644 contrib/systemd/oxmonad-session.target \
-                $out/lib/systemd/user/oxmonad-session.target
+                substitute contrib/lightdm/oxmonad.desktop \
+                  $out/share/wayland-sessions/oxmonad.desktop \
+                  --replace-fail /usr/local/bin/oxmonad-session $out/bin/oxmonad-session
+              '';
 
-              substitute contrib/lightdm/oxmonad.desktop \
-                $out/share/wayland-sessions/oxmonad.desktop \
-                --replace-fail /usr/local/bin/oxmonad-session $out/bin/oxmonad-session
-            '';
+              nativeBuildInputs = [ pkgs.makeWrapper ];
 
-            nativeBuildInputs = [ pkgs.makeWrapper ];
+              preInstall = ''
+                mkdir -p $out/share/wayland-sessions
+              '';
 
-            preInstall = ''
-              mkdir -p $out/share/wayland-sessions
-            '';
+              passthru.providedSessions = [ "oxmonad" ];
 
-            passthru.providedSessions = [ "oxmonad" ];
-
-            meta = {
-              description = "xmonad-style tiling window manager for the river Wayland compositor";
-              license = lib.licenses.mit;
-              mainProgram = "oxmonad";
-              platforms = lib.platforms.linux;
-            };
-          }
+              meta = {
+                description = "xmonad-style tiling window manager for the river Wayland compositor";
+                license = lib.licenses.mit;
+                mainProgram = "oxmonad";
+                platforms = lib.platforms.linux;
+              };
+            }
+          )
         ) { };
     in
     {
