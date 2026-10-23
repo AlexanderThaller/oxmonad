@@ -565,7 +565,9 @@ actions `split-screen <n>` and `rescreen`.
 == Restart in place
 
 `restart` (`Mod+q`) replaces the running oxmonad with the binary now at the
-path it was started from, keeping every window where it was — xmonad's
+path it was started from (for a binary in `/nix/store`, which never changes,
+the first `oxmonad` in `PATH` instead, e.g. `/run/current-system/sw/bin`),
+keeping every window where it was — xmonad's
 `restart`, which serializes the `WindowSet` and resumes it in the new
 process.
 
