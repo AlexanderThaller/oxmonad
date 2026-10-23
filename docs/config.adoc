@@ -454,6 +454,13 @@ the miniature is shown.
 |`false`
 |Also list hidden workspaces without windows, in `colors.hidden_empty`
 (xmonad's `ppHiddenNoWindows`; `myPP` drops them).
+
+|`clickable_workspaces`
+|boolean
+|`true`, `false`
+|`true`
+|Clicking a workspace name in the bar views that workspace; with `false`
+clicks on the names do nothing.
 |===
 
 === `[bar.colors]`

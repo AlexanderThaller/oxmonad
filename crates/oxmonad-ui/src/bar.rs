@@ -552,6 +552,9 @@ pub struct PpStyle {
     /// Whether the layout's name is shown; without it only the layout
     /// miniature (if any) represents the layout.
     pub show_layout_name: bool,
+    /// Whether workspace tags carry their name as [`Segment::action`], so
+    /// clicking one views that workspace.
+    pub clickable_workspaces: bool,
     pub urgent_fg: Color,
     pub urgent_bg: Color,
     pub title_fg: Color,
@@ -576,6 +579,7 @@ impl Default for PpStyle {
             hidden_empty_fg: None,
             layout_fg: None,
             show_layout_name: true,
+            clickable_workspaces: true,
             urgent_fg: Color::hex("#FF0000"),
             urgent_bg: Color::hex("#FFFF00"),
             title_fg: Color::hex("#86BD47"),
@@ -591,7 +595,8 @@ impl Default for PpStyle {
 /// without windows are omitted (`ppHiddenNoWindows = const ""`) unless
 /// [`PpStyle::show_hidden_empty`] is set; urgency takes precedence over
 /// every other state. Each tag segment's
-/// [`Segment::action`] is the workspace name. A `layout_glyph` is drawn
+/// [`Segment::action`] is the workspace name, unless
+/// [`PpStyle::clickable_workspaces`] is off. A `layout_glyph` is drawn
 /// right before the layout name, or alone without
 /// [`PpStyle::show_layout_name`].
 #[must_use]
@@ -631,7 +636,11 @@ pub fn pp_segments(
         if !workspaces.is_empty() {
             workspaces.push(Segment::new(&pp.ws_sep));
         }
-        workspaces.push(segment.action(&tag.name));
+        workspaces.push(if pp.clickable_workspaces {
+            segment.action(&tag.name)
+        } else {
+            segment
+        });
     }
 
     let mut layout_section = Vec::new();
@@ -827,6 +836,21 @@ mod tests {
         assert_eq!(texts(&segments), "<1> :  Tall");
         assert_eq!(segments[2].layout.as_ref(), Some(&glyph));
         assert_eq!(segments[3].text, " ");
+    }
+
+    #[test]
+    fn pp_without_clickable_workspaces_has_no_actions() {
+        let tags = [
+            tag("1", WorkspaceState::Current, false),
+            tag("2", WorkspaceState::Hidden, true),
+        ];
+        let pp = PpStyle {
+            clickable_workspaces: false,
+            ..PpStyle::default()
+        };
+        let segments = pp_segments(&tags, "Tall", None, "x", &pp);
+        assert_eq!(texts(&segments), "<1> 2 : Tall : x");
+        assert!(segments.iter().all(|s| s.action.is_none()));
     }
 
     #[test]

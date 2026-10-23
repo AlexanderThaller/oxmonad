@@ -49,7 +49,8 @@ xmonad's classic `mod1Mask`. The tables below assume Super.
 |`Super` + left drag |Float the window under the pointer and move it
 |`Super` + right drag |Float the window under the pointer and resize it
 |Click a window |Focus it
-|Click a workspace in the bar |View that workspace
+|Click a workspace in the bar |View that workspace (unless
+`clickable_workspaces = false` under `[bar]`)
 |Click a tab |Focus that window
 |Click a layout in the layout picker |Switch to that layout
 |Click the key binding help |Close it

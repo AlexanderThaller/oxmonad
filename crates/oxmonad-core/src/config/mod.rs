@@ -249,6 +249,8 @@ pub struct BarConfig {
     /// Whether hidden workspaces without windows are shown (in
     /// `colors.hidden_empty`); `myPP` drops them.
     pub show_empty_workspaces: bool,
+    /// Whether clicking a workspace name in the bar views it.
+    pub clickable_workspaces: bool,
     /// Colors.
     pub colors: BarColors,
 }

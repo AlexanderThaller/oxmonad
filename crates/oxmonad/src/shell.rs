@@ -177,6 +177,7 @@ impl Styles {
                 hidden_empty_fg: Some(color(bar.colors.hidden_empty)),
                 layout_fg: Some(color(bar.colors.layout)),
                 show_layout_name: bar.layout_name,
+                clickable_workspaces: bar.clickable_workspaces,
                 title_fg: color(bar.colors.title),
                 // Core already shortened the title.
                 title_max_chars: usize::MAX,
@@ -1133,6 +1134,15 @@ mod tests {
             index: 2,
         };
         assert_eq!(bar_click(&view, clock), None);
+    }
+
+    #[test]
+    fn workspace_clicks_can_be_turned_off() {
+        let mut config = Config::defaults();
+        config.bar.clickable_workspaces = false;
+        let styles = Styles::new(&config, &mut FontCache::new(None));
+        let view = bar_view(&model(), &Status::default(), &styles);
+        assert!(view.segments_left.iter().all(|s| s.action.is_none()));
     }
 
     #[test]
