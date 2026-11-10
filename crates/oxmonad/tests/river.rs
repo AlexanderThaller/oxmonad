@@ -1866,44 +1866,44 @@ impl FakeItem {
     }
 
     #[zbus(property)]
-    fn menu(&self) -> zbus::zvariant::ObjectPath<'static> {
-        zbus::zvariant::ObjectPath::from_static_str("/Menu").expect("path")
+    fn menu(&self) -> zbus::ObjectPath<'static> {
+        zbus::ObjectPath::from_static_str("/Menu").expect("path")
     }
 }
 
 /// A dbusmenu entry: `(id, properties, children)`.
 fn menu_entry(
     id: i32,
-    props: &[(&str, zbus::zvariant::Value<'static>)],
-    children: Vec<zbus::zvariant::Value<'static>>,
-) -> zbus::zvariant::Value<'static> {
-    use zbus::zvariant::{
+    props: &[(&str, zbus::Variant<'static>)],
+    children: Vec<zbus::Variant<'static>>,
+) -> zbus::Variant<'static> {
+    use zbus::{
         Array,
         Dict,
         Signature,
-        StructureBuilder,
-        Value,
+        Structure,
+        Variant,
     };
 
     let mut dict = Dict::new(&Signature::Str, &Signature::Variant);
     for (key, value) in props {
         dict.append(
-            Value::from((*key).to_owned()),
-            Value::Value(Box::new(value.clone())),
+            Variant::from((*key).to_owned()),
+            Variant::Variant(Box::new(value.clone())),
         )
         .expect("dict entry");
     }
     let mut array = Array::new(&Signature::Variant);
     for child in children {
         array
-            .append(Value::Value(Box::new(child)))
+            .append(Variant::Variant(Box::new(child)))
             .expect("array entry");
     }
-    Value::Structure(
-        StructureBuilder::new()
+    Variant::Structure(
+        Structure::builder()
             .add_field(id)
-            .append_field(Value::Dict(dict))
-            .append_field(Value::Array(array))
+            .append_field(Variant::Dict(dict))
+            .append_field(Variant::Array(array))
             .build()
             .expect("structure"),
     )
@@ -1913,8 +1913,8 @@ type LayoutReply = (
     u32,
     (
         i32,
-        HashMap<String, zbus::zvariant::OwnedValue>,
-        Vec<zbus::zvariant::OwnedValue>,
+        HashMap<String, zbus::OwnedVariant>,
+        Vec<zbus::OwnedVariant>,
     ),
 );
 
@@ -1930,20 +1930,23 @@ impl FakeMenu {
         reason = "zbus hands arguments over by value"
     )]
     fn get_layout(&self, parent: i32, depth: i32, properties: Vec<String>) -> LayoutReply {
-        use zbus::zvariant::{
-            OwnedValue,
-            Value,
+        use zbus::{
+            OwnedVariant,
+            Variant,
         };
 
         let wanted = properties.len();
         record(&self.calls, format!("GetLayout {parent} {depth} {wanted}"));
-        let label = |text: &'static str| ("label", Value::from(text));
+        let label = |text: &'static str| ("label", Variant::from(text));
         let children = vec![
             menu_entry(1, &[label("_Open")], vec![]),
-            menu_entry(2, &[("type", Value::from("separator"))], vec![]),
+            menu_entry(2, &[("type", Variant::from("separator"))], vec![]),
             menu_entry(
                 3,
-                &[label("More"), ("children-display", Value::from("submenu"))],
+                &[
+                    label("More"),
+                    ("children-display", Variant::from("submenu")),
+                ],
                 vec![menu_entry(4, &[label("Inner")], vec![])],
             ),
             menu_entry(5, &[label("Quit")], vec![]),
@@ -1955,7 +1958,7 @@ impl FakeMenu {
                 HashMap::new(),
                 children
                     .into_iter()
-                    .map(|child| OwnedValue::try_from(child).expect("owned"))
+                    .map(|child| OwnedVariant::try_from(child).expect("owned"))
                     .collect(),
             ),
         )
@@ -1966,7 +1969,7 @@ impl FakeMenu {
         false
     }
 
-    fn event(&self, id: i32, event: &str, data: zbus::zvariant::Value<'_>, timestamp: u32) {
+    fn event(&self, id: i32, event: &str, data: zbus::Variant<'_>, timestamp: u32) {
         // The data and timestamp are not checked.
         let _ = (data, timestamp);
         record(&self.calls, format!("Event {id} {event}"));
@@ -1977,19 +1980,19 @@ impl FakeMenu {
 /// watcher (retrying until the watcher is there).
 fn fake_item(address: &str, calls: &Calls) -> zbus::Connection {
     let conn = zbus::block_on(async {
-        zbus::connection::Builder::address(address)?
+        zbus::connection::Builder::address(address)
             .serve_at(
                 "/StatusNotifierItem",
                 FakeItem {
                     calls: Arc::clone(calls),
                 },
-            )?
+            )
             .serve_at(
                 "/Menu",
                 FakeMenu {
                     calls: Arc::clone(calls),
                 },
-            )?
+            )
             .build()
             .await
     })

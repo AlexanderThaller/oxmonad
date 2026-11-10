@@ -14,16 +14,14 @@ use futures_lite::{
 };
 use zbus::{
     Connection,
+    DynamicType,
     MatchRule,
     Message,
     MessageStream,
+    OwnedVariant,
+    Variant,
     export::serde::Serialize,
     message,
-    zvariant::{
-        DynamicType,
-        OwnedValue,
-        Value,
-    },
 };
 
 use super::{
@@ -84,11 +82,11 @@ pub struct ItemProps {
 }
 
 /// A non-empty string or object path.
-fn string(value: &Value<'_>) -> Option<String> {
+fn string(value: &Variant<'_>) -> Option<String> {
     let value = unwrap_variant(value);
-    let text = if let Value::Str(s) = value {
+    let text = if let Variant::Str(s) = value {
         Some(s.as_str())
-    } else if let Value::ObjectPath(p) = value {
+    } else if let Variant::ObjectPath(p) = value {
         Some(p.as_str())
     } else {
         None
@@ -97,25 +95,35 @@ fn string(value: &Value<'_>) -> Option<String> {
 }
 
 /// An `a(iiay)` icon pixmap list; malformed entries are skipped.
-pub fn pixmaps(value: &Value<'_>) -> Vec<RawPixmap> {
-    let Value::Array(array) = unwrap_variant(value) else {
+pub fn pixmaps(value: &Variant<'_>) -> Vec<RawPixmap> {
+    let Variant::Array(array) = unwrap_variant(value) else {
         return Vec::new();
     };
     array
         .inner()
         .iter()
         .filter_map(|entry| {
-            let Value::Structure(entry) = unwrap_variant(entry) else {
+            let Variant::Structure(entry) = unwrap_variant(entry) else {
                 return None;
             };
-            let [Value::I32(width), Value::I32(height), Value::Array(bytes)] = entry.fields()
+            let [
+                Variant::I32(width),
+                Variant::I32(height),
+                Variant::Array(bytes),
+            ] = entry.fields()
             else {
                 return None;
             };
             let argb = bytes
                 .inner()
                 .iter()
-                .map(|b| if let Value::U8(b) = b { Some(*b) } else { None })
+                .map(|b| {
+                    if let Variant::U8(b) = b {
+                        Some(*b)
+                    } else {
+                        None
+                    }
+                })
                 .collect::<Option<Vec<u8>>>()?;
             Some(RawPixmap {
                 width: *width,
@@ -127,14 +135,14 @@ pub fn pixmaps(value: &Value<'_>) -> Vec<RawPixmap> {
 }
 
 /// A valid dbusmenu object path (not `/` or `/NO_DBUSMENU`).
-fn menu_path(value: &Value<'_>) -> Option<String> {
+fn menu_path(value: &Variant<'_>) -> Option<String> {
     string(value).filter(|p| p.starts_with('/') && p != "/" && p != "/NO_DBUSMENU")
 }
 
 impl ItemProps {
     /// Reads the known properties from `(name, value)` pairs; anything
     /// missing or of the wrong type is left at its default.
-    pub fn from_props<'a>(props: impl Iterator<Item = (&'a str, &'a Value<'a>)>) -> Self {
+    pub fn from_props<'a>(props: impl Iterator<Item = (&'a str, &'a Variant<'a>)>) -> Self {
         let mut item = Self::default();
         for (name, value) in props {
             match name {
@@ -153,7 +161,7 @@ impl ItemProps {
                 "AttentionIconPixmap" => item.attention_pixmaps = pixmaps(value),
                 "IconThemePath" => item.theme_path = string(value),
                 "ItemIsMenu" => {
-                    item.item_is_menu = matches!(unwrap_variant(value), Value::Bool(true));
+                    item.item_is_menu = matches!(unwrap_variant(value), Variant::Bool(true));
                 }
                 "Menu" => item.menu = menu_path(value),
                 _ => {}
@@ -162,7 +170,7 @@ impl ItemProps {
         item
     }
 
-    fn from_map(map: &HashMap<String, OwnedValue>) -> Self {
+    fn from_map(map: &HashMap<String, OwnedVariant>) -> Self {
         Self::from_props(map.iter().map(|(name, value)| (name.as_str(), &**value)))
     }
 }
@@ -224,7 +232,7 @@ async fn owner(conn: &Connection, service: &str) -> Option<String> {
 async fn fetch_props(conn: &Connection, owner: &str, path: &str) -> Option<ItemProps> {
     const PROPS: &str = "org.freedesktop.DBus.Properties";
     if let Some(reply) = call(conn, owner, path, PROPS, "GetAll", &INTERFACE).await {
-        match reply.body().deserialize::<HashMap<String, OwnedValue>>() {
+        match reply.body().deserialize::<HashMap<String, OwnedVariant>>() {
             Ok(map) => return Some(ItemProps::from_map(&map)),
             Err(err) => tracing::debug!(%err, owner, path, "tray item properties"),
         }
@@ -232,7 +240,7 @@ async fn fetch_props(conn: &Connection, owner: &str, path: &str) -> Option<ItemP
     let mut map = HashMap::new();
     for name in PROPERTIES {
         if let Some(reply) = call(conn, owner, path, PROPS, "Get", &(INTERFACE, name)).await
-            && let Ok(value) = reply.body().deserialize::<OwnedValue>()
+            && let Ok(value) = reply.body().deserialize::<OwnedVariant>()
         {
             map.insert(name.to_owned(), value);
         }
@@ -270,17 +278,14 @@ async fn signals(
     path: &str,
     interface: Option<&str>,
 ) -> Option<MessageStream> {
-    let rule = || -> zbus::Result<MatchRule<'_>> {
-        let mut builder = MatchRule::builder()
-            .msg_type(message::Type::Signal)
-            .sender(owner)?
-            .path(path)?;
-        if let Some(interface) = interface {
-            builder = builder.interface(interface)?;
-        }
-        Ok(builder.build())
-    };
-    let stream = match rule() {
+    let mut builder = MatchRule::builder()
+        .msg_type(message::Type::Signal)
+        .sender(owner)
+        .path(path);
+    if let Some(interface) = interface {
+        builder = builder.interface(interface);
+    }
+    let stream = match builder.build() {
         Ok(rule) => MessageStream::for_match_rule(rule, conn, None).await,
         Err(err) => Err(err),
     };
@@ -451,26 +456,26 @@ async fn drain(stream: &mut Option<MessageStream>, mut each: impl FnMut(&Message
 
 #[cfg(test)]
 mod tests {
-    use zbus::zvariant::ObjectPath;
+    use zbus::ObjectPath;
 
     use super::*;
 
     #[test]
     fn reads_item_properties() {
-        let icons = Value::from(vec![(1i32, 1i32, vec![255u8, 1, 2, 3])]);
-        let props: Vec<(&str, Value<'_>)> = vec![
-            ("Id", Value::from("nm-applet")),
-            ("Title", Value::from("")),
-            ("Status", Value::from("NeedsAttention")),
-            ("IconName", Value::from("network-wireless")),
+        let icons = Variant::from(vec![(1i32, 1i32, vec![255u8, 1, 2, 3])]);
+        let props: Vec<(&str, Variant<'_>)> = vec![
+            ("Id", Variant::from("nm-applet")),
+            ("Title", Variant::from("")),
+            ("Status", Variant::from("NeedsAttention")),
+            ("IconName", Variant::from("network-wireless")),
             ("IconPixmap", icons),
-            ("IconThemePath", Value::from(5i32)),
-            ("ItemIsMenu", Value::from(true)),
+            ("IconThemePath", Variant::from(5i32)),
+            ("ItemIsMenu", Variant::from(true)),
             (
                 "Menu",
-                Value::from(ObjectPath::from_static_str("/MenuBar").expect("path")),
+                Variant::from(ObjectPath::from_static_str("/MenuBar").expect("path")),
             ),
-            ("Unknown", Value::from(1u8)),
+            ("Unknown", Variant::from(1u8)),
         ];
         let item = ItemProps::from_props(props.iter().map(|(k, v)| (*k, v)));
         assert_eq!(
@@ -492,7 +497,7 @@ mod tests {
         );
         let no_menu = [(
             "Menu",
-            Value::from(ObjectPath::from_static_str("/NO_DBUSMENU").expect("path")),
+            Variant::from(ObjectPath::from_static_str("/NO_DBUSMENU").expect("path")),
         )];
         assert_eq!(
             ItemProps::from_props(no_menu.iter().map(|(k, v)| (*k, v))).menu,

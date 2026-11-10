@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
-use zbus::zvariant::{
-    OwnedValue,
-    Value,
+use zbus::{
+    OwnedVariant,
+    Variant,
 };
 
 use super::{
@@ -17,7 +17,7 @@ use super::{
 pub const INTERFACE: &str = "com.canonical.dbusmenu";
 
 /// The body of a `GetLayout` reply: revision and `(ia{sv}av)` root.
-pub type LayoutReply = (u32, (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>));
+pub type LayoutReply = (u32, (i32, HashMap<String, OwnedVariant>, Vec<OwnedVariant>));
 
 /// Removes GTK-style mnemonics: a single `_` goes, `__` becomes `_`.
 #[must_use]
@@ -38,8 +38,8 @@ pub fn strip_mnemonics(label: &str) -> String {
 }
 
 /// `value` without any variant wrappers.
-pub fn unwrap_variant<'a>(mut value: &'a Value<'a>) -> &'a Value<'a> {
-    while let Value::Value(inner) = value {
+pub fn unwrap_variant<'a>(mut value: &'a Variant<'a>) -> &'a Variant<'a> {
+    while let Variant::Variant(inner) = value {
         value = inner;
     }
     value
@@ -48,8 +48,8 @@ pub fn unwrap_variant<'a>(mut value: &'a Value<'a>) -> &'a Value<'a> {
 /// Builds a node from its id, properties and child layouts.
 fn node<'a>(
     id: i32,
-    props: impl Iterator<Item = (&'a str, &'a Value<'a>)>,
-    children: impl Iterator<Item = &'a Value<'a>>,
+    props: impl Iterator<Item = (&'a str, &'a Variant<'a>)>,
+    children: impl Iterator<Item = &'a Variant<'a>>,
 ) -> MenuNode {
     let mut node = MenuNode {
         id,
@@ -64,14 +64,14 @@ fn node<'a>(
     let mut toggle_state = false;
     for (key, value) in props {
         match (key, unwrap_variant(value)) {
-            ("label", Value::Str(label)) => node.label = strip_mnemonics(label),
-            ("enabled", Value::Bool(enabled)) => node.enabled = *enabled,
-            ("visible", Value::Bool(visible)) => node.visible = *visible,
-            ("type", Value::Str(kind)) if kind.as_str() == "separator" => {
+            ("label", Variant::Str(label)) => node.label = strip_mnemonics(label),
+            ("enabled", Variant::Bool(enabled)) => node.enabled = *enabled,
+            ("visible", Variant::Bool(visible)) => node.visible = *visible,
+            ("type", Variant::Str(kind)) if kind.as_str() == "separator" => {
                 node.kind = MenuKind::Separator;
             }
-            ("toggle-type", Value::Str(kind)) => toggle_type = kind.as_str(),
-            ("toggle-state", Value::I32(state)) => toggle_state = *state == 1,
+            ("toggle-type", Variant::Str(kind)) => toggle_type = kind.as_str(),
+            ("toggle-state", Variant::I32(state)) => toggle_state = *state == 1,
             _ => {}
         }
     }
@@ -85,15 +85,20 @@ fn node<'a>(
 
 /// Parses one `(ia{sv}av)` layout value (possibly variant-wrapped).
 #[must_use]
-pub fn parse_node(value: &Value<'_>) -> Option<MenuNode> {
-    let Value::Structure(structure) = unwrap_variant(value) else {
+pub fn parse_node(value: &Variant<'_>) -> Option<MenuNode> {
+    let Variant::Structure(structure) = unwrap_variant(value) else {
         return None;
     };
-    let [Value::I32(id), Value::Dict(props), Value::Array(children)] = structure.fields() else {
+    let [
+        Variant::I32(id),
+        Variant::Dict(props),
+        Variant::Array(children),
+    ] = structure.fields()
+    else {
         return None;
     };
     let props = props.iter().filter_map(|(key, value)| {
-        if let Value::Str(key) = key {
+        if let Variant::Str(key) = key {
             Some((key.as_str(), value))
         } else {
             None
@@ -115,11 +120,11 @@ pub fn parse_layout(reply: &LayoutReply) -> MenuNode {
 
 #[cfg(test)]
 pub mod tests {
-    use zbus::zvariant::{
+    use zbus::{
         Array,
         Dict,
         Signature,
-        StructureBuilder,
+        Structure,
     };
 
     use super::*;
@@ -127,28 +132,28 @@ pub mod tests {
     /// A layout node value as a dbusmenu server sends it.
     pub fn layout_value(
         id: i32,
-        props: &[(&str, Value<'static>)],
-        children: Vec<Value<'static>>,
-    ) -> Value<'static> {
+        props: &[(&str, Variant<'static>)],
+        children: Vec<Variant<'static>>,
+    ) -> Variant<'static> {
         let mut dict = Dict::new(&Signature::Str, &Signature::Variant);
         for (key, value) in props {
             dict.append(
-                Value::from((*key).to_owned()),
-                Value::Value(Box::new(value.clone())),
+                Variant::from((*key).to_owned()),
+                Variant::Variant(Box::new(value.clone())),
             )
             .expect("dict entry");
         }
         let mut array = Array::new(&Signature::Variant);
         for child in children {
             array
-                .append(Value::Value(Box::new(child)))
+                .append(Variant::Variant(Box::new(child)))
                 .expect("array entry");
         }
-        Value::Structure(
-            StructureBuilder::new()
+        Variant::Structure(
+            Structure::builder()
                 .add_field(id)
-                .append_field(Value::Dict(dict))
-                .append_field(Value::Array(array))
+                .append_field(Variant::Dict(dict))
+                .append_field(Variant::Array(array))
                 .build()
                 .expect("structure"),
         )
@@ -167,29 +172,29 @@ pub mod tests {
         let check = layout_value(
             2,
             &[
-                ("label", Value::from("_Mute")),
-                ("toggle-type", Value::from("checkmark")),
-                ("toggle-state", Value::from(1i32)),
+                ("label", Variant::from("_Mute")),
+                ("toggle-type", Variant::from("checkmark")),
+                ("toggle-state", Variant::from(1i32)),
             ],
             vec![],
         );
-        let separator = layout_value(3, &[("type", Value::from("separator"))], vec![]);
+        let separator = layout_value(3, &[("type", Variant::from("separator"))], vec![]);
         let radio = layout_value(
             5,
             &[
-                ("label", Value::from("Radio")),
-                ("toggle-type", Value::from("radio")),
-                ("toggle-state", Value::from(0i32)),
-                ("enabled", Value::from(false)),
+                ("label", Variant::from("Radio")),
+                ("toggle-type", Variant::from("radio")),
+                ("toggle-state", Variant::from(0i32)),
+                ("enabled", Variant::from(false)),
             ],
             vec![],
         );
         let submenu = layout_value(
             4,
             &[
-                ("label", Value::from("More")),
-                ("children-display", Value::from("submenu")),
-                ("visible", Value::from(false)),
+                ("label", Variant::from("More")),
+                ("children-display", Variant::from("submenu")),
+                ("visible", Variant::from(false)),
             ],
             vec![radio],
         );
@@ -199,13 +204,13 @@ pub mod tests {
                 0,
                 HashMap::from([(
                     "children-display".to_owned(),
-                    OwnedValue::from(zbus::zvariant::Str::from_static("submenu")),
+                    OwnedVariant::from(zbus::Str::from_static("submenu")),
                 )]),
                 vec![
-                    OwnedValue::try_from(check).expect("owned"),
-                    OwnedValue::try_from(separator).expect("owned"),
-                    OwnedValue::try_from(submenu).expect("owned"),
-                    OwnedValue::from(42i32),
+                    OwnedVariant::try_from(check).expect("owned"),
+                    OwnedVariant::try_from(separator).expect("owned"),
+                    OwnedVariant::try_from(submenu).expect("owned"),
+                    OwnedVariant::from(42i32),
                 ],
             ),
         );

@@ -34,6 +34,8 @@ use zbus::{
     Connection,
     MatchRule,
     MessageStream,
+    OwnedVariant,
+    Variant,
     connection,
     fdo::{
         DBusProxy,
@@ -42,10 +44,6 @@ use zbus::{
     },
     message,
     names::MemberName,
-    zvariant::{
-        OwnedValue,
-        Value,
-    },
 };
 
 use super::{
@@ -145,7 +143,7 @@ struct Entry {
 pub fn run(config: Config) {
     let executor = Rc::new(LocalExecutor::new());
     let spawner = Rc::clone(&executor);
-    async_io::block_on(executor.run(async move {
+    zbus::block_on(executor.run(async move {
         let conn = match connect(config.address.as_deref()).await {
             Ok(conn) => conn,
             Err(err) => {
@@ -165,8 +163,8 @@ pub fn run(config: Config) {
 
 async fn connect(address: Option<&str>) -> zbus::Result<Connection> {
     let builder = match address {
-        Some(address) => connection::Builder::address(address)?,
-        None => connection::Builder::session()?,
+        Some(address) => connection::Builder::address(address),
+        None => connection::Builder::session(),
     };
     builder.build().await
 }
@@ -183,15 +181,15 @@ fn resolve_icon(
 }
 
 /// A list of strings, as in `RegisteredStatusNotifierItems`.
-fn strings(value: &Value<'_>) -> Vec<String> {
-    let Value::Array(array) = menu::unwrap_variant(value) else {
+fn strings(value: &Variant<'_>) -> Vec<String> {
+    let Variant::Array(array) = menu::unwrap_variant(value) else {
         return Vec::new();
     };
     array
         .inner()
         .iter()
         .filter_map(|v| {
-            if let Value::Str(s) = v {
+            if let Variant::Str(s) = v {
                 Some(s.to_string())
             } else {
                 None
@@ -260,7 +258,7 @@ impl Service {
         self.forward_watcher_signals().await?;
         if let Err(err) = self
             .conn
-            .request_name_with_flags(self.host_name.as_str(), RequestNameFlags::DoNotQueue.into())
+            .request_name_with_flags(self.host_name.as_str(), RequestNameFlags::DO_NOT_QUEUE)
             .await
         {
             tracing::debug!(%err, "cannot own the tray host name");
@@ -329,9 +327,9 @@ impl Service {
     async fn forward_watcher_signals(&mut self) -> zbus::Result<()> {
         let rule = MatchRule::builder()
             .msg_type(message::Type::Signal)
-            .interface(watcher::INTERFACE)?
-            .path(watcher::PATH)?
-            .build();
+            .interface(watcher::INTERFACE)
+            .path(watcher::PATH)
+            .build()?;
         let mut signals = MessageStream::for_match_rule(rule, &self.conn, None).await?;
         let outbox = self.outbox.clone();
         self.tasks.push(self.executor.spawn(async move {
@@ -364,7 +362,7 @@ impl Service {
     async fn claim_watcher(&mut self) -> bool {
         let request = self
             .conn
-            .request_name_with_flags(watcher::NAME, RequestNameFlags::DoNotQueue.into());
+            .request_name_with_flags(watcher::NAME, RequestNameFlags::DO_NOT_QUEUE);
         let claimed = matches!(
             timeout(item::CALL_TIMEOUT, request).await,
             Some(Ok(
@@ -403,7 +401,7 @@ impl Service {
             )
             .await;
             if let Some(reply) = reply
-                && let Ok(value) = reply.body().deserialize::<OwnedValue>()
+                && let Ok(value) = reply.body().deserialize::<OwnedVariant>()
             {
                 let _ = outbox.send(Message::WatcherItems(strings(&value))).await;
             }
@@ -680,7 +678,7 @@ impl Service {
                     let Some(menu_path) = menu_path else {
                         return;
                     };
-                    let body = (id, "clicked", Value::from(0i32), 0u32);
+                    let body = (id, "clicked", Variant::from(0i32), 0u32);
                     call(&conn, &service, &menu_path, menu::INTERFACE, method, &body).await;
                 }
             }

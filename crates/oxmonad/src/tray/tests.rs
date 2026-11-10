@@ -37,12 +37,10 @@ use calloop::{
     },
 };
 use zbus::{
+    ObjectPath,
+    OwnedVariant,
+    Variant,
     interface,
-    zvariant::{
-        ObjectPath,
-        OwnedValue,
-        Value,
-    },
 };
 
 use super::*;
@@ -137,13 +135,13 @@ impl FakeMenu {
             .lock()
             .expect("lock")
             .push(format!("GetLayout {parent} {depth} {wanted}"));
-        let child = menu::tests::layout_value(7, &[("label", Value::from("_Quit"))], vec![]);
+        let child = menu::tests::layout_value(7, &[("label", Variant::from("_Quit"))], vec![]);
         (
             1,
             (
                 0,
                 HashMap::new(),
-                vec![OwnedValue::try_from(child).expect("owned")],
+                vec![OwnedVariant::try_from(child).expect("owned")],
             ),
         )
     }
@@ -156,7 +154,7 @@ impl FakeMenu {
         false
     }
 
-    fn event(&self, id: i32, event: &str, data: Value<'_>, timestamp: u32) {
+    fn event(&self, id: i32, event: &str, data: Variant<'_>, timestamp: u32) {
         let data = data.downcast::<i32>().unwrap_or(-1);
         self.calls
             .lock()
@@ -223,19 +221,19 @@ fn wait_for_call(calls: &Calls, call: &str) {
 /// registers it by object path.
 fn fake_item(bus: &Bus, calls: &Calls, with_menu: bool) -> zbus::Connection {
     zbus::block_on(async {
-        let mut builder = zbus::connection::Builder::address(bus.address.as_str())?.serve_at(
+        let mut builder = zbus::connection::Builder::address(bus.address.as_str()).serve_at(
             "/StatusNotifierItem",
             FakeItem {
                 calls: Arc::clone(calls),
             },
-        )?;
+        );
         if with_menu {
             builder = builder.serve_at(
                 "/Menu",
                 FakeMenu {
                     calls: Arc::clone(calls),
                 },
-            )?;
+            );
         }
         let conn = builder.build().await?;
         conn.call_method(
@@ -265,7 +263,7 @@ async fn registered_items(conn: &zbus::Connection) -> zbus::Result<Vec<String>> 
             ),
         )
         .await?;
-    let value: OwnedValue = reply.body().deserialize()?;
+    let value: OwnedVariant = reply.body().deserialize()?;
     Ok(Vec::<String>::try_from(value)?)
 }
 
@@ -328,7 +326,7 @@ fn watcher_follows_a_fake_item() {
     drop(item);
     listener.wait_for(<[TrayItem]>::is_empty);
     let registered = zbus::block_on(async {
-        let conn = zbus::connection::Builder::address(bus.address.as_str())?
+        let conn = zbus::connection::Builder::address(bus.address.as_str())
             .build()
             .await?;
         registered_items(&conn).await
