@@ -264,7 +264,7 @@ async fn registered_items(conn: &zbus::Connection) -> zbus::Result<Vec<String>> 
         )
         .await?;
     let value: OwnedVariant = reply.body().deserialize()?;
-    Ok(Vec::<String>::try_from(value)?)
+    Vec::<String>::try_from(value)
 }
 
 /// A menu entry with defaults.

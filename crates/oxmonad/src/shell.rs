@@ -302,8 +302,7 @@ pub fn bar_view(model: &BarModel, status: &Status, styles: &Styles) -> BarView {
     let battery = status
         .battery
         .filter(|_| model.primary)
-        .map(|state| format_battery(state, &styles.battery))
-        .unwrap_or_default();
+        .map_or_default(|state| format_battery(state, &styles.battery));
     let clock = if status.clock.is_empty() {
         Vec::new()
     } else {

@@ -717,18 +717,16 @@ fn wm_pid(session: &Session) -> u32 {
 /// set is stable, so control connections being closed do not count.
 fn open_fds(pid: u32) -> Vec<String> {
     let read = || {
-        let mut fds: Vec<String> = fs::read_dir(format!("/proc/{pid}/fd"))
-            .map(|dir| {
-                dir.filter_map(Result::ok)
-                    .filter_map(|e| fs::read_link(e.path()).ok())
-                    .map(|target| {
-                        let target = target.to_string_lossy().into_owned();
-                        target.split(":[").next().unwrap_or_default().to_owned()
-                    })
-                    .filter(|target| !target.starts_with("/memfd:"))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut fds: Vec<String> = fs::read_dir(format!("/proc/{pid}/fd")).map_or_default(|dir| {
+            dir.filter_map(Result::ok)
+                .filter_map(|e| fs::read_link(e.path()).ok())
+                .map(|target| {
+                    let target = target.to_string_lossy().into_owned();
+                    target.split(":[").next().unwrap_or_default().to_owned()
+                })
+                .filter(|target| !target.starts_with("/memfd:"))
+                .collect()
+        });
         fds.sort();
         fds
     };

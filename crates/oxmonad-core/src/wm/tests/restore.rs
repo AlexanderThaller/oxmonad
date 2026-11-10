@@ -90,12 +90,7 @@ struct Normalized {
 
 fn normalized(wm: &Wm) -> Normalized {
     let a = wm.arrange();
-    let screen_name = |id: ScreenId| {
-        wm.stack_set()
-            .screen(id)
-            .map(|s| s.name.clone())
-            .unwrap_or_default()
-    };
+    let screen_name = |id: ScreenId| wm.stack_set().screen(id).map_or_default(|s| s.name.clone());
     let name = |id: WindowId| ident_of(id).unwrap_or_default();
     let mut windows: Vec<_> = a
         .windows
@@ -182,8 +177,7 @@ fn assert_same(original: &Wm, restored: &Wm) {
 fn idents_on(wm: &Wm, tag: &str) -> Vec<String> {
     wm.stack_set()
         .workspace(tag)
-        .map(|w| w.windows().into_iter().filter_map(ident_of).collect())
-        .unwrap_or_default()
+        .map_or_default(|w| w.windows().into_iter().filter_map(ident_of).collect())
 }
 
 const DP1: (u64, &str, Rect) = (0, "DP-1", SCREEN);

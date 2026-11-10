@@ -71,7 +71,7 @@ impl FontCache {
         if Fonts::is_embedded_family(family) {
             return Fonts::embedded();
         }
-        let mut known = self.file.as_deref().map(read).unwrap_or_default();
+        let mut known = self.file.as_deref().map_or_default(read);
         if let Some(file) = known.get(family).filter(|file| file.exists())
             && let Ok(fonts) = Fonts::from_file(file)
         {

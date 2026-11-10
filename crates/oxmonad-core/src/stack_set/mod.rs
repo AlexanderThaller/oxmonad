@@ -68,10 +68,7 @@ impl Workspace {
     /// The windows in stack order (master first).
     #[must_use]
     pub fn windows(&self) -> Vec<WindowId> {
-        self.stack
-            .as_ref()
-            .map(Stack::integrate)
-            .unwrap_or_default()
+        self.stack.as_ref().map_or_default(Stack::integrate)
     }
 
     /// Whether the workspace holds `window`.

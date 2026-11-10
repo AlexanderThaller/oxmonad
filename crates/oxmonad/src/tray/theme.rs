@@ -93,15 +93,13 @@ fn parse_index(content: &str) -> ThemeIndex {
         }
     }
     let list = |value: Option<&&str>| -> Vec<String> {
-        value
-            .map(|v| {
-                v.split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default()
+        value.map_or_default(|v| {
+            v.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
     };
     let header = sections.get("Icon Theme");
     let mut names = list(header.and_then(|h| h.get("Directories")));

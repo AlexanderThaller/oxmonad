@@ -127,7 +127,7 @@ impl Wm {
         let workspace = self
             .bar_screen(output)
             .map_or_else(|| ss.current_workspace(), |s| &s.workspace);
-        let title = workspace.focus().map(|w| self.title(w)).unwrap_or_default();
+        let title = workspace.focus().map_or_default(|w| self.title(w));
         BarModel {
             workspaces,
             layout: workspace.layout.name(),

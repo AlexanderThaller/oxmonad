@@ -1651,8 +1651,7 @@ impl State {
             })
             .collect();
         let windows: Vec<_> = arrangement
-            .map(|a| a.windows.as_slice())
-            .unwrap_or_default()
+            .map_or_default(|a| a.windows.as_slice())
             .iter()
             .map(|p| {
                 let window = self.windows.get(&p.window);

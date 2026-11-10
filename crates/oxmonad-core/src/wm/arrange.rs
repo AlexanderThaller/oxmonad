@@ -598,7 +598,6 @@ impl Wm {
     pub(super) fn title(&self, window: WindowId) -> String {
         self.windows
             .get(&window)
-            .map(|info| info.title.clone())
-            .unwrap_or_default()
+            .map_or_default(|info| info.title.clone())
     }
 }
