@@ -29,6 +29,9 @@ pub enum Node {
     Bar(OutputId),
     /// The tab strip of a screen.
     Tabs(ScreenId),
+    /// The tab strip of a tabbed scratchpad: the screen and the strip's
+    /// index among that screen's scratchpad strips.
+    ScratchpadTabs(ScreenId, usize),
     /// A divider line between virtual screens: the output and the
     /// divider's index among that output's dividers.
     Divider(OutputId, usize),
@@ -375,6 +378,7 @@ mod tests {
                 screen: ScreenId(1),
                 output: OutputId(1),
                 tab_strip: None,
+                scratchpad_strips: Vec::new(),
             }],
             bars: Vec::new(),
             dividers: Vec::new(),

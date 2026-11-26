@@ -225,7 +225,7 @@ impl Layout {
 
 /// `addTabs WhenPlural U Simplest`: the focused window below the strip, tab
 /// `i` spanning `x + w*i/n .. x + w*(i+1)/n` (Tabbed.hs `loc`/`esize`).
-fn tabbed(area: Rect, n: usize, focus: usize, tab_height: i32) -> LayoutOutput {
+pub(crate) fn tabbed(area: Rect, n: usize, focus: usize, tab_height: i32) -> LayoutOutput {
     if n < 2 {
         return LayoutOutput {
             rects: vec![(focus, area)],

@@ -163,12 +163,37 @@ fn default_pointer_bindings() {
 }
 
 #[test]
+fn scratchpad_with_several_apps() {
+    let c = load(
+        r#"
+[[scratchpads]]
+name = "gui"
+rect = [0.1, 0.1, 0.8, 0.8]
+apps = [
+  { command = "mycelium-gui", app_id = "mycelium-gui" },
+  { command = "rhyolite-gui", app_id = "rhyolite-gui" },
+]
+"#,
+    );
+    let pad = &c.scratchpads[0];
+    assert_eq!(pad.apps.len(), 2);
+    assert!(pad.owns("rhyolite-gui"));
+    assert!(!pad.owns("scratchpad"));
+}
+
+#[test]
 fn default_scratchpad() {
     let c = Config::defaults();
     assert_eq!(c.scratchpads.len(), 1);
     let pad = &c.scratchpads[0];
     assert_eq!(pad.name, "term");
-    assert_eq!(pad.app_id, "scratchpad");
+    assert_eq!(
+        pad.apps,
+        [ScratchpadApp {
+            command: "alacritty --class scratchpad".into(),
+            app_id: "scratchpad".into(),
+        }]
+    );
     assert_eq!(
         pad.rect,
         RationalRect::new(
@@ -452,6 +477,23 @@ fn error_cases() {
         err(&pad("[0.0, 0.0, 1.5, 0.5]")),
         ConfigError::InvalidScratchpad { .. }
     ));
+    for bad in [
+        // Neither form.
+        "[[scratchpads]]\nname = \"x\"\nrect = [0, 0, 1, 1]",
+        // Half of the single-app form.
+        "[[scratchpads]]\nname = \"x\"\ncommand = \"x\"\nrect = [0, 0, 1, 1]",
+        // Both forms.
+        "[[scratchpads]]\nname = \"x\"\ncommand = \"x\"\napp_id = \"x\"\napps = [{ command = \
+         \"y\", app_id = \"y\" }]\nrect = [0, 0, 1, 1]",
+        // An app id twice.
+        "[[scratchpads]]\nname = \"x\"\nrect = [0, 0, 1, 1]\napps = [{ command = \"a\", app_id = \
+         \"a\" }, { command = \"b\", app_id = \"a\" }]",
+    ] {
+        assert!(
+            matches!(err(bad), ConfigError::InvalidScratchpad { .. }),
+            "{bad}"
+        );
+    }
     assert!(matches!(
         err(&pad("[0.0, 0.0, 0.0, 0.5]")),
         ConfigError::InvalidScratchpad { .. }

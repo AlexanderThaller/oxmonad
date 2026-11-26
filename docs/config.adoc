@@ -679,10 +679,34 @@ otherwise it moves that window between the current workspace and the hidden
 |`name` |string |any non-empty, unique name |Name used by `toggle-scratchpad`. Non-empty and unique.
 |`command` |string |any shell command |Command to spawn (through `sh -c`) when the window does not exist.
 |`app_id` |string |any app id |App id identifying the scratchpad's window (matched exactly).
+|`apps` |array of tables |`{ command = "...", app_id = "..." }` |Several applications in one scratchpad, in place of `command` and `app_id`.
 |`rect` |array of 4 floats |`[x, y, width, height]`, each `0.0`–`1.0`; width, height > 0 |`[x, y, width, height]` as fractions of the screen, each in `0`–`1`; width and height must be greater than 0.
 |===
 
-All keys are required. Default (replaced as a whole by any `+[[scratchpads]]+`
+`name` and `rect` are required, plus either `command` and `app_id` or a
+non-empty `apps`. An app id may belong to only one scratchpad application.
+
+A scratchpad with `apps` toggles all its windows together: if any is on the
+current workspace they are all hidden, otherwise they are all summoned and
+every application without a window is spawned. While more than one of them is
+shown they share one frame with a tab strip on top (styled by `[tabs]`): the
+selected window fills the frame below the strip and the others are hidden.
+Clicking a tab, or moving focus onto a window with `focus-next`/`focus-prev`,
+selects it; the selection is kept when focus leaves the scratchpad and when it
+is hidden.
+
+[source,toml]
+----
+[[scratchpads]]
+name = "gui"
+rect = [0.1, 0.1, 0.8, 0.8]
+apps = [
+  { command = "mycelium-gui", app_id = "mycelium-gui" },
+  { command = "rhyolite-gui", app_id = "rhyolite-gui" },
+]
+----
+
+Default (replaced as a whole by any `+[[scratchpads]]+`
 of your own):
 
 [source,toml]

@@ -1,6 +1,9 @@
 //! Computing the [`Arrangement`]: the complete desired window state.
 
-use std::collections::BTreeSet;
+use std::collections::{
+    BTreeMap,
+    BTreeSet,
+};
 
 use super::{
     Wm,
@@ -14,10 +17,12 @@ use crate::{
     },
     geometry::{
         OutputId,
+        RationalRect,
         Rect,
         ScreenId,
         WindowId,
     },
+    layout,
     stack_set::{
         Screen,
         Stack,
@@ -124,6 +129,9 @@ pub struct ScreenArrangement {
     pub output: OutputId,
     /// The tab strip, if the screen's layout is tabbed and shows tabs.
     pub tab_strip: Option<TabStrip>,
+    /// The tab strips of scratchpads showing more than one window on the
+    /// screen, in scratchpad config order.
+    pub scratchpad_strips: Vec<TabStrip>,
 }
 
 /// A bar that is shown.
@@ -388,7 +396,7 @@ impl Wm {
                 .stack
                 .as_ref()
                 .and_then(|s| s.filter(|w| !claimed.contains(w)));
-            let tab_strip = stack.and_then(|stack| {
+            let (tab_strip, scratchpad_strips) = stack.map_or_default(|stack| {
                 claimed.extend(stack.iter().copied());
                 self.arrange_screen(screen, &stack, &mut layers)
             });
@@ -398,6 +406,7 @@ impl Wm {
                     screen: screen.id,
                     output: screen.output,
                     tab_strip,
+                    scratchpad_strips,
                 },
             ));
         }
@@ -437,13 +446,14 @@ impl Wm {
     }
 
     /// Places the windows of `stack` (the part of `screen`'s workspace not
-    /// shown elsewhere) into `layers`, returning the screen's tab strip.
+    /// shown elsewhere) into `layers`, returning the screen's layout tab
+    /// strip and its scratchpad tab strips.
     fn arrange_screen(
         &self,
         screen: &Screen,
         stack: &Stack<WindowId>,
         layers: &mut Layers,
-    ) -> Option<TabStrip> {
+    ) -> (Option<TabStrip>, Vec<TabStrip>) {
         // Tiled windows, laid out by the workspace's layout.
         let mut tab_strip = None;
         if let Some(tiled) = stack.filter(|&w| self.is_tiled(w)) {
@@ -493,11 +503,16 @@ impl Wm {
             let top = floats.remove(pos);
             floats.push(top);
         }
+        let (tabbed, scratchpad_strips) = self.tab_scratchpads(screen, stack, &floats);
         for window in floats {
             let Some(rational) = self.stack_set.floating().get(&window) else {
                 continue;
             };
-            let frame = rational.scale(screen.rect);
+            let frame = match tabbed.get(&window) {
+                Some(Some(below_strip)) => *below_strip,
+                Some(None) => continue,
+                None => rational.scale(screen.rect),
+            };
             let border = self.border(window);
             let rect = border.map_or(frame, |b| frame.inset(b.width));
             // A float whose window covers its whole screen (a video player)
@@ -530,7 +545,72 @@ impl Wm {
                 border: None,
             });
         }
-        tab_strip
+        (tab_strip, scratchpad_strips)
+    }
+
+    /// Tabs the floating windows of every scratchpad with more than one of
+    /// them in `floats` (the screen's floats, bottom to top): the selected
+    /// one (the focused window, else the scratchpad's remembered tab, else
+    /// the first in stack order) fills its frame below a tab strip, the
+    /// others are hidden. Returns the frame of each tabbed window (`None`
+    /// for hidden ones) and the strips.
+    fn tab_scratchpads(
+        &self,
+        screen: &Screen,
+        stack: &Stack<WindowId>,
+        floats: &[WindowId],
+    ) -> (BTreeMap<WindowId, Option<Rect>>, Vec<TabStrip>) {
+        let mut frames = BTreeMap::new();
+        let mut strips = Vec::new();
+        for pad in &self.config.scratchpads {
+            let members: Vec<WindowId> = stack
+                .iter()
+                .copied()
+                .filter(|w| floats.contains(w))
+                .filter(|&w| self.scratchpad_of(w).is_some_and(|p| p.name == pad.name))
+                .collect();
+            if members.len() < 2 {
+                continue;
+            }
+            let selected = [
+                Some(stack.focus),
+                self.scratchpad_tabs.get(&pad.name).copied(),
+            ]
+            .into_iter()
+            .flatten()
+            .find(|w| members.contains(w))
+            .unwrap_or(members[0]);
+            let index = members.iter().position(|&w| w == selected).unwrap_or(0);
+            let frame = self
+                .stack_set
+                .floating()
+                .get(&selected)
+                .map_or(pad.rect, RationalRect::clone)
+                .scale(screen.rect);
+            let output = layout::tabbed(frame, members.len(), index, self.config.tabs.height);
+            for &window in &members {
+                frames.insert(window, None);
+            }
+            if let Some(&(_, rect)) = output.rects.first() {
+                frames.insert(selected, Some(rect));
+            }
+            if let Some(tabs) = output.tabs {
+                strips.push(TabStrip {
+                    rect: tabs.strip,
+                    tabs: members
+                        .iter()
+                        .zip(tabs.tabs)
+                        .map(|(&window, rect)| Tab {
+                            window,
+                            title: self.title(window),
+                            focused: window == selected,
+                            rect,
+                        })
+                        .collect(),
+                });
+            }
+        }
+        (frames, strips)
     }
 
     /// Whether a tiled window that its screen's layout places alone goes

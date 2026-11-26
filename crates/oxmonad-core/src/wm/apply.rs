@@ -19,6 +19,12 @@ impl Wm {
     /// Applies a user action, returning the effects the binary must
     /// perform.
     pub fn apply(&mut self, action: Action) -> Vec<Effect> {
+        let effects = self.apply_action(action);
+        self.remember_scratchpad_tabs();
+        effects
+    }
+
+    fn apply_action(&mut self, action: Action) -> Vec<Effect> {
         let ss = &mut self.stack_set;
         match action {
             Action::Spawn(command) => return vec![Effect::Spawn(command)],
@@ -161,9 +167,10 @@ impl Wm {
         Some(window)
     }
 
-    /// xmonad-contrib's `namedScratchpadAction`: hides the scratchpad if it
-    /// is on the current workspace, summons it from wherever it is
-    /// otherwise, or spawns it.
+    /// xmonad-contrib's `namedScratchpadAction`, for every application of
+    /// the scratchpad at once: hides its windows if any is on the current
+    /// workspace, otherwise summons them from wherever they are and spawns
+    /// the applications that have no window yet.
     fn toggle_scratchpad(&mut self, name: &str) -> Vec<Effect> {
         let Some(pad) = self
             .config
@@ -174,38 +181,57 @@ impl Wm {
         else {
             return Vec::new();
         };
-        let matches = |wm: &Self, window: &WindowId| {
+        let owned = |wm: &Self, window: &WindowId| {
             wm.windows
                 .get(window)
-                .is_some_and(|info| info.app_id == pad.app_id)
+                .is_some_and(|info| pad.owns(&info.app_id))
         };
-        let on_current = self
+        let on_current: Vec<WindowId> = self
             .stack_set
             .current_workspace()
             .windows()
             .into_iter()
-            .find(|w| matches(self, w));
-        if let Some(window) = on_current {
+            .filter(|w| owned(self, w))
+            .collect();
+        if !on_current.is_empty() {
             self.stack_set.add_workspace(SCRATCHPAD_TAG);
-            self.stack_set.shift_win(SCRATCHPAD_TAG, window);
+            for window in on_current {
+                self.stack_set.shift_win(SCRATCHPAD_TAG, window);
+            }
             return Vec::new();
         }
-        let elsewhere = self
+        let elsewhere: Vec<WindowId> = self
             .stack_set
             .all_windows()
             .into_iter()
-            .find(|w| matches(self, w));
-        match elsewhere {
-            Some(window) => {
-                let tag = self.stack_set.current_tag().to_owned();
-                self.stack_set.shift_win(&tag, window);
-                if !self.stack_set.is_floating(window) {
-                    self.stack_set.float(window, pad.rect);
-                }
-                self.stack_set.focus_window(window);
-                Vec::new()
+            .filter(|w| owned(self, w))
+            .collect();
+        let tag = self.stack_set.current_tag().to_owned();
+        for &window in &elsewhere {
+            self.stack_set.shift_win(&tag, window);
+            if !self.stack_set.is_floating(window) {
+                self.stack_set.float(window, pad.rect);
             }
-            None => vec![Effect::Spawn(pad.command)],
         }
+        let selected = self
+            .scratchpad_tabs
+            .get(&pad.name)
+            .copied()
+            .filter(|w| elsewhere.contains(w))
+            .or_else(|| elsewhere.first().copied());
+        if let Some(window) = selected {
+            self.stack_set.focus_window(window);
+        }
+        pad.apps
+            .iter()
+            .filter(|app| {
+                !elsewhere.iter().any(|w| {
+                    self.windows
+                        .get(w)
+                        .is_some_and(|info| info.app_id == app.app_id)
+                })
+            })
+            .map(|app| Effect::Spawn(app.command.clone()))
+            .collect()
     }
 }

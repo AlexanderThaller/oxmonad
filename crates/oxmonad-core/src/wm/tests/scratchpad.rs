@@ -90,3 +90,99 @@ fn toggle_ws_skips_scratchpad_workspace() {
     apply(&mut wm, "toggle-ws");
     assert_eq!(wm.stack_set().current_tag(), "2");
 }
+
+/// A `Wm` whose `gui` scratchpad holds two applications.
+fn wm_gui() -> Wm {
+    let config = Config::from_toml(
+        r#"
+[[scratchpads]]
+name = "gui"
+rect = [0.1, 0.1, 0.8, 0.8]
+apps = [
+  { command = "mycelium-gui", app_id = "mycelium" },
+  { command = "rhyolite-gui", app_id = "rhyolite" },
+]
+"#,
+    )
+    .expect("config loads");
+    let mut wm = Wm::new(config);
+    wm.add_output(O0, "DP-1", SCREEN);
+    wm
+}
+
+fn strips(wm: &Wm) -> Vec<TabStrip> {
+    wm.arrange()
+        .screens
+        .into_iter()
+        .flat_map(|s| s.scratchpad_strips)
+        .collect()
+}
+
+#[test]
+fn group_toggle_spawns_every_missing_app() {
+    let mut wm = wm_gui();
+    assert_eq!(
+        apply(&mut wm, "toggle-scratchpad gui"),
+        [
+            Effect::Spawn("mycelium-gui".into()),
+            Effect::Spawn("rhyolite-gui".into())
+        ]
+    );
+    // With one app running, summoning spawns only the other.
+    wm.manage(w(1), info("mycelium", "Mycelium"));
+    apply(&mut wm, "toggle-scratchpad gui");
+    apply(&mut wm, "view 2");
+    assert_eq!(
+        apply(&mut wm, "toggle-scratchpad gui"),
+        [Effect::Spawn("rhyolite-gui".into())]
+    );
+    assert_eq!(windows(&wm), [w(1)]);
+}
+
+#[test]
+fn group_windows_share_the_rect_as_tabs() {
+    let mut wm = wm_gui();
+    manage_all(&mut wm, [1]);
+    wm.manage(w(2), info("mycelium", "Mycelium"));
+    // A single window has no tabs.
+    assert_eq!(strips(&wm), []);
+    wm.manage(w(3), info("rhyolite", "Rhyolite"));
+    let arrangement = wm.arrange();
+    // The focused one fills the rect below the strip, the other is hidden.
+    assert_eq!(
+        rect_of(&arrangement, 3).map(|r| r.outset(1)),
+        Some(Rect::new(192, 128, 1536, 844))
+    );
+    assert!(arrangement.hidden.contains(&w(2)));
+    let strip = &strips(&wm)[0];
+    assert_eq!(strip.rect, Rect::new(192, 108, 1536, 20));
+    let tabs: Vec<_> = strip
+        .tabs
+        .iter()
+        .map(|t| (t.window, t.title.as_str(), t.focused))
+        .collect();
+    assert_eq!(tabs, [(w(3), "Rhyolite", true), (w(2), "Mycelium", false)]);
+    // Clicking a tab selects it.
+    wm.focus_window(w(2));
+    assert!(wm.arrange().hidden.contains(&w(3)));
+    assert!(wm.arrange().placement(w(2)).is_some());
+}
+
+#[test]
+fn group_keeps_its_tab_when_focus_leaves() {
+    let mut wm = wm_gui();
+    manage_all(&mut wm, [1]);
+    wm.manage(w(2), info("mycelium", "Mycelium"));
+    wm.manage(w(3), info("rhyolite", "Rhyolite"));
+    wm.focus_window(w(2));
+    wm.focus_window(w(1));
+    let arrangement = wm.arrange();
+    assert!(arrangement.placement(w(2)).is_some());
+    assert!(arrangement.hidden.contains(&w(3)));
+    // Hiding and summoning keeps the selected tab, too.
+    apply(&mut wm, "toggle-scratchpad gui");
+    assert_eq!(windows(&wm), [w(1)]);
+    apply(&mut wm, "toggle-scratchpad gui");
+    assert_eq!(wm.stack_set().peek(), Some(w(2)));
+    assert!(wm.arrange().hidden.contains(&w(3)));
+}

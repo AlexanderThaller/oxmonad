@@ -248,7 +248,9 @@ action = "float"
 # Named scratchpads: `toggle-scratchpad <name>` spawns `command` if no
 # window with `app_id` exists, otherwise moves it between the current
 # workspace and the hidden "NSP" workspace. `rect` = [x, y, w, h] as
-# fractions of the screen.
+# fractions of the screen. Instead of `command`/`app_id`, a scratchpad can
+# list several `apps = [{ command = "...", app_id = "..." }, ...]`; they are
+# toggled together and shown as tabs.
 [[scratchpads]]
 name = "term"
 command = "alacritty --class scratchpad"

@@ -1447,6 +1447,16 @@ impl State {
                     content: shell::tabs_content(strip),
                 });
             }
+            for (n, strip) in screen.scratchpad_strips.iter().enumerate() {
+                if strip.rect.w > 0 && strip.rect.h > 0 {
+                    wanted.push(Wanted {
+                        node: Node::ScratchpadTabs(screen.screen, n),
+                        rect: strip.rect,
+                        scale,
+                        content: shell::tabs_content(strip),
+                    });
+                }
+            }
         }
         let mut index = BTreeMap::<OutputId, usize>::new();
         for divider in &arrangement.dividers {
@@ -1909,6 +1919,7 @@ impl Requests for RiverRequests<'_> {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
             Node::Bar(_)
             | Node::Tabs(_)
+            | Node::ScratchpadTabs(..)
             | Node::Divider(..)
             | Node::Prompt
             | Node::LayoutPicker
@@ -1935,6 +1946,7 @@ impl Requests for RiverRequests<'_> {
             Node::Window(id) => self.windows.get(&id).map(|w| &w.node),
             Node::Bar(_)
             | Node::Tabs(_)
+            | Node::ScratchpadTabs(..)
             | Node::Divider(..)
             | Node::Prompt
             | Node::LayoutPicker

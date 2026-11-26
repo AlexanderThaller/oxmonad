@@ -50,7 +50,10 @@ pub use view::{
 
 use crate::{
     action::Effect,
-    config::Config,
+    config::{
+        Config,
+        ScratchpadConfig,
+    },
     geometry::{
         OutputId,
         Ratio,
@@ -110,6 +113,9 @@ pub struct Wm {
     help: Option<Help>,
     /// A snapshot being restored (see [`snapshot`]).
     restore: Option<snapshot::PendingRestore>,
+    /// The selected tab of each tabbed scratchpad, by scratchpad name: the
+    /// member window focused last (see [`Wm::remember_scratchpad_tabs`]).
+    scratchpad_tabs: BTreeMap<String, WindowId>,
 }
 
 impl Wm {
@@ -127,6 +133,7 @@ impl Wm {
             picker: None,
             help: None,
             restore: None,
+            scratchpad_tabs: BTreeMap::new(),
         }
     }
 
@@ -239,7 +246,7 @@ impl Wm {
             .config
             .scratchpads
             .iter()
-            .find(|pad| pad.app_id == info.app_id)
+            .find(|pad| pad.owns(&info.app_id))
             .map(|pad| pad.rect);
 
         let target = match &decision.workspace {
@@ -265,6 +272,7 @@ impl Wm {
             stack.swap_down();
         }
         self.windows.insert(id, info);
+        self.remember_scratchpad_tabs();
     }
 
     /// Forgets a window (it was closed or unmapped for good).
@@ -272,6 +280,7 @@ impl Wm {
         self.stack_set.delete(id);
         self.windows.remove(&id);
         self.fullscreen.remove(&id);
+        self.scratchpad_tabs.retain(|_, w| *w != id);
     }
 
     /// Updates a window's app id/title. Manage rules are not re-run.
@@ -316,6 +325,27 @@ impl Wm {
     pub fn focus_window(&mut self, id: WindowId) {
         if self.windows.contains_key(&id) {
             self.stack_set.focus_window(id);
+            self.remember_scratchpad_tabs();
+        }
+    }
+
+    /// The scratchpad `window` belongs to, by its app id.
+    pub(super) fn scratchpad_of(&self, window: WindowId) -> Option<&ScratchpadConfig> {
+        let info = self.windows.get(&window)?;
+        self.config
+            .scratchpads
+            .iter()
+            .find(|pad| pad.owns(&info.app_id))
+    }
+
+    /// Records the focused window as its scratchpad's selected tab, so
+    /// the tab stays selected after focus moves elsewhere.
+    fn remember_scratchpad_tabs(&mut self) {
+        let Some(window) = self.stack_set.peek() else {
+            return;
+        };
+        if let Some(name) = self.scratchpad_of(window).map(|pad| pad.name.clone()) {
+            self.scratchpad_tabs.insert(name, window);
         }
     }
 

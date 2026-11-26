@@ -329,17 +329,34 @@ pub struct PointerBinding {
     pub action: Action,
 }
 
-/// A named scratchpad (xmonad-contrib `NamedScratchpad`).
+/// One application of a scratchpad.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScratchpadApp {
+    /// Command spawned when no matching window exists.
+    pub command: String,
+    /// App id identifying the application's window.
+    pub app_id: String,
+}
+
+/// A named scratchpad (xmonad-contrib `NamedScratchpad`). A scratchpad
+/// with several applications shows their windows as tabs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ScratchpadConfig {
     /// Name used by `toggle-scratchpad <name>`.
     pub name: String,
-    /// Command spawned when no matching window exists.
-    pub command: String,
-    /// App id identifying the scratchpad's window.
-    pub app_id: String,
+    /// The applications, in tab order; never empty.
+    pub apps: Vec<ScratchpadApp>,
     /// Floating geometry relative to the screen.
     pub rect: RationalRect,
+}
+
+impl ScratchpadConfig {
+    /// Whether a window with `app_id` belongs to this scratchpad.
+    #[must_use]
+    pub fn owns(&self, app_id: &str) -> bool {
+        self.apps.iter().any(|app| app.app_id == app_id)
+    }
 }
 
 /// The fully resolved configuration.
@@ -403,8 +420,12 @@ struct RawConfig {
 #[serde(deny_unknown_fields)]
 struct RawScratchpad {
     name: String,
-    command: String,
-    app_id: String,
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
+    app_id: Option<String>,
+    #[serde(default)]
+    apps: Vec<ScratchpadApp>,
     rect: [f64; 4],
 }
 
@@ -558,11 +579,26 @@ fn convert_scratchpads(raw: Vec<RawScratchpad>) -> Result<Vec<ScratchpadConfig>,
         if w == Ratio::ZERO || h == Ratio::ZERO {
             return Err(invalid("rect width and height must be positive"));
         }
+        let apps = match (pad.command, pad.app_id, pad.apps.is_empty()) {
+            (Some(command), Some(app_id), true) => vec![ScratchpadApp { command, app_id }],
+            (None, None, false) => pad.apps,
+            (None, None, true) => return Err(invalid("needs `command` and `app_id`, or `apps`")),
+            (Some(_), None, true) | (None, Some(_), true) => {
+                return Err(invalid("`command` and `app_id` go together"));
+            }
+            (_, _, false) => return Err(invalid("use either `command`/`app_id` or `apps`")),
+        };
+        for (i, app) in apps.iter().enumerate() {
+            if apps[..i].iter().any(|other| other.app_id == app.app_id)
+                || out.iter().any(|other| other.owns(&app.app_id))
+            {
+                return Err(invalid("app id used by more than one scratchpad app"));
+            }
+        }
         out.push(ScratchpadConfig {
             rect: RationalRect::new(x, y, w, h),
             name: pad.name,
-            command: pad.command,
-            app_id: pad.app_id,
+            apps,
         });
     }
     Ok(out)
