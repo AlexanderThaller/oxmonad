@@ -186,3 +186,46 @@ fn group_keeps_its_tab_when_focus_leaves() {
     assert_eq!(wm.stack_set().peek(), Some(w(2)));
     assert!(wm.arrange().hidden.contains(&w(3)));
 }
+
+#[test]
+fn focus_next_and_prev_cycle_the_tabs() {
+    let mut wm = wm_gui();
+    manage_all(&mut wm, [1, 2]);
+    wm.manage(w(3), info("mycelium", "Mycelium"));
+    wm.manage(w(4), info("rhyolite", "Rhyolite"));
+    wm.manage(w(5), info("mycelium", "Mycelium 2"));
+    // Tab order is stack order: 5, 4, 3. Focus stays among the tabs.
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        apply(&mut wm, "focus-next");
+        seen.push(wm.stack_set().peek());
+    }
+    assert_eq!(seen, [Some(w(4)), Some(w(3)), Some(w(5)), Some(w(4))]);
+    apply(&mut wm, "focus-prev");
+    apply(&mut wm, "focus-prev");
+    assert_eq!(wm.stack_set().peek(), Some(w(3)));
+    // Outside the scratchpad, focus moves as usual.
+    wm.focus_window(w(2));
+    apply(&mut wm, "focus-next");
+    assert_eq!(wm.stack_set().peek(), Some(w(1)));
+}
+
+#[test]
+fn a_lone_scratchpad_window_has_no_tabs() {
+    let mut wm = wm_gui();
+    manage_all(&mut wm, [1]);
+    wm.manage(w(2), info("mycelium", "Mycelium"));
+    wm.manage(w(3), info("rhyolite", "Rhyolite"));
+    assert_eq!(strips(&wm).len(), 1);
+    // Once one tab is closed, the other is a plain float without a strip.
+    wm.unmanage(w(3));
+    assert_eq!(strips(&wm), []);
+    assert_eq!(
+        rect_of(&wm.arrange(), 2).map(|r| r.outset(1)),
+        Some(Rect::new(192, 108, 1536, 864))
+    );
+    // And focus-next leaves it as for any window.
+    wm.focus_window(w(2));
+    apply(&mut wm, "focus-next");
+    assert_eq!(wm.stack_set().peek(), Some(w(1)));
+}

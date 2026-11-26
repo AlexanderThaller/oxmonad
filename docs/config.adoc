@@ -691,9 +691,10 @@ current workspace they are all hidden, otherwise they are all summoned and
 every application without a window is spawned. While more than one of them is
 shown they share one frame with a tab strip on top (styled by `[tabs]`): the
 selected window fills the frame below the strip and the others are hidden.
-Clicking a tab, or moving focus onto a window with `focus-next`/`focus-prev`,
-selects it; the selection is kept when focus leaves the scratchpad and when it
-is hidden.
+Clicking a tab selects it. While a tab has focus, `focus-next`/`focus-prev`
+cycle through the scratchpad's tabs (wrapping around) instead of leaving it.
+The selection is kept when focus leaves the scratchpad and when it is hidden.
+A single shown window has no tab strip and is focused like any other float.
 
 [source,toml]
 ----

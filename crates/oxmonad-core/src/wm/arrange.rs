@@ -548,6 +548,17 @@ impl Wm {
         (tab_strip, scratchpad_strips)
     }
 
+    /// The floating, non-fullscreen windows of scratchpad `name` in
+    /// `stack`, in stack order (the tab order).
+    pub(super) fn scratchpad_members(&self, name: &str, stack: &Stack<WindowId>) -> Vec<WindowId> {
+        stack
+            .iter()
+            .copied()
+            .filter(|&w| self.stack_set.is_floating(w) && !self.fullscreen.contains(&w))
+            .filter(|&w| self.scratchpad_of(w).is_some_and(|p| p.name == name))
+            .collect()
+    }
+
     /// Tabs the floating windows of every scratchpad with more than one of
     /// them in `floats` (the screen's floats, bottom to top): the selected
     /// one (the focused window, else the scratchpad's remembered tab, else
@@ -563,11 +574,10 @@ impl Wm {
         let mut frames = BTreeMap::new();
         let mut strips = Vec::new();
         for pad in &self.config.scratchpads {
-            let members: Vec<WindowId> = stack
-                .iter()
-                .copied()
+            let members: Vec<WindowId> = self
+                .scratchpad_members(&pad.name, stack)
+                .into_iter()
                 .filter(|w| floats.contains(w))
-                .filter(|&w| self.scratchpad_of(w).is_some_and(|p| p.name == pad.name))
                 .collect();
             if members.len() < 2 {
                 continue;

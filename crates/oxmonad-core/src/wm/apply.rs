@@ -29,8 +29,16 @@ impl Wm {
         match action {
             Action::Spawn(command) => return vec![Effect::Spawn(command)],
             Action::SpawnTerminal => return vec![Effect::Spawn(self.config.terminal.clone())],
-            Action::FocusNext => ss.focus_down(),
-            Action::FocusPrev => ss.focus_up(),
+            Action::FocusNext => {
+                if !self.cycle_scratchpad_tab(true) {
+                    self.stack_set.focus_down();
+                }
+            }
+            Action::FocusPrev => {
+                if !self.cycle_scratchpad_tab(false) {
+                    self.stack_set.focus_up();
+                }
+            }
             Action::FocusMaster => ss.focus_master(),
             Action::SwapNext => ss.swap_down(),
             Action::SwapPrev => ss.swap_up(),
@@ -165,6 +173,34 @@ impl Wm {
         }
         self.stack_set.shift_master();
         Some(window)
+    }
+
+    /// While the focused window is a tab of a scratchpad (one showing more
+    /// than one window), `focus-next`/`focus-prev` select the next or
+    /// previous tab, wrapping around, instead of leaving the scratchpad.
+    /// Returns whether it did.
+    fn cycle_scratchpad_tab(&mut self, forward: bool) -> bool {
+        let Some(stack) = self.stack_set.current_workspace().stack.as_ref() else {
+            return false;
+        };
+        let focus = stack.focus;
+        let Some(pad) = self.scratchpad_of(focus) else {
+            return false;
+        };
+        let tabs = self.scratchpad_members(&pad.name, stack);
+        let Some(index) = tabs.iter().position(|&w| w == focus) else {
+            return false;
+        };
+        if tabs.len() < 2 {
+            return false;
+        }
+        let next = if forward {
+            (index + 1) % tabs.len()
+        } else {
+            (index + tabs.len() - 1) % tabs.len()
+        };
+        self.stack_set.focus_window(tabs[next]);
+        true
     }
 
     /// xmonad-contrib's `namedScratchpadAction`, for every application of
